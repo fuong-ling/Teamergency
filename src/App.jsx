@@ -352,6 +352,10 @@ const PillList = ({ items }) => (
 
 const DemoBadge = () => <span className="demo-badge">DEMO</span>;
 
+const displayName = (name) => String(name || '').replace(/\s*\(Demo\)\s*$/i, '').trim();
+
+const displayInitial = (name) => displayName(name).slice(0, 1) || '?';
+
 const getConnectionState = (connection, currentProfileId) => {
   if (!connection || ['declined', 'cancelled', 'unmatched'].includes(connection.status)) return 'none';
   if (connection.status === 'accepted') return 'accepted';
@@ -808,7 +812,7 @@ function ProfileSaved({ profile, onContinue }) {
       <section className="confirmation">
         <CheckCircle2 size={42} />
         <p className="eyebrow">Profile Saved</p>
-        <h2>{profile?.full_name || 'Your profile'} is ready.</h2>
+        <h2>{displayName(profile?.full_name) || 'Your profile'} is ready.</h2>
         <p>Your profile ID is saved on this device and will be used for new teammate searches.</p>
         <button className="primary" onClick={onContinue}>Create Teammate Search Request</button>
       </section>
@@ -1009,7 +1013,7 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
 
         <div className="profile-strip">
           <GraduationCap size={20} />
-          <span>{profile.full_name}</span>
+          <span>{displayName(profile.full_name)}</span>
           <span>{schoolLabel(profile.school)} | {profile.major}</span>
         </div>
 
@@ -1176,7 +1180,7 @@ function MatchCard({ request, connectionState, onView }) {
         <Sparkles size={18} />
         {request.matchScore}% Match
       </div>
-      <h3>{request.profile.full_name} {request.profile.is_demo && <DemoBadge />}</h3>
+      <h3>{displayName(request.profile.full_name)} {request.profile.is_demo && <DemoBadge />}</h3>
       <p>{schoolLabel(request.profile.school)} | {request.profile.major}</p>
       <div className="match-meta">
         <span>{getCourseDisplay(request)}</span>
@@ -1546,8 +1550,8 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
 
             return (
               <article className="discover-card" key={profile.id}>
-                <div className="avatar">{profile.full_name.slice(0, 1)}</div>
-                <h3>{profile.full_name} {profile.is_demo && <DemoBadge />}</h3>
+                <div className="avatar">{displayInitial(profile.full_name)}</div>
+                <h3>{displayName(profile.full_name)} {profile.is_demo && <DemoBadge />}</h3>
                 <p>{schoolLabel(profile.school)}</p>
                 <p>{profile.major}</p>
                 {requestsByProfile[profile.id]?.[0] && (
@@ -1596,7 +1600,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
 
       {state.modalProfile && (
         <ConnectModal
-          receiverName={state.modalProfile.full_name}
+          receiverName={displayName(state.modalProfile.full_name)}
           sending={state.sendingProfileId === state.modalProfile.id}
           error={state.modalError}
           onClose={() => setState((current) => ({ ...current, modalProfile: null, modalError: '' }))}
@@ -1738,7 +1742,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
         unmatchSaving: false,
         unmatchOpen: false,
         connection: { ...current.connection, ...updated, status: 'unmatched' },
-        actionSuccess: `You are no longer connected with ${profile.full_name}.`,
+        actionSuccess: `You are no longer connected with ${displayName(profile.full_name)}.`,
       }));
     } catch {
       setState((current) => ({
@@ -1756,9 +1760,9 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
         Back to Discover
       </button>
       <section className="profile-panel standalone">
-        <div className="avatar">{profile.full_name.slice(0, 1)}</div>
+        <div className="avatar">{displayInitial(profile.full_name)}</div>
         <p className="eyebrow">Discover Profile</p>
-        <h2>{profile.full_name} {profile.is_demo && <DemoBadge />}</h2>
+        <h2>{displayName(profile.full_name)} {profile.is_demo && <DemoBadge />}</h2>
         <p>{profile.short_bio || 'No bio added yet.'}</p>
         <dl>
           <div><dt>School</dt><dd>{schoolLabel(profile.school)}</dd></div>
@@ -1837,7 +1841,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
 
       {state.modalOpen && (
         <ConnectModal
-          receiverName={profile.full_name}
+          receiverName={displayName(profile.full_name)}
           sending={state.sending}
           error={state.actionError}
           onClose={() => setState((current) => ({ ...current, modalOpen: false, actionError: '' }))}
@@ -1846,7 +1850,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
       )}
       {state.unmatchOpen && (
         <UnmatchModal
-          teammateName={profile.full_name}
+          teammateName={displayName(profile.full_name)}
           saving={state.unmatchSaving}
           error={state.actionError}
           onClose={() => setState((current) => ({ ...current, unmatchOpen: false, actionError: '' }))}
@@ -1999,7 +2003,7 @@ function ProfileDetail({
         unmatchSaving: false,
         unmatchOpen: false,
         connection: { ...current.connection, ...updated, status: 'unmatched' },
-        actionSuccess: `You are no longer connected with ${profile.full_name}.`,
+        actionSuccess: `You are no longer connected with ${displayName(profile.full_name)}.`,
       }));
     } catch {
       setState((current) => ({
@@ -2090,9 +2094,9 @@ function ProfileDetail({
 
       <section className="detail-layout">
         <div className="profile-panel">
-          <div className="avatar">{profile.full_name.slice(0, 1)}</div>
+          <div className="avatar">{displayInitial(profile.full_name)}</div>
           <p className="eyebrow">Profile Data</p>
-          <h2>{profile.full_name} {profile.is_demo && <DemoBadge />}</h2>
+          <h2>{displayName(profile.full_name)} {profile.is_demo && <DemoBadge />}</h2>
           <p>{profile.short_bio || 'No bio added yet.'}</p>
           <dl>
             <div><dt>School</dt><dd>{schoolLabel(profile.school)}</dd></div>
@@ -2146,7 +2150,7 @@ function ProfileDetail({
       </section>
       {state.connectModalOpen && (
         <ConnectModal
-          receiverName={profile.full_name}
+          receiverName={displayName(profile.full_name)}
           sending={state.actionLoading}
           error={state.actionError}
           onClose={() => setState((current) => ({ ...current, connectModalOpen: false, actionError: '' }))}
@@ -2155,7 +2159,7 @@ function ProfileDetail({
       )}
       {state.unmatchOpen && (
         <UnmatchModal
-          teammateName={profile.full_name}
+          teammateName={displayName(profile.full_name)}
           saving={state.unmatchSaving}
           error={state.actionError}
           onClose={() => setState((current) => ({ ...current, unmatchOpen: false, actionError: '' }))}
@@ -2539,7 +2543,7 @@ function CurrentRequest({
             teammates.map((teammate) => (
               <article className="matched-row" key={teammate.profile_id}>
                 <div>
-                  <strong>✓ {teammate.full_name} {teammate.is_demo && <DemoBadge />}</strong>
+                  <strong>✓ {displayName(teammate.full_name)} {teammate.is_demo && <DemoBadge />}</strong>
                   <span>{teammate.major || 'Not specified'}</span>
                 </div>
                 <div className="hero-actions">
@@ -2748,7 +2752,7 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onNot
         ...current,
         unmatchSaving: false,
         unmatchTarget: null,
-        actionSuccess: `You are no longer connected with ${target.teammate_full_name}.`,
+        actionSuccess: `You are no longer connected with ${displayName(target.teammate_full_name)}.`,
       }));
       await loadConnections();
     } catch {
@@ -2814,13 +2818,13 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onNot
             <article className="connection-row" key={request.id}>
               <div>
                 <p className="eyebrow">
-                  {tab === 'received' && `Received from ${request.teammate_full_name}`}
-                  {tab === 'sent' && `Sent to ${request.teammate_full_name}`}
-                  {tab === 'connected' && `Connected with ${request.teammate_full_name}`}
-                  {tab === 'declined' && `Not accepted with ${request.teammate_full_name}`}
-                  {tab === 'unmatched' && `Connection ended with ${request.teammate_full_name}`}
+                  {tab === 'received' && `Received from ${displayName(request.teammate_full_name)}`}
+                  {tab === 'sent' && `Sent to ${displayName(request.teammate_full_name)}`}
+                  {tab === 'connected' && `Connected with ${displayName(request.teammate_full_name)}`}
+                  {tab === 'declined' && `Not accepted with ${displayName(request.teammate_full_name)}`}
+                  {tab === 'unmatched' && `Connection ended with ${displayName(request.teammate_full_name)}`}
                 </p>
-                <h3>{request.teammate_full_name} {(request.teammate_is_demo || request.teammate_full_name?.includes('(Demo)')) && <DemoBadge />}</h3>
+                <h3>{displayName(request.teammate_full_name)} {(request.teammate_is_demo || request.teammate_full_name?.includes('(Demo)')) && <DemoBadge />}</h3>
                 <p>{schoolLabel(request.teammate_school)} | {request.teammate_major}</p>
                 {getCourseFilterValue(request) ? (
                   <p>{getCourseDisplay(request)}{request.class_session ? ` | ${request.class_session}` : ''}</p>
@@ -2915,7 +2919,7 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onNot
       )}
       {state.unmatchTarget && (
         <UnmatchModal
-          teammateName={state.unmatchTarget.teammate_full_name}
+          teammateName={displayName(state.unmatchTarget.teammate_full_name)}
           saving={state.unmatchSaving}
           error={state.actionError}
           onClose={() => setState((current) => ({ ...current, unmatchTarget: null, actionError: '' }))}
@@ -2993,7 +2997,7 @@ function MessagesList({ currentProfileId, onOpenChat, onNotificationsChanged }) 
               onClick={() => onOpenChat(thread.connection_id)}
             >
               <div>
-                <strong>{thread.teammate_full_name}</strong>
+                <strong>{displayName(thread.teammate_full_name)}</strong>
                 <span>{thread.last_message || 'No messages yet. Say hello!'}</span>
               </div>
               <time>{formatThreadTime(thread.last_message_at || thread.updated_at)}</time>
@@ -3133,7 +3137,7 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
         unmatchSaving: false,
         unmatchOpen: false,
         detail: { ...current.detail, ...updated, status: 'unmatched' },
-        actionSuccess: `You are no longer connected with ${current.detail?.teammate_full_name || 'this teammate'}.`,
+        actionSuccess: `You are no longer connected with ${displayName(current.detail?.teammate_full_name) || 'this teammate'}.`,
       }));
     } catch {
       setState((current) => ({
@@ -3156,7 +3160,7 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
       <section className="chat-shell">
         <div className="chat-header">
           <div>
-            <h2>{state.detail?.teammate_full_name || 'Conversation'}</h2>
+            <h2>{displayName(state.detail?.teammate_full_name) || 'Conversation'}</h2>
             <p>
               {state.detail?.teammate_is_demo
                 ? 'Demo Conversation'
@@ -3192,7 +3196,7 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
                 const mine = message.sender_profile_id === currentProfileId;
                 return (
                   <div className={mine ? 'message-bubble mine' : 'message-bubble'} key={message.id}>
-                    <span>{mine ? 'You' : state.detail.teammate_full_name}</span>
+                    <span>{mine ? 'You' : displayName(state.detail.teammate_full_name)}</span>
                     <p>{message.message_text}</p>
                     <time>{formatTime(message.created_at)}</time>
                   </div>
@@ -3224,7 +3228,7 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
       </section>
       {state.unmatchOpen && (
         <UnmatchModal
-          teammateName={state.detail?.teammate_full_name || 'this teammate'}
+          teammateName={displayName(state.detail?.teammate_full_name) || 'this teammate'}
           saving={state.unmatchSaving}
           error={state.actionError}
           onClose={() => setState((current) => ({ ...current, unmatchOpen: false, actionError: '' }))}
@@ -3409,8 +3413,8 @@ function MyProfile({ profile, onCreateProfile, onCreateSearch, onProfileUpdated 
           </form>
         ) : (
           <>
-            <div className="avatar">{profile.full_name.slice(0, 1)}</div>
-            <h2>{profile.full_name}</h2>
+            <div className="avatar">{displayInitial(profile.full_name)}</div>
+            <h2>{displayName(profile.full_name)}</h2>
             <dl>
               <div><dt>School</dt><dd>{schoolLabel(profile.school)}</dd></div>
               <div><dt>Major</dt><dd>{profile.major}</dd></div>
