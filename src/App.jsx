@@ -1288,6 +1288,13 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
     .filter((request) => courseMatchesFilter(request, filters.course))
     .filter((request) => !filters.classSession || request.class_session === filters.classSession)
     .filter((request) => !filters.skill || request.skills_needed?.includes(filters.skill) || request.profile.skills?.includes(filters.skill));
+  const filteredMatchIds = new Set(filteredMatches.map((request) => request.id));
+  const demoFallbackMatches = matches
+    .filter((request) => request.profile?.is_demo)
+    .filter((request) => !filteredMatchIds.has(request.id))
+    .slice(0, 6);
+  const visibleMatches = filteredMatches.length > 0 ? filteredMatches : demoFallbackMatches;
+  const showingDemoFallback = filteredMatches.length === 0 && demoFallbackMatches.length > 0;
 
   return (
     <main className="screen results">
@@ -1342,25 +1349,50 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
 
       {matches.length === 0 ? (
         <section className="empty-state">
-          <p>No active teammate searches are available yet. Add demo data or wait for real users to create requests.</p>
+          <p>No teammate searches are available right now.</p>
           <button className="primary" onClick={onCreateNew}>Create Another Search</button>
         </section>
-      ) : filteredMatches.length === 0 ? (
+      ) : visibleMatches.length === 0 ? (
         <section className="empty-state">
           <p>No teammates match your current search yet. Try changing your criteria.</p>
           <button className="primary" onClick={onCreateNew}>Create Another Search</button>
         </section>
       ) : (
-        <div className="match-grid">
-          {filteredMatches.map((request) => (
-            <MatchCard
-              request={request}
-              connectionState={getConnectionState(state.connectionsByProfile[request.profile_id], currentProfileId)}
-              key={request.id}
-              onView={onViewProfile}
-            />
-          ))}
-        </div>
+        <>
+          {showingDemoFallback && (
+            <section className="demo-fallback-note">
+              <p className="eyebrow">Demo Flow</p>
+              <h3>No exact match yet, but you can try the MVP flow with demo profiles.</h3>
+              <p>Demo profiles are clearly labelled and do not represent real students.</p>
+            </section>
+          )}
+          <div className="match-grid">
+            {visibleMatches.map((request) => (
+              <MatchCard
+                request={request}
+                connectionState={getConnectionState(state.connectionsByProfile[request.profile_id], currentProfileId)}
+                key={request.id}
+                onView={onViewProfile}
+              />
+            ))}
+          </div>
+          {filteredMatches.length > 0 && demoFallbackMatches.length > 0 && (
+            <section className="demo-fallback-section">
+              <p className="eyebrow">Demo Profiles</p>
+              <h3>Try the full flow with demo teammates</h3>
+              <div className="match-grid">
+                {demoFallbackMatches.map((request) => (
+                  <MatchCard
+                    request={request}
+                    connectionState={getConnectionState(state.connectionsByProfile[request.profile_id], currentProfileId)}
+                    key={request.id}
+                    onView={onViewProfile}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+        </>
       )}
     </main>
   );
