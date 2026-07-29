@@ -113,6 +113,8 @@ export const createTeamRequest = async (profileId, requestData) => {
     p_class_session: requestData.class_session,
     p_skills_needed: requestData.skills_needed,
     p_members_needed: requestData.members_needed,
+    p_total_team_size: requestData.total_team_size,
+    p_teammates_needed_initial: requestData.teammates_needed_initial,
     p_work_styles: requestData.work_styles,
     p_requirements_data: requestData.requirements_data,
     p_requires_portfolio: requestData.requires_portfolio,
@@ -152,6 +154,8 @@ export const updateTeamRequest = async (requestId, profileId, requestData) => {
     p_class_session: requestData.class_session,
     p_skills_needed: requestData.skills_needed,
     p_members_needed: requestData.members_needed,
+    p_total_team_size: requestData.total_team_size,
+    p_teammates_needed_initial: requestData.teammates_needed_initial,
     p_work_styles: requestData.work_styles,
     p_requirements_data: requestData.requirements_data,
     p_requires_portfolio: requestData.requires_portfolio,
@@ -277,6 +281,10 @@ export const getMatchesForRequest = async (requestId) => {
   const matches = activeRequests
     .filter((request) => request.id !== requestId)
     .filter((request) => request.profile_id !== currentRequest.profile_id)
+    .filter((request) =>
+      (request.profile?.major || request.major || '').trim().toLowerCase() ===
+      (currentProfile?.major || currentRequest.major || '').trim().toLowerCase(),
+    )
     .map((request) => ({
       ...request,
       matchScore: calculateMatchScore(currentProfile, currentRequest, request),
