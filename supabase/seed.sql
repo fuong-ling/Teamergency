@@ -22,6 +22,7 @@ with demo_profiles_data (
     ('Linh Pham', 'SCD', 'Design Studies', array['Figma', 'Graphic Design', 'Illustration'], 'instagram', null, 'Demo profile for design-focused teammate searches.', true),
     ('Huy Vo', 'SCD', 'Design Studies', array['UI/UX', 'User Research', 'Presentation'], 'url', null, 'Demo profile for service design and research-heavy teams.', true),
     ('Mai Hoang', 'TBS', 'Marketing', array['Content Creation', 'Social Media', 'Video Editing'], 'email', null, 'Demo profile for marketing campaign collaboration.', true),
+    ('An Nguyen', 'TBS', 'Business', array['Business Strategy', 'Finance', 'Presentation', 'Excel'], 'email', null, 'Demo profile for testing business-focused teammate matching.', true),
     ('Khoa Bui', 'SSET', 'Computer Science', array['Python', 'Data Visualization', 'APIs'], 'messenger', null, 'Demo profile for data storytelling and technical prototypes.', true),
     ('Vy Dang', 'SCD', 'Digital Film and Video', array['Videography', 'Video Editing', 'Sound Design'], 'instagram', null, 'Demo profile for video and storytelling projects.', true),
     ('Nam Phan', 'SSET', 'Software Engineering', array['JavaScript', 'Creative Coding', 'HTML/CSS'], 'email', null, 'Demo profile for interactive web experiments.', true),
@@ -89,7 +90,8 @@ demo_requests (
     ('Linh Pham', 'SCD', 'Design Studies', 'Brand Identity Studio', 'COMM2762', 'Wednesday 09:30', array['Research', 'Writing'], 1, array['Organised and structured'], 'Demo design teammate request.'),
     ('Huy Vo', 'SCD', 'Design Studies', 'Service Design', 'ISYS2101', 'Thursday 09:30', array['Data Visualization', 'Research'], 3, array['Enjoys collaborative work'], 'Demo request for service design testing.'),
     ('Mai Hoang', 'TBS', 'Marketing', 'Integrated Marketing Campaign', 'MKTG2301', 'Tuesday 09:30', array['Graphic Design', 'Video Editing'], 2, array['Communicates frequently'], 'Demo marketing campaign request.'),
-    ('Khoa Bui', 'TBS', 'Business Analytics', 'Data Storytelling', 'BUSM2655', 'Monday 13:30', array['Presentation', 'Writing'], 1, array['Organised and structured'], 'Demo data storytelling request.'),
+    ('An Nguyen', 'TBS', 'Business', 'Integrated Marketing Campaign', 'MKTG2301', 'Thursday 13:30', array['Marketing', 'Market Research'], 2, array['Organised and structured'], 'Demo business strategy request.'),
+    ('Khoa Bui', 'SSET', 'Computer Science', 'Web Programming', 'COSC2430', 'Monday 13:30', array['JavaScript', 'HTML/CSS'], 1, array['Organised and structured'], 'Demo computer science request.'),
     ('Vy Dang', 'SCD', 'Digital Film and Video', 'Digital Media Studio 4', 'COMM2784', 'Friday 09:30', array['TouchDesigner', 'Creative Coding'], 2, array['Enjoys collaborative work'], 'Demo high-match DMS4 media request.'),
     ('Nam Phan', 'SSET', 'Software Engineering', 'Creative Coding', 'COSC2818', 'Monday 13:30', array['Motion Graphics', 'Sound Design'], 1, array['Takes initiative'], 'Demo creative coding request.'),
     ('Thao Nguyen', 'SCD', 'Design Studies', 'Creative Coding', 'COMM2778', 'Friday 13:30', array['Projection Mapping', 'Photography'], 2, array['Flexible with changes'], 'Demo 3D and exhibition request.'),
@@ -138,3 +140,23 @@ where not exists (
     and tr.class_session = r.class_session
     and tr.status = 'looking'
 );
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'team_requests'
+      and column_name = 'total_team_size'
+  ) then
+    update public.team_requests tr
+    set
+      total_team_size = greatest(tr.members_needed + 1, 2),
+      teammates_needed_initial = tr.members_needed
+    from public.profiles p
+    where p.id = tr.profile_id
+      and p.is_demo = true;
+  end if;
+end;
+$$;
