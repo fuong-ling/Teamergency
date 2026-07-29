@@ -27,6 +27,31 @@ check (status in ('looking', 'found', 'cancelled'));
 create index if not exists team_requests_profile_status_created_idx
 on public.team_requests(profile_id, status, created_at desc);
 
+update public.team_requests
+set
+  course_name = coalesce(nullif(trim(course_name), ''), course),
+  course_code = coalesce(
+    nullif(trim(course_code), ''),
+    case lower(coalesce(nullif(trim(course_name), ''), trim(course)))
+      when 'digital media studio 4' then 'COMM2784'
+      when 'digital storytelling' then 'COMM2750'
+      when 'creative coding' then
+        case when school = 'SSET' then 'COSC2818' else 'COMM2778' end
+      when 'brand identity studio' then 'COMM2762'
+      when 'public relations planning' then 'COMM2825'
+      when 'integrated marketing campaign' then 'MKTG2301'
+      when 'market research' then 'MKTG2305'
+      when 'data storytelling' then 'BUSM2655'
+      when 'web programming' then 'COSC2430'
+      when 'service design' then 'ISYS2101'
+      else null
+    end
+  )
+where course_name is null
+   or trim(course_name) = ''
+   or course_code is null
+   or trim(course_code) = '';
+
 do $$
 declare
   constraint_name text;
