@@ -528,6 +528,28 @@ legend {
   background: #f8faf9;
 }
 
+.demo-fallback-note,
+.demo-fallback-section {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0;
+  padding: 16px;
+  border: 1px solid rgba(31, 122, 92, 0.18);
+  border-radius: 8px;
+  background: #f8faf9;
+}
+
+.demo-fallback-note h3,
+.demo-fallback-section h3 {
+  margin: 0;
+}
+
+.demo-fallback-note p,
+.demo-fallback-section p {
+  margin: 0;
+  color: #5b6971;
+}
+
 .progress-panel,
 .matched-list,
 .inline-prompt {
