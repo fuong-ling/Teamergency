@@ -123,6 +123,8 @@ const emptyRequest = {
   skills_needed: [],
   other_skill: '',
   members_needed: 1,
+  total_team_size: 2,
+  teammates_needed_initial: 1,
   work_styles: [],
   requirements_selected: [],
   minimum_gpa: '',
@@ -155,6 +157,8 @@ const buildRequestFormState = (profile, request = null) => {
     class_session: request.class_session || '',
     skills_needed: request.skills_needed || [],
     members_needed: request.members_needed || 1,
+    total_team_size: request.total_team_size || Number(request.members_needed || 1) + 1,
+    teammates_needed_initial: request.teammates_needed_initial || request.members_needed || 1,
     work_styles: getWorkStyles(request),
     requirements_selected: requirementsData.selected || [],
     minimum_gpa: requirementsData.minimum_gpa ?? '',
@@ -199,6 +203,10 @@ const getFriendlyError = (error, fallback) => {
 
   if (error?.code === 'PGRST204' || error?.message?.includes("Could not find the 'owner_id' column")) {
     return 'The real public testing migration has not been applied yet. Run supabase/real_public_testing.sql in Supabase.';
+  }
+
+  if (error?.message?.includes('p_total_team_size') || error?.message?.includes("Could not find the 'total_team_size' column")) {
+    return 'The team size migration has not been applied yet. Run supabase/bidirectional_match_team_size.sql in Supabase.';
   }
 
   if (error?.message?.includes('Profile ownership required')) {
@@ -268,6 +276,43 @@ const getWorkStyles = (request) => {
   if (request?.work_style) return [request.work_style];
   return [];
 };
+
+const getTotalTeamSize = (request) =>
+  Math.max(1, Number(request?.total_team_size || Number(request?.members_needed || 1) + 1));
+
+const getInitialNeeded = (request) =>
+  Math.max(1, Number(request?.teammates_needed_initial || request?.members_needed || 1));
+
+const getTeamProgress = (request, progress = {}) => {
+  const total = Math.max(1, Number(progress.total_team_size || getTotalTeamSize(request)));
+  const initialNeeded = Math.min(total, getInitialNeeded(request));
+  const existingMembers = Math.max(0, Number(progress.existing_members ?? (total - initialNeeded)));
+  const matchedCount = Math.max(0, Number(progress.matched_count ?? progress.found_count ?? 0));
+  const backendIncludesExisting = progress.total_team_size !== undefined || progress.existing_members !== undefined || progress.matched_count !== undefined;
+  const rawFound = backendIncludesExisting
+    ? Number(progress.found_count ?? existingMembers + matchedCount)
+    : existingMembers + matchedCount;
+  const found = Math.min(total, Math.max(0, rawFound));
+  const remaining = Math.max(0, total - found);
+
+  return {
+    total,
+    initialNeeded,
+    existingMembers,
+    matchedCount,
+    found,
+    remaining,
+    complete: found >= total,
+    percent: total ? Math.min(100, (found / total) * 100) : 0,
+  };
+};
+
+const progressSummary = (metrics) => `${metrics.found} / ${metrics.total} found`;
+
+const remainingSummary = (metrics) =>
+  metrics.complete
+    ? 'Team complete 🎉'
+    : `${metrics.remaining} ${metrics.remaining === 1 ? 'spot' : 'spots'} remaining`;
 
 const getProfileSkillsFromForm = (form) => [
   ...form.skills.filter((skill) => skill !== 'Other'),
@@ -377,8 +422,8 @@ const connectionStatusLabel = (status, tab) => {
   if (tab === 'received' && status === 'pending') return 'Needs response';
   if (tab === 'sent' && status === 'pending') return 'Pending';
   if (tab === 'connected' && status === 'accepted') return 'Accepted';
-  if (tab === 'declined') return 'Not accepted';
-  if (tab === 'unmatched') return 'Connection ended';
+  if (tab === 'declined' && status === 'unmatched') return 'Connection ended';
+  if (tab === 'declined') return 'Declined';
   return titleCase(status);
 };
 
@@ -927,9 +972,16 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
     ];
 
     const portfolioFileError = validatePortfolioFile(form.portfolio_file);
+    const totalTeamSize = Number(form.total_team_size);
+    const teammatesNeededInitial = Number(form.teammates_needed_initial);
 
-    if (!form.school || !form.major || !form.course_name || !form.course_code || !form.class_session || skillsNeeded.length === 0 || Number(form.members_needed) < 1) {
-      setError('Please fill in course, class/session, skills needed, and teammates needed.');
+    if (!form.school || !form.major || !form.course_name || !form.course_code || !form.class_session || skillsNeeded.length === 0 || totalTeamSize < 2 || teammatesNeededInitial < 1) {
+      setError('Please fill in course, class/session, skills needed, total team size, and spots remaining.');
+      return;
+    }
+
+    if (teammatesNeededInitial >= totalTeamSize) {
+      setError('You cannot look for more teammates than the total team size.');
       return;
     }
 
@@ -960,7 +1012,9 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
         course_code: form.course_code.trim(),
         class_session: form.class_session,
         skills_needed: skillsNeeded,
-        members_needed: Number(form.members_needed),
+        members_needed: teammatesNeededInitial,
+        total_team_size: totalTeamSize,
+        teammates_needed_initial: teammatesNeededInitial,
         availability: [],
         preferred_active_time: null,
         work_style: null,
@@ -1056,16 +1110,31 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
               />
             )}
           </fieldset>
-          <label>
-            Number of Teammates Needed
-            <input
-              min="1"
-              type="number"
-              value={form.members_needed}
-              onChange={(event) => updateField('members_needed', event.target.value)}
-              required
-            />
-          </label>
+          <div className="course-session-row wide">
+            <label>
+              Total team members required
+              <input
+                min="2"
+                type="number"
+                value={form.total_team_size}
+                onChange={(event) => updateField('total_team_size', event.target.value)}
+                required
+              />
+            </label>
+            <label>
+              How many teammates are you still looking for?
+              <input
+                min="1"
+                type="number"
+                value={form.teammates_needed_initial}
+                onChange={(event) => {
+                  updateField('teammates_needed_initial', event.target.value);
+                  updateField('members_needed', event.target.value);
+                }}
+                required
+              />
+            </label>
+          </div>
           <fieldset className="wide">
             <legend>What kind of teammate are you looking for?</legend>
             <CheckboxGrid
@@ -1185,7 +1254,7 @@ function MatchCard({ request, connectionState, onView }) {
       <div className="match-meta">
         <span>{getCourseDisplay(request)}</span>
         {request.class_session && <span>{request.class_session}</span>}
-        <span>Needs {request.members_needed}</span>
+        <span>{getInitialNeeded(request)} {getInitialNeeded(request) === 1 ? 'spot' : 'spots'} remaining</span>
       </div>
       <div className="mini-detail">
         <strong>Skills they have</strong>
@@ -1216,12 +1285,6 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
     activeRequests: [],
     progressById: {},
     connectionsByProfile: {},
-  });
-  const [filters, setFilters] = useState({
-    initialized: false,
-    course: '',
-    classSession: '',
-    skill: '',
   });
 
   useEffect(() => {
@@ -1302,12 +1365,6 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
       };
     }
 
-    setFilters({
-      initialized: false,
-      course: '',
-      classSession: '',
-      skill: '',
-    });
     setState((current) => ({ ...current, matchesLoading: true, error: '', data: null }));
 
     getMatchesForRequest(requestId)
@@ -1350,20 +1407,6 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
     };
   }, [requestId, currentProfileId]);
 
-  useEffect(() => {
-    if (state.data && !filters.initialized) {
-      const defaultCourse = getCourseFilterValue(state.data.currentRequest);
-      const hasSameCourseMatches = state.data.matches.some((request) =>
-        courseMatchesFilter(request, defaultCourse),
-      );
-      setFilters((current) => ({
-        ...current,
-        initialized: true,
-        course: hasSameCourseMatches ? defaultCourse : '',
-      }));
-    }
-  }, [state.data, filters.initialized]);
-
   if (state.activeLoading) {
     return <main className="screen compact"><p className="loading">Loading teammates...</p></main>;
   }
@@ -1396,22 +1439,8 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
 
   const { currentRequest, matches } = state.data;
   const selectedProgress = state.progressById[currentRequest.id] || { found_count: 0, teammates: [] };
-  const foundCount = Number(selectedProgress.found_count || 0);
-  const membersNeeded = Number(currentRequest.members_needed || 0);
-  const remaining = Math.max(0, membersNeeded - foundCount);
-  const teamComplete = membersNeeded > 0 && foundCount >= membersNeeded;
-  const skillOptions = [
-    ...new Set(
-      matches.flatMap((request) => [
-        ...(request.skills_needed || []),
-        ...(request.profile?.skills || []),
-      ]),
-    ),
-  ].sort((a, b) => a.localeCompare(b));
+  const selectedMetrics = getTeamProgress(currentRequest, selectedProgress);
   const visibleMatches = [...matches]
-    .filter((request) => courseMatchesFilter(request, filters.course))
-    .filter((request) => !filters.classSession || request.class_session === filters.classSession)
-    .filter((request) => !filters.skill || request.skills_needed?.includes(filters.skill) || request.profile?.skills?.includes(filters.skill))
     .sort((a, b) =>
       b.matchScore - a.matchScore
       || Number(Boolean(a.profile?.is_demo)) - Number(Boolean(b.profile?.is_demo))
@@ -1462,53 +1491,14 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
         <div className="request-context-summary">
           <h3>{getCourseDisplay(currentRequest)}</h3>
           <p>Looking for: {joinList(currentRequest.skills_needed)}</p>
-          <p>
-            {teamComplete
-              ? 'Team complete 🎉'
-              : `${remaining} ${remaining === 1 ? 'spot' : 'spots'} remaining`}
-          </p>
+          <p>{progressSummary(selectedMetrics)}</p>
+          <p>{remainingSummary(selectedMetrics)}</p>
         </div>
-      </section>
-
-      <section className="filter-panel">
-        <label>
-          Course
-          <select value={filters.course} onChange={(event) => setFilters((current) => ({ ...current, course: event.target.value, classSession: '' }))}>
-            <option value="">All courses</option>
-            {[
-              ...new Map(
-                matches
-                  .map((request) => [getCourseFilterValue(request), getCourseDisplay(request)])
-                  .filter(([value]) => Boolean(value)),
-              ),
-            ].map(([value, label]) => (
-              <option value={value} key={value}>{label}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Class / Session
-          <select value={filters.classSession} onChange={(event) => setFilters((current) => ({ ...current, classSession: event.target.value }))}>
-            <option value="">All classes</option>
-            {[...new Set(matches.map((request) => request.class_session).filter(Boolean))].map((session) => (
-              <option value={session} key={session}>{session}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Skills
-          <select value={filters.skill} onChange={(event) => setFilters((current) => ({ ...current, skill: event.target.value }))}>
-            <option value="">All skills</option>
-            {skillOptions.map((skill) => (
-              <option value={skill} key={skill}>{skill}</option>
-            ))}
-          </select>
-        </label>
       </section>
 
       {matches.length === 0 ? (
         <section className="empty-state">
-          <p>No teammate searches are available right now.</p>
+          <p>No same-major teammate searches are available right now.</p>
           <button className="primary" onClick={onCreateNew}>Create Another Search</button>
         </section>
       ) : visibleMatches.length === 0 ? (
@@ -1947,7 +1937,8 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
               <div><dt>Skills Needed</dt><dd>{joinList(state.activeRequest.skills_needed)}</dd></div>
               <div><dt>Work Style</dt><dd>{joinList(getWorkStyles(state.activeRequest))}</dd></div>
               <div><dt>Requirements</dt><dd>{describeRequirements(state.activeRequest)}</dd></div>
-              <div><dt>Needs</dt><dd>{state.activeRequest.members_needed} teammates</dd></div>
+              <div><dt>Team Size</dt><dd>{getTotalTeamSize(state.activeRequest)}</dd></div>
+              <div><dt>Looking For</dt><dd>{getInitialNeeded(state.activeRequest)} {getInitialNeeded(state.activeRequest) === 1 ? 'spot' : 'spots'}</dd></div>
               <PortfolioReference request={state.activeRequest} />
             </dl>
           </div>
@@ -2299,7 +2290,8 @@ function ProfileDetail({
             <div><dt>Major</dt><dd>{request.major || profile.major}</dd></div>
             <div><dt>Class / Session</dt><dd>{request.class_session || 'Not specified'}</dd></div>
             <div><dt>Skills Needed</dt><dd>{joinList(request.skills_needed)}</dd></div>
-            <div><dt>Number of Teammates Needed</dt><dd>{request.members_needed}</dd></div>
+            <div><dt>Team Size</dt><dd>{getTotalTeamSize(request)}</dd></div>
+            <div><dt>Looking For</dt><dd>{getInitialNeeded(request)} {getInitialNeeded(request) === 1 ? 'spot' : 'spots'}</dd></div>
             <div><dt>Work Style</dt><dd>{joinList(getWorkStyles(request))}</dd></div>
             <div><dt>Requirements</dt><dd>{describeRequirements(request)}</dd></div>
             <PortfolioReference request={request} />
@@ -2495,7 +2487,7 @@ function CurrentRequest({
     }
   };
 
-  const selectRequest = (request, useForMatches = false) => {
+  const selectRequest = (request) => {
     setState((current) => ({
       ...current,
       selectedId: request.id,
@@ -2504,9 +2496,6 @@ function CurrentRequest({
       success: '',
       error: '',
     }));
-    if (useForMatches && request.status === 'looking') {
-      onSelectRequest(request.id);
-    }
   };
 
   if (state.loading) {
@@ -2520,12 +2509,10 @@ function CurrentRequest({
   const selectedRequest = state.requests.find((request) => request.id === state.selectedId) || state.requests[0] || null;
   const progress = selectedRequest ? state.progressById[selectedRequest.id] || { found_count: 0, teammates: [] } : { found_count: 0, teammates: [] };
   const teammates = progress.teammates || [];
-  const foundCount = Number(progress.found_count || 0);
-  const membersNeeded = Number(selectedRequest?.members_needed || 0);
-  const remaining = Math.max(0, membersNeeded - foundCount);
-  const teamComplete = membersNeeded > 0 && foundCount >= membersNeeded;
+  const metrics = getTeamProgress(selectedRequest, progress);
+  const foundCount = metrics.found;
+  const teamComplete = metrics.complete;
   const noLongerComplete = selectedRequest?.status === 'found' && !teamComplete;
-  const progressPercent = membersNeeded ? Math.min(100, (foundCount / membersNeeded) * 100) : 0;
   const groupedRequests = {
     active: state.requests.filter((request) => request.status === 'looking'),
     completed: state.requests.filter((request) => request.status === 'found'),
@@ -2534,9 +2521,7 @@ function CurrentRequest({
 
   const RequestRow = ({ request }) => {
     const requestProgress = state.progressById[request.id] || { found_count: 0 };
-    const requestFoundCount = Number(requestProgress.found_count || 0);
-    const requestMembersNeeded = Number(request.members_needed || 0);
-    const requestRemaining = Math.max(0, requestMembersNeeded - requestFoundCount);
+    const requestMetrics = getTeamProgress(request, requestProgress);
     const isSelected = selectedRequest?.id === request.id;
 
     return (
@@ -2545,18 +2530,12 @@ function CurrentRequest({
           <h3>{getCourseDisplay(request)}</h3>
           <p>{request.class_session || 'No class/session'} | {titleCase(request.status)}</p>
           <p className="note">
-            {requestFoundCount} / {requestMembersNeeded} teammates found
-            {request.status === 'looking' && requestRemaining > 0 ? ` | ${requestRemaining} still needed` : ''}
+            {progressSummary(requestMetrics)}
+            {request.status === 'looking' ? ` | ${remainingSummary(requestMetrics)}` : ''}
           </p>
         </div>
         <div className="request-row-actions">
           <button className="secondary" onClick={() => selectRequest(request)}>View Details</button>
-          {request.status === 'looking' && (
-            <button className="secondary" onClick={() => selectRequest(request, true)}>
-              <Search size={18} />
-              Use for Matches
-            </button>
-          )}
           <button className="secondary" onClick={() => setState((current) => ({ ...current, editingRequest: request, success: '', error: '' }))}>
             <Pencil size={18} />
             Edit Request
@@ -2658,7 +2637,8 @@ function CurrentRequest({
           <div><dt>Major</dt><dd>{request.major || request.profile?.major || 'Not specified'}</dd></div>
           <div><dt>Class / Session</dt><dd>{request.class_session || 'Not specified'}</dd></div>
           <div><dt>Skills Needed</dt><dd>{joinList(request.skills_needed)}</dd></div>
-          <div><dt>Teammates Needed</dt><dd>{request.members_needed}</dd></div>
+          <div><dt>Total Team Size</dt><dd>{getTotalTeamSize(request)}</dd></div>
+          <div><dt>Initially Looking For</dt><dd>{getInitialNeeded(request)}</dd></div>
           <div><dt>Work Style</dt><dd>{joinList(getWorkStyles(request))}</dd></div>
           <div><dt>Requirements</dt><dd>{describeRequirements(request)}</dd></div>
           <PortfolioReference request={request} />
@@ -2679,23 +2659,17 @@ function CurrentRequest({
         <section className="progress-panel">
           <div className="progress-header">
             <strong>Progress</strong>
-            <span>{foundCount} / {membersNeeded} teammates found</span>
+            <span>{progressSummary(metrics)}</span>
           </div>
           <div className="progress-track" aria-label="Team formation progress">
-            <div className="progress-fill" style={{ width: `${progressPercent}%` }} />
+            <div className="progress-fill" style={{ width: `${metrics.percent}%` }} />
           </div>
-          {teamComplete ? (
-            <p className="success">Team complete 🎉</p>
-          ) : (
-            <p className="note">{remaining} {remaining === 1 ? 'teammate' : 'teammates'} still needed</p>
-          )}
-          {foundCount > 0 && !teamComplete && (
-            <p className="note">You found another teammate! {remaining} {remaining === 1 ? 'spot' : 'spots'} remaining.</p>
-          )}
+          {teamComplete ? <p className="success">Team complete 🎉</p> : <p className="note">{remainingSummary(metrics)}</p>}
+          {metrics.matchedCount > 0 && !teamComplete && <p className="note">You found another teammate! {remainingSummary(metrics)}</p>}
         </section>
 
         <section className="matched-list">
-          <h3>Matched Teammates ({foundCount})</h3>
+          <h3>Matched Teammates ({metrics.matchedCount})</h3>
           {teammates.length === 0 ? (
             <p className="note">No teammates matched yet.</p>
           ) : (
@@ -2808,7 +2782,6 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onNot
     sent: [],
     connected: [],
     declined: [],
-    unmatched: [],
     currentRequest: null,
     actionLoadingId: '',
     actionError: '',
@@ -2836,6 +2809,8 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onNot
         getConnectionRequests(currentProfileId, 'declined'),
         getConnectionRequests(currentProfileId, 'unmatched'),
       ]);
+      const declinedRows = [...declined, ...unmatched]
+        .sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
       await markNotificationsRead(currentProfileId, 'connections').catch(() => {});
       onNotificationsChanged?.();
       setState((current) => ({
@@ -2844,8 +2819,7 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onNot
         received,
         sent,
         connected,
-        declined,
-        unmatched,
+        declined: declinedRows,
         currentRequest,
       }));
     } catch {
@@ -2927,16 +2901,14 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onNot
     { id: 'received', label: 'Received', rows: state.received },
     { id: 'sent', label: 'Sent', rows: state.sent },
     { id: 'connected', label: 'Connected', rows: state.connected },
-    { id: 'declined', label: 'Not Accepted', rows: state.declined },
-    { id: 'unmatched', label: 'Ended', rows: state.unmatched },
+    { id: 'declined', label: 'Declined', rows: state.declined },
   ];
   const activeRows = tabs.find((item) => item.id === tab)?.rows || [];
   const emptyCopy = {
     received: 'No connection requests yet.',
     sent: 'No pending sent requests yet.',
     connected: 'No connected teammates yet.',
-    declined: 'No declined or cancelled requests.',
-    unmatched: 'No ended connections.',
+    declined: 'No declined or ended connections.',
   };
 
   return (
@@ -2980,8 +2952,11 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onNot
                   {tab === 'received' && `Received from ${displayName(request.teammate_full_name)}`}
                   {tab === 'sent' && `Sent to ${displayName(request.teammate_full_name)}`}
                   {tab === 'connected' && `Connected with ${displayName(request.teammate_full_name)}`}
-                  {tab === 'declined' && `Not accepted with ${displayName(request.teammate_full_name)}`}
-                  {tab === 'unmatched' && `Connection ended with ${displayName(request.teammate_full_name)}`}
+                  {tab === 'declined' && (
+                    request.status === 'unmatched'
+                      ? `Connection ended with ${displayName(request.teammate_full_name)}`
+                      : `Declined with ${displayName(request.teammate_full_name)}`
+                  )}
                 </p>
                 <h3>{displayName(request.teammate_full_name)} {(request.teammate_is_demo || request.teammate_full_name?.includes('(Demo)')) && <DemoBadge />}</h3>
                 <p>{schoolLabel(request.teammate_school)} | {request.teammate_major}</p>
