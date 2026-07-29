@@ -32,6 +32,128 @@ export const coursesBySchool = {
   ],
 };
 
+export const skillsByMajor = {
+  'Digital Media': [
+    'Photography',
+    'Videography',
+    'Video Editing',
+    'Motion Graphics',
+    'TouchDesigner',
+    'Creative Coding',
+    'HTML/CSS',
+    'JavaScript',
+    'UI/UX',
+    'Blender',
+    '3D Modelling',
+  ],
+  'Design Studies': [
+    'Graphic Design',
+    'UI/UX',
+    'Figma',
+    'Adobe Photoshop',
+    'Adobe Illustrator',
+    'Branding',
+    'Typography',
+    'Illustration',
+    'Presentation',
+  ],
+  'Professional Communication': [
+    'Content Creation',
+    'Copywriting',
+    'Social Media',
+    'Research',
+    'Writing',
+    'Presentation',
+    'Campaign Planning',
+    'Public Relations',
+  ],
+  'Digital Film and Video': [
+    'Photography',
+    'Videography',
+    'Video Editing',
+    'Motion Graphics',
+    'Premiere Pro',
+    'After Effects',
+    'Storyboarding',
+    'Sound Design',
+  ],
+  Business: [
+    'Business Strategy',
+    'Finance',
+    'Accounting',
+    'Data Analysis',
+    'Project Management',
+    'Presentation',
+    'Excel',
+    'Market Research',
+  ],
+  Marketing: [
+    'Marketing',
+    'Market Research',
+    'Campaign Planning',
+    'Content Creation',
+    'Social Media',
+    'Copywriting',
+    'Data Analysis',
+    'Presentation',
+  ],
+  'Business Analytics': [
+    'Data Analysis',
+    'Excel',
+    'SQL',
+    'Python',
+    'Dashboard Design',
+    'Market Research',
+    'Business Strategy',
+    'Presentation',
+  ],
+  'Information Technology': [
+    'JavaScript',
+    'Python',
+    'Java',
+    'C++',
+    'HTML/CSS',
+    'SQL',
+    'Database',
+    'Git/GitHub',
+    'Web Development',
+    'Data Analysis',
+  ],
+  'Software Engineering': [
+    'JavaScript',
+    'Python',
+    'Java',
+    'C++',
+    'HTML/CSS',
+    'SQL',
+    'Database',
+    'Git/GitHub',
+    'Web Development',
+    'Project Management',
+  ],
+  'Computer Science': [
+    'Python',
+    'Java',
+    'C++',
+    'JavaScript',
+    'SQL',
+    'Database',
+    'Git/GitHub',
+    'Algorithms',
+    'Data Analysis',
+    'Web Development',
+  ],
+  Engineering: [
+    'CAD',
+    'MATLAB',
+    'Engineering Design',
+    'Prototyping',
+    'Data Analysis',
+    'Project Management',
+    'Presentation',
+  ],
+};
+
 export const classSessionsByCourseCode = {
   COMM2784: ['Tuesday 09:30', 'Thursday 13:30', 'Friday 09:30'],
   COMM2750: ['Tuesday 13:30', 'Thursday 09:30'],
@@ -70,8 +192,65 @@ export const skillOptions = [
   'Adobe Illustrator',
   'After Effects',
   'Premiere Pro',
+  'Branding',
+  'Typography',
+  'Illustration',
+  'Copywriting',
+  'Campaign Planning',
+  'Public Relations',
+  'Storyboarding',
+  'Sound Design',
+  'Marketing',
+  'Market Research',
+  'Business Strategy',
+  'Finance',
+  'Accounting',
+  'Data Analysis',
+  'Excel',
+  'Python',
+  'Java',
+  'C++',
+  'SQL',
+  'Database',
+  'Git/GitHub',
+  'Web Development',
+  'Dashboard Design',
+  'Algorithms',
+  'CAD',
+  'MATLAB',
+  'Engineering Design',
+  'Prototyping',
   'Other',
 ];
+
+export const academicCatalog = schoolOptions.map((school) => ({
+  ...school,
+  majors: (majorsBySchool[school.value] || []).map((major) => ({
+    name: major,
+    skills: skillsByMajor[major] || [],
+  })),
+  courses: coursesBySchool[school.value] || [],
+}));
+
+export const uniqueList = (items) => [...new Set(items.filter(Boolean))];
+
+export const getSkillsForMajor = (major) =>
+  uniqueList([...(skillsByMajor[major] || []), 'Other']);
+
+export const getAllSkills = () => skillOptions;
+
+export const getRequestSkillOptions = (profile = {}) => {
+  const suggested = skillsByMajor[profile.major] || [];
+  return uniqueList([
+    ...suggested,
+    ...skillOptions.filter((skill) => skill !== 'Other'),
+    'Other',
+  ]);
+};
+
+export const getCoursesForSchool = (school) => coursesBySchool[school] || [];
+
+export const getAllCourses = () => Object.values(coursesBySchool).flat();
 
 export const workStyleOptions = [
   'Likes to finish tasks early',
@@ -87,7 +266,6 @@ export const workStyleOptions = [
 ];
 
 export const requirementOptions = [
-  'Has completed specific courses',
   'Minimum GPA',
   'Has previous project experience',
   'Has a portfolio',
