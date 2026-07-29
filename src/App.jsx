@@ -243,6 +243,21 @@ const getCourseDisplay = (request) => {
 const getCourseFilterValue = (request) =>
   request?.course_code || request?.course_name || request?.course || '';
 
+const normalizeFilterValue = (value) => String(value || '').trim().toLowerCase();
+
+const getCourseFilterValues = (request) =>
+  [...new Set([
+    request?.course_code,
+    request?.course_name,
+    request?.course,
+  ].map(normalizeFilterValue).filter(Boolean))];
+
+const courseMatchesFilter = (request, filterValue) => {
+  const normalizedFilter = normalizeFilterValue(filterValue);
+  if (!normalizedFilter) return true;
+  return getCourseFilterValues(request).includes(normalizedFilter);
+};
+
 const joinList = (items) => {
   if (!items?.length) return 'Not specified';
   return items.join(', ');
@@ -1240,10 +1255,14 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
 
   useEffect(() => {
     if (state.data && !filters.initialized) {
+      const defaultCourse = getCourseFilterValue(state.data.currentRequest);
+      const hasSameCourseMatches = state.data.matches.some((request) =>
+        courseMatchesFilter(request, defaultCourse),
+      );
       setFilters((current) => ({
         ...current,
         initialized: true,
-        course: getCourseFilterValue(state.data.currentRequest),
+        course: hasSameCourseMatches ? defaultCourse : '',
       }));
     }
   }, [state.data, filters.initialized]);
@@ -1266,7 +1285,7 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
   const { currentRequest, matches } = state.data;
   const skillOptions = [...new Set(matches.flatMap((request) => request.skills_needed || []))];
   const filteredMatches = matches
-    .filter((request) => !filters.course || getCourseFilterValue(request) === filters.course)
+    .filter((request) => courseMatchesFilter(request, filters.course))
     .filter((request) => !filters.classSession || request.class_session === filters.classSession)
     .filter((request) => !filters.skill || request.skills_needed?.includes(filters.skill) || request.profile.skills?.includes(filters.skill));
 
@@ -1321,7 +1340,12 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
         </label>
       </section>
 
-      {filteredMatches.length === 0 ? (
+      {matches.length === 0 ? (
+        <section className="empty-state">
+          <p>No active teammate searches are available yet. Add demo data or wait for real users to create requests.</p>
+          <button className="primary" onClick={onCreateNew}>Create Another Search</button>
+        </section>
+      ) : filteredMatches.length === 0 ? (
         <section className="empty-state">
           <p>No teammates match your current search yet. Try changing your criteria.</p>
           <button className="primary" onClick={onCreateNew}>Create Another Search</button>
@@ -1411,7 +1435,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
     .filter((profile) => profile.id !== currentProfileId)
     .filter((profile) => !filters.school || profile.school === filters.school)
     .filter((profile) => !filters.major || profile.major === filters.major)
-    .filter((profile) => !filters.course || requestsByProfile[profile.id]?.some((request) => getCourseFilterValue(request) === filters.course))
+    .filter((profile) => !filters.course || requestsByProfile[profile.id]?.some((request) => courseMatchesFilter(request, filters.course)))
     .filter((profile) => !filters.skill || profile.skills?.includes(filters.skill));
 
   const availableMajors = filters.school
