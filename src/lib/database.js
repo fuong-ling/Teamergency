@@ -251,6 +251,32 @@ export const markTeamRequestFound = async (requestId, ownershipData) => {
   return data[0];
 };
 
+export const reopenTeamRequest = async (requestId, profileId) => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc('reopen_team_request', {
+    request_id: requestId,
+    current_profile: profileId,
+  });
+
+  if (error) throw error;
+  if (!data?.length) {
+    throw new Error('Request was not reopened.');
+  }
+
+  return data[0];
+};
+
+export const getTeamRequestProgress = async (requestId, profileId) => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc('get_team_request_progress', {
+    request_id: requestId,
+    current_profile: profileId,
+  });
+
+  if (error) throw error;
+  return data?.[0] || { found_count: 0, teammates: [] };
+};
+
 export const sendConnectionRequest = async ({
   senderProfileId,
   receiverProfileId,
@@ -380,6 +406,28 @@ export const sendChatMessage = async ({ connectionId, senderProfileId, messageTe
   return data[0];
 };
 
+export const unmatchConnectionRequest = async ({
+  connectionId,
+  currentProfileId,
+  reason,
+  note,
+}) => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc('unmatch_connection_request', {
+    connection_request: connectionId,
+    current_profile: currentProfileId,
+    reason,
+    note: note || null,
+  });
+
+  if (error) throw error;
+  if (!data?.length) {
+    throw new Error('Connection was not unmatched.');
+  }
+
+  return data[0];
+};
+
 export const getNotificationCounts = async (currentProfileId) => {
   const { client } = await getAuthenticatedClient();
   const { data, error } = await client.rpc('get_notification_counts', {
@@ -444,36 +492,4 @@ export const resetDemoConnection = async (connectionId, currentProfileId) => {
 
   if (error) throw error;
   return data?.[0] || null;
-};
-
-export const addTeamMember = async ({ currentProfileId, currentRequestId, connectionId }) => {
-  const { client } = await getAuthenticatedClient();
-  const { data, error } = await client.rpc('add_team_member', {
-    current_profile: currentProfileId,
-    current_request: currentRequestId,
-    connection_request: connectionId,
-  });
-
-  if (error) throw error;
-  if (!data?.length) {
-    throw new Error('Team member was not added.');
-  }
-
-  return data[0];
-};
-
-export const setConnectionTeamDecision = async ({ connectionId, currentProfileId, decision }) => {
-  const { client } = await getAuthenticatedClient();
-  const { data, error } = await client.rpc('set_connection_team_decision', {
-    connection_request: connectionId,
-    current_profile: currentProfileId,
-    decision,
-  });
-
-  if (error) throw error;
-  if (!data?.length) {
-    throw new Error('Team decision was not updated.');
-  }
-
-  return data[0];
 };
