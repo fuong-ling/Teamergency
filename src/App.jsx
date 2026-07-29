@@ -1207,8 +1207,16 @@ function MatchCard({ request, connectionState, onView }) {
   );
 }
 
-function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurrent, onCreateNew }) {
-  const [state, setState] = useState({ loading: true, error: '', data: null, connectionsByProfile: {} });
+function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurrent, onCreateNew, onSelectRequest }) {
+  const [state, setState] = useState({
+    activeLoading: true,
+    matchesLoading: false,
+    error: '',
+    data: null,
+    activeRequests: [],
+    progressById: {},
+    connectionsByProfile: {},
+  });
   const [filters, setFilters] = useState({
     initialized: false,
     course: '',
@@ -1218,6 +1226,89 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
 
   useEffect(() => {
     let alive = true;
+
+    if (!currentProfileId) {
+      setState((current) => ({
+        ...current,
+        activeLoading: false,
+        activeRequests: [],
+        progressById: {},
+      }));
+      return () => {
+        alive = false;
+      };
+    }
+
+    setState((current) => ({ ...current, activeLoading: true, error: '' }));
+
+    listMyTeamRequests(currentProfileId)
+      .then(async (requests) => {
+        const activeRequests = requests.filter((request) => request.status === 'looking');
+        const progressEntries = await Promise.all(
+          activeRequests.map(async (request) => {
+            try {
+              return [request.id, await getTeamRequestProgress(request.id, currentProfileId)];
+            } catch {
+              return [request.id, { found_count: 0, teammates: [] }];
+            }
+          }),
+        );
+
+        if (!alive) return;
+
+        const selectedRequestExists = activeRequests.some((request) => request.id === requestId);
+        const nextRequestId = selectedRequestExists ? requestId : activeRequests[0]?.id || '';
+
+        setState((current) => ({
+          ...current,
+          activeLoading: false,
+          activeRequests,
+          progressById: Object.fromEntries(progressEntries),
+        }));
+
+        if (nextRequestId !== requestId) {
+          onSelectRequest(nextRequestId);
+        }
+      })
+      .catch(() => {
+        if (alive) {
+          setState((current) => ({
+            ...current,
+            activeLoading: false,
+            activeRequests: [],
+            progressById: {},
+            error: "We couldn't load your active requests right now. Please try again.",
+          }));
+        }
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [currentProfileId, requestId]);
+
+  useEffect(() => {
+    let alive = true;
+
+    if (!requestId) {
+      setState((current) => ({
+        ...current,
+        matchesLoading: false,
+        data: null,
+        connectionsByProfile: {},
+      }));
+      return () => {
+        alive = false;
+      };
+    }
+
+    setFilters({
+      initialized: false,
+      course: '',
+      classSession: '',
+      skill: '',
+    });
+    setState((current) => ({ ...current, matchesLoading: true, error: '', data: null }));
 
     getMatchesForRequest(requestId)
       .then(async (data) => {
@@ -1234,21 +1325,23 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
           )
           : [];
         if (alive) {
-          setState({
-            loading: false,
+          setState((current) => ({
+            ...current,
+            matchesLoading: false,
             error: '',
             data,
             connectionsByProfile: Object.fromEntries(connectionEntries),
-          });
+          }));
         }
       })
       .catch(() => {
         if (alive) {
-          setState({
-            loading: false,
+          setState((current) => ({
+            ...current,
+            matchesLoading: false,
             error: "We couldn't load teammates right now. Please try again.",
             data: null,
-          });
+          }));
         }
       });
 
@@ -1271,11 +1364,22 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
     }
   }, [state.data, filters.initialized]);
 
-  if (state.loading) {
+  if (state.activeLoading) {
     return <main className="screen compact"><p className="loading">Loading teammates...</p></main>;
   }
 
-  if (state.error) {
+  if (!currentProfileId || state.activeRequests.length === 0) {
+    return (
+      <main className="screen compact">
+        <section className="empty-state">
+          <p>You need an active team request before we can find teammates for you.</p>
+          <button className="primary" onClick={onCreateNew}>Create Team Request</button>
+        </section>
+      </main>
+    );
+  }
+
+  if (state.error && !state.data) {
     return (
       <main className="screen compact">
         <section className="empty-state">
@@ -1286,15 +1390,44 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
     );
   }
 
+  if (state.matchesLoading || !state.data) {
+    return <main className="screen compact"><p className="loading">Loading teammates...</p></main>;
+  }
+
   const { currentRequest, matches } = state.data;
-  const skillOptions = [...new Set(matches.flatMap((request) => request.skills_needed || []))];
-  const filteredRealMatches = matches
-    .filter((request) => !request.profile?.is_demo)
+  const selectedProgress = state.progressById[currentRequest.id] || { found_count: 0, teammates: [] };
+  const foundCount = Number(selectedProgress.found_count || 0);
+  const membersNeeded = Number(currentRequest.members_needed || 0);
+  const remaining = Math.max(0, membersNeeded - foundCount);
+  const teamComplete = membersNeeded > 0 && foundCount >= membersNeeded;
+  const skillOptions = [
+    ...new Set(
+      matches.flatMap((request) => [
+        ...(request.skills_needed || []),
+        ...(request.profile?.skills || []),
+      ]),
+    ),
+  ].sort((a, b) => a.localeCompare(b));
+  const visibleMatches = [...matches]
     .filter((request) => courseMatchesFilter(request, filters.course))
     .filter((request) => !filters.classSession || request.class_session === filters.classSession)
-    .filter((request) => !filters.skill || request.skills_needed?.includes(filters.skill) || request.profile.skills?.includes(filters.skill));
-  const demoMatches = matches.filter((request) => request.profile?.is_demo);
-  const visibleMatches = [...filteredRealMatches, ...demoMatches];
+    .filter((request) => !filters.skill || request.skills_needed?.includes(filters.skill) || request.profile?.skills?.includes(filters.skill))
+    .sort((a, b) =>
+      b.matchScore - a.matchScore
+      || Number(Boolean(a.profile?.is_demo)) - Number(Boolean(b.profile?.is_demo))
+      || new Date(b.created_at) - new Date(a.created_at),
+    );
+
+  const handleRequestChange = (value) => {
+    if (value === '__new__') {
+      onCreateNew();
+      return;
+    }
+
+    if (value && value !== requestId) {
+      onSelectRequest(value);
+    }
+  };
 
   return (
     <main className="screen results">
@@ -1302,14 +1435,40 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
       <div className="results-header">
         <div>
           <p className="eyebrow">Match Results</p>
-          <h2>{getCourseDisplay(currentRequest)}</h2>
-          <p>Looking for {joinList(currentRequest.skills_needed)}</p>
+          <h2>Find teammates by request</h2>
         </div>
         <button className="secondary" onClick={onViewCurrent}>
           <Clock3 size={18} />
           My Current Request
         </button>
       </div>
+
+      <section className="request-switcher-panel">
+        <label>
+          Match Results for
+          {state.activeRequests.length > 1 ? (
+            <select value={currentRequest.id} onChange={(event) => handleRequestChange(event.target.value)}>
+              {state.activeRequests.map((request) => (
+                <option value={request.id} key={request.id}>
+                  {request.id === currentRequest.id ? '✓ ' : ''}{getCourseDisplay(request)}{request.class_session ? ` | ${request.class_session}` : ''}
+                </option>
+              ))}
+              <option value="__new__">+ Create New Request</option>
+            </select>
+          ) : (
+            <div className="static-request-name">{getCourseDisplay(currentRequest)}</div>
+          )}
+        </label>
+        <div className="request-context-summary">
+          <h3>{getCourseDisplay(currentRequest)}</h3>
+          <p>Looking for: {joinList(currentRequest.skills_needed)}</p>
+          <p>
+            {teamComplete
+              ? 'Team complete 🎉'
+              : `${remaining} ${remaining === 1 ? 'spot' : 'spots'} remaining`}
+          </p>
+        </div>
+      </section>
 
       <section className="filter-panel">
         <label>
@@ -3590,6 +3749,7 @@ export default function App() {
           requestId={requestId}
           currentProfileId={profileId}
           onCreateNew={startRequest}
+          onSelectRequest={selectCurrentRequest}
           onViewCurrent={() => setView('current-request')}
           onViewProfile={(id, score) => {
             setSelectedRequestId(id);
