@@ -14,7 +14,6 @@ import {
   XCircle,
 } from 'lucide-react';
 import {
-  addTeamMember,
   cancelConnectionRequest,
   createProfile,
   createTeamRequest,
@@ -28,17 +27,19 @@ import {
   getMessageThreads,
   getActiveTeamRequests,
   getProfileById,
+  getTeamRequestProgress,
   getTeamRequestById,
   getPortfolioReferenceUrl,
   markNotificationsRead,
   markTeamRequestFound,
   respondConnectionRequest,
   resetDemoConnection,
+  reopenTeamRequest,
   sendDemoReply,
   sendChatMessage,
   sendConnectionRequest,
-  setConnectionTeamDecision,
   simulateDemoAcceptance,
+  unmatchConnectionRequest,
   updateProfile,
   uploadPortfolioReference,
 } from './lib/database';
@@ -60,7 +61,6 @@ import {
   workStyleOptions,
 } from './lib/catalog';
 import {
-  clearCurrentRequest,
   getStoredProfileId,
   getStoredRequestEditToken,
   getStoredRequestId,
@@ -84,6 +84,16 @@ const portfolioFileRules = {
   mimeTypes: ['application/pdf', 'image/png', 'image/jpeg'],
   extensions: ['pdf', 'png', 'jpg', 'jpeg'],
 };
+
+const unmatchReasons = [
+  'Our skills or expectations are not a good fit',
+  'Our working styles are not compatible',
+  'I found another teammate',
+  'No response / inactive',
+  'Connected by mistake',
+  'Our project needs have changed',
+  'Other',
+];
 
 const emptyProfile = {
   full_name: '',
@@ -280,7 +290,7 @@ const PillList = ({ items }) => (
 const DemoBadge = () => <span className="demo-badge">DEMO</span>;
 
 const getConnectionState = (connection, currentProfileId) => {
-  if (!connection || connection.status === 'declined' || connection.status === 'cancelled') return 'none';
+  if (!connection || ['declined', 'cancelled', 'unmatched'].includes(connection.status)) return 'none';
   if (connection.status === 'accepted') return 'accepted';
   if (connection.status === 'pending' && connection.sender_profile_id === currentProfileId) return 'sent_pending';
   if (connection.status === 'pending' && connection.receiver_profile_id === currentProfileId) return 'received_pending';
@@ -379,6 +389,76 @@ function ConnectModal({ receiverName, sending, error, onClose, onSend }) {
           </button>
           <button className="secondary" onClick={onClose} type="button">Cancel</button>
         </div>
+      </section>
+    </div>
+  );
+}
+
+function UnmatchModal({ teammateName, saving, error, onClose, onConfirm }) {
+  const [step, setStep] = useState('confirm');
+  const [reason, setReason] = useState('');
+  const [note, setNote] = useState('');
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="connect-modal" role="dialog" aria-modal="true" aria-label="Unmatch confirmation">
+        {step === 'confirm' ? (
+          <>
+            <div className="modal-header">
+              <div>
+                <p className="eyebrow">Unmatch</p>
+                <h2>Unmatch with {teammateName}?</h2>
+              </div>
+              <button className="ghost" onClick={onClose} type="button">Close</button>
+            </div>
+            <p className="note">Are you sure you want to unmatch? You will no longer appear as connected.</p>
+            {error && <p className="error">{error}</p>}
+            <div className="hero-actions">
+              <button className="secondary" onClick={onClose} type="button">Cancel</button>
+              <button className="primary" onClick={() => setStep('reason')} type="button">Continue</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="modal-header">
+              <div>
+                <p className="eyebrow">Unmatch</p>
+                <h2>Why are you unmatching?</h2>
+              </div>
+              <button className="ghost" onClick={onClose} type="button">Close</button>
+            </div>
+            <div className="radio-list">
+              {unmatchReasons.map((item) => (
+                <label className={reason === item ? 'check-option selected' : 'check-option'} key={item}>
+                  <input
+                    type="radio"
+                    name="unmatch-reason"
+                    checked={reason === item}
+                    onChange={() => setReason(item)}
+                  />
+                  <span>{item}</span>
+                </label>
+              ))}
+            </div>
+            {reason === 'Other' && (
+              <label>
+                Tell us more (optional)
+                <textarea
+                  value={note}
+                  onChange={(event) => setNote(event.target.value)}
+                  rows="3"
+                />
+              </label>
+            )}
+            {error && <p className="error">{error}</p>}
+            <div className="hero-actions">
+              <button className="secondary" onClick={onClose} type="button">Cancel</button>
+              <button className="primary" onClick={() => onConfirm(reason, note)} disabled={saving || !reason}>
+                {saving ? 'Unmatching...' : 'Confirm Unmatch'}
+              </button>
+            </div>
+          </>
+        )}
       </section>
     </div>
   );
@@ -1434,6 +1514,9 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
     sending: false,
     simulating: false,
     actionError: '',
+    actionSuccess: '',
+    unmatchOpen: false,
+    unmatchSaving: false,
   });
 
   useEffect(() => {
@@ -1536,6 +1619,32 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
     setState((current) => ({ ...current, connection: null, actionError: '' }));
   };
 
+  const unmatch = async (reason, note) => {
+    setState((current) => ({ ...current, unmatchSaving: true, actionError: '' }));
+
+    try {
+      const updated = await unmatchConnectionRequest({
+        connectionId: state.connection.id,
+        currentProfileId,
+        reason,
+        note,
+      });
+      setState((current) => ({
+        ...current,
+        unmatchSaving: false,
+        unmatchOpen: false,
+        connection: { ...current.connection, ...updated, status: 'unmatched' },
+        actionSuccess: `You are no longer connected with ${profile.full_name}.`,
+      }));
+    } catch {
+      setState((current) => ({
+        ...current,
+        unmatchSaving: false,
+        actionError: "We couldn't unmatch this connection. Please try again.",
+      }));
+    }
+  };
+
   return (
     <main className="screen compact">
       <button className="ghost" type="button" onClick={onBack}>
@@ -1577,6 +1686,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
           </div>
         )}
         {state.actionError && <p className="error">{state.actionError}</p>}
+        {state.actionSuccess && <p className="success">{state.actionSuccess}</p>}
         {disabledReason ? (
           <div className="stacked-actions">
             <button className="disabled-contact" disabled>
@@ -1594,6 +1704,9 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
             <button className="primary link-button" onClick={() => onOpenChat(state.connection.id)}>
               <MessageCircle size={18} />
               Message
+            </button>
+            <button className="secondary link-button quiet-action" onClick={() => setState((current) => ({ ...current, unmatchOpen: true, actionError: '' }))}>
+              Unmatch
             </button>
           </div>
         ) : connectionState === 'sent_pending' ? (
@@ -1627,6 +1740,15 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
           onSend={sendConnect}
         />
       )}
+      {state.unmatchOpen && (
+        <UnmatchModal
+          teammateName={profile.full_name}
+          saving={state.unmatchSaving}
+          error={state.actionError}
+          onClose={() => setState((current) => ({ ...current, unmatchOpen: false, actionError: '' }))}
+          onConfirm={unmatch}
+        />
+      )}
     </main>
   );
 }
@@ -1646,10 +1768,12 @@ function ProfileDetail({
     request: null,
     connection: null,
     actionError: '',
+    actionSuccess: '',
     actionLoading: false,
-    added: false,
     connectModalOpen: false,
     simulating: false,
+    unmatchOpen: false,
+    unmatchSaving: false,
   });
 
   useEffect(() => {
@@ -1731,25 +1855,6 @@ function ProfileDetail({
     }
   };
 
-  const addCurrentTeammate = async () => {
-    setState((current) => ({ ...current, actionLoading: true, actionError: '' }));
-
-    try {
-      await addTeamMember({
-        currentProfileId,
-        currentRequestId,
-        connectionId: connection.id,
-      });
-      setState((current) => ({ ...current, actionLoading: false, added: true }));
-    } catch {
-      setState((current) => ({
-        ...current,
-        actionLoading: false,
-        actionError: "We couldn't add this teammate. Please try again.",
-      }));
-    }
-  };
-
   const simulateAcceptance = async () => {
     setState((current) => ({ ...current, simulating: true, actionError: '' }));
 
@@ -1773,6 +1878,32 @@ function ProfileDetail({
     if (!connection) return;
     await resetDemoConnection(connection.id, currentProfileId);
     setState((current) => ({ ...current, connection: null, actionError: '' }));
+  };
+
+  const unmatch = async (reason, note) => {
+    setState((current) => ({ ...current, unmatchSaving: true, actionError: '' }));
+
+    try {
+      const updated = await unmatchConnectionRequest({
+        connectionId: connection.id,
+        currentProfileId,
+        reason,
+        note,
+      });
+      setState((current) => ({
+        ...current,
+        unmatchSaving: false,
+        unmatchOpen: false,
+        connection: { ...current.connection, ...updated, status: 'unmatched' },
+        actionSuccess: `You are no longer connected with ${profile.full_name}.`,
+      }));
+    } catch {
+      setState((current) => ({
+        ...current,
+        unmatchSaving: false,
+        actionError: "We couldn't unmatch this connection. Please try again.",
+      }));
+    }
   };
 
   const renderConnectionAction = () => {
@@ -1836,12 +1967,9 @@ function ProfileDetail({
             <MessageCircle size={18} />
             Message
           </button>
-          {currentRequestId && (
-            <button className="secondary link-button" onClick={addCurrentTeammate} disabled={state.actionLoading || state.added}>
-              <UsersRound size={18} />
-              {state.added ? 'Added to My Team' : 'Add to My Team'}
-            </button>
-          )}
+          <button className="secondary link-button quiet-action" onClick={() => setState((current) => ({ ...current, unmatchOpen: true, actionError: '' }))}>
+            Unmatch
+          </button>
         </div>
       );
     }
@@ -1881,6 +2009,7 @@ function ProfileDetail({
             <span>{joinList(profile.skills)}</span>
           </div>
           {state.actionError && <p className="error">{state.actionError}</p>}
+          {state.actionSuccess && <p className="success">{state.actionSuccess}</p>}
           {renderConnectionAction()}
           {profile.is_demo && (
             <DemoSimulationPanel
@@ -1920,50 +2049,108 @@ function ProfileDetail({
           onSend={connect}
         />
       )}
+      {state.unmatchOpen && (
+        <UnmatchModal
+          teammateName={profile.full_name}
+          saving={state.unmatchSaving}
+          error={state.actionError}
+          onClose={() => setState((current) => ({ ...current, unmatchOpen: false, actionError: '' }))}
+          onConfirm={unmatch}
+        />
+      )}
     </main>
   );
 }
 
-function CurrentRequest({ requestId, onBack, onFound }) {
-  const [state, setState] = useState({ loading: true, error: '', request: null, saving: false });
+function CurrentRequest({ requestId, currentProfileId, onBack, onOpenChat, onViewProfile }) {
+  const [state, setState] = useState({
+    loading: true,
+    error: '',
+    request: null,
+    progress: { found_count: 0, teammates: [] },
+    saving: false,
+    success: '',
+    dismissedComplete: false,
+    dismissedReopen: false,
+  });
 
-  useEffect(() => {
+  const loadCurrentRequest = () => {
     let alive = true;
 
-    getTeamRequestById(requestId)
-      .then((request) => {
-        if (alive) setState({ loading: false, error: '', request, saving: false });
+    Promise.all([
+      getTeamRequestById(requestId),
+      currentProfileId ? getTeamRequestProgress(requestId, currentProfileId) : Promise.resolve({ found_count: 0, teammates: [] }),
+    ])
+      .then(([request, progress]) => {
+        if (alive) {
+          setState((current) => ({
+            ...current,
+            loading: false,
+            error: '',
+            request,
+            progress,
+            saving: false,
+          }));
+        }
       })
       .catch(() => {
         if (alive) {
-          setState({
+          setState((current) => ({
+            ...current,
             loading: false,
             error: "We couldn't load teammates right now. Please try again.",
             request: null,
             saving: false,
-          });
+          }));
         }
       });
 
-    return () => {
-      alive = false;
-    };
-  }, [requestId]);
+    return () => { alive = false; };
+  };
+
+  useEffect(() => {
+    return loadCurrentRequest();
+  }, [requestId, currentProfileId]);
 
   const markFound = async () => {
-    setState((current) => ({ ...current, saving: true, error: '' }));
+    setState((current) => ({ ...current, saving: true, error: '', success: '' }));
 
     try {
-      await markTeamRequestFound(requestId, {
+      const updated = await markTeamRequestFound(requestId, {
         editToken: getStoredRequestEditToken(),
       });
-      clearCurrentRequest();
-      onFound();
+      setState((current) => ({
+        ...current,
+        saving: false,
+        request: { ...current.request, ...updated },
+        success: 'Your request is marked as complete.',
+      }));
     } catch {
       setState((current) => ({
         ...current,
         saving: false,
         error: "We couldn't update your request. Please try again.",
+      }));
+    }
+  };
+
+  const reopenRequest = async () => {
+    setState((current) => ({ ...current, saving: true, error: '', success: '' }));
+
+    try {
+      const updated = await reopenTeamRequest(requestId, currentProfileId);
+      setState((current) => ({
+        ...current,
+        saving: false,
+        request: { ...current.request, ...updated },
+        dismissedReopen: true,
+        success: 'Your request is open again.',
+      }));
+    } catch {
+      setState((current) => ({
+        ...current,
+        saving: false,
+        error: "We couldn't reopen your request. Please try again.",
       }));
     }
   };
@@ -1977,6 +2164,13 @@ function CurrentRequest({ requestId, onBack, onFound }) {
   }
 
   const request = state.request;
+  const teammates = state.progress?.teammates || [];
+  const foundCount = Number(state.progress?.found_count || 0);
+  const membersNeeded = Number(request.members_needed || 0);
+  const remaining = Math.max(0, membersNeeded - foundCount);
+  const teamComplete = membersNeeded > 0 && foundCount >= membersNeeded;
+  const noLongerComplete = request.status === 'found' && !teamComplete;
+  const progressPercent = membersNeeded ? Math.min(100, (foundCount / membersNeeded) * 100) : 0;
 
   return (
     <main className="screen compact">
@@ -1998,10 +2192,83 @@ function CurrentRequest({ requestId, onBack, onFound }) {
           <PortfolioReference request={request} />
           <div><dt>Status</dt><dd>{titleCase(request.status)}</dd></div>
         </dl>
+        <section className="progress-panel">
+          <div className="progress-header">
+            <strong>Progress</strong>
+            <span>{foundCount} / {membersNeeded} teammates found</span>
+          </div>
+          <div className="progress-track" aria-label="Team formation progress">
+            <div className="progress-fill" style={{ width: `${progressPercent}%` }} />
+          </div>
+          {teamComplete ? (
+            <p className="success">Team complete 🎉</p>
+          ) : (
+            <p className="note">{remaining} {remaining === 1 ? 'teammate' : 'teammates'} still needed</p>
+          )}
+          {foundCount > 0 && !teamComplete && (
+            <p className="note">You found another teammate! {remaining} {remaining === 1 ? 'spot' : 'spots'} remaining.</p>
+          )}
+        </section>
+
+        <section className="matched-list">
+          <h3>Matched Teammates ({foundCount})</h3>
+          {teammates.length === 0 ? (
+            <p className="note">No teammates matched yet.</p>
+          ) : (
+            teammates.map((teammate) => (
+              <article className="matched-row" key={teammate.profile_id}>
+                <div>
+                  <strong>✓ {teammate.full_name} {teammate.is_demo && <DemoBadge />}</strong>
+                  <span>{teammate.major || 'Not specified'}</span>
+                </div>
+                <div className="hero-actions">
+                  <button className="secondary" onClick={() => onOpenChat(teammate.connection_id)}>
+                    <MessageCircle size={18} />
+                    Message
+                  </button>
+                  {teammate.active_request_id && (
+                    <button className="secondary" onClick={() => onViewProfile(teammate.active_request_id)}>
+                      View Profile
+                    </button>
+                  )}
+                </div>
+              </article>
+            ))
+          )}
+        </section>
+
+        {teamComplete && request.status === 'looking' && !state.dismissedComplete && (
+          <section className="inline-prompt">
+            <h3>Your team is complete.</h3>
+            <p>You've found all the teammates you need. Mark this request as complete?</p>
+            <div className="hero-actions">
+              <button className="primary" onClick={markFound} disabled={state.saving}>
+                {state.saving ? 'Updating...' : 'Mark as Complete'}
+              </button>
+              <button className="secondary" onClick={() => setState((current) => ({ ...current, dismissedComplete: true }))}>
+                Keep Looking
+              </button>
+            </div>
+          </section>
+        )}
+
+        {noLongerComplete && !state.dismissedReopen && (
+          <section className="inline-prompt warning-prompt">
+            <h3>Your team is no longer complete.</h3>
+            <p>Reopen this request?</p>
+            <div className="hero-actions">
+              <button className="primary" onClick={reopenRequest} disabled={state.saving}>
+                {state.saving ? 'Reopening...' : 'Reopen Request'}
+              </button>
+              <button className="secondary" onClick={() => setState((current) => ({ ...current, dismissedReopen: true }))}>
+                Keep Closed
+              </button>
+            </div>
+          </section>
+        )}
+
+        {state.success && <p className="success">{state.success}</p>}
         {state.error && <p className="error">{state.error}</p>}
-        <button className="primary" onClick={markFound} disabled={state.saving}>
-          {state.saving ? 'Updating...' : 'I found my teammate'}
-        </button>
       </section>
     </main>
   );
@@ -2032,25 +2299,27 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onNot
     received: [],
     sent: [],
     connected: [],
-    declined: [],
     currentRequest: null,
     actionLoadingId: '',
+    actionError: '',
+    actionSuccess: '',
+    unmatchTarget: null,
+    unmatchSaving: false,
   });
 
   const loadConnections = async () => {
     if (!currentProfileId) {
-      setState((current) => ({ ...current, loading: false, received: [], sent: [], connected: [], declined: [] }));
+      setState((current) => ({ ...current, loading: false, received: [], sent: [], connected: [] }));
       return;
     }
 
     setState((current) => ({ ...current, loading: true, error: '' }));
 
     try {
-      const [received, sent, connected, declined, currentRequest] = await Promise.all([
+      const [received, sent, connected, currentRequest] = await Promise.all([
         getConnectionRequests(currentProfileId, 'received'),
         getConnectionRequests(currentProfileId, 'sent'),
         getConnectionRequests(currentProfileId, 'connected'),
-        getConnectionRequests(currentProfileId, 'declined'),
         currentRequestId ? getTeamRequestById(currentRequestId).catch(() => null) : Promise.resolve(null),
       ]);
       await markNotificationsRead(currentProfileId, 'connections').catch(() => {});
@@ -2061,7 +2330,6 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onNot
         received,
         sent,
         connected,
-        declined,
         currentRequest,
       }));
     } catch {
@@ -2111,36 +2379,30 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onNot
     }
   };
 
-  const acceptAsTeammate = async (connectionId) => {
-    setState((current) => ({ ...current, actionLoadingId: connectionId, error: '' }));
+  const unmatch = async (reason, note) => {
+    const target = state.unmatchTarget;
+    if (!target) return;
+    setState((current) => ({ ...current, unmatchSaving: true, actionError: '' }));
 
     try {
-      if (currentRequestId) {
-        await addTeamMember({ currentProfileId, currentRequestId, connectionId });
-      } else {
-        await setConnectionTeamDecision({ connectionId, currentProfileId, decision: 'accepted' });
-      }
-      await loadConnections();
-    } catch {
+      await unmatchConnectionRequest({
+        connectionId: target.id,
+        currentProfileId,
+        reason,
+        note,
+      });
       setState((current) => ({
         ...current,
-        actionLoadingId: '',
-        error: "We couldn't update this teammate decision. Please try again.",
+        unmatchSaving: false,
+        unmatchTarget: null,
+        actionSuccess: `You are no longer connected with ${target.teammate_full_name}.`,
       }));
-    }
-  };
-
-  const rejectForTeam = async (connectionId) => {
-    setState((current) => ({ ...current, actionLoadingId: connectionId, error: '' }));
-
-    try {
-      await setConnectionTeamDecision({ connectionId, currentProfileId, decision: 'unaccepted' });
       await loadConnections();
     } catch {
       setState((current) => ({
         ...current,
-        actionLoadingId: '',
-        error: "We couldn't update this teammate decision. Please try again.",
+        unmatchSaving: false,
+        actionError: "We couldn't unmatch this connection. Please try again.",
       }));
     }
   };
@@ -2149,14 +2411,12 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onNot
     { id: 'received', label: 'Received', rows: state.received },
     { id: 'sent', label: 'Sent', rows: state.sent },
     { id: 'connected', label: 'Connected', rows: state.connected },
-    { id: 'declined', label: 'Not Accepted', rows: state.declined },
   ];
   const activeRows = tabs.find((item) => item.id === tab)?.rows || [];
   const emptyCopy = {
     received: 'No connection requests yet.',
     sent: 'No pending sent requests yet.',
     connected: 'No connected teammates yet.',
-    declined: 'No declined or cancelled requests yet.',
   };
 
   return (
@@ -2183,6 +2443,7 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onNot
 
       {currentProfileId && state.loading && <p className="loading">Loading connections...</p>}
       {state.error && <p className="error">{state.error}</p>}
+      {state.actionSuccess && <p className="success">{state.actionSuccess}</p>}
 
       {currentProfileId && !state.loading && activeRows.length === 0 && (
         <section className="empty-state">
@@ -2199,7 +2460,6 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onNot
                   {tab === 'received' && `Received from ${request.teammate_full_name}`}
                   {tab === 'sent' && `Sent to ${request.teammate_full_name}`}
                   {tab === 'connected' && `Connected with ${request.teammate_full_name}`}
-                  {tab === 'declined' && 'Not Accepted'}
                 </p>
                 <h3>{request.teammate_full_name} {(request.teammate_is_demo || request.teammate_full_name?.includes('(Demo)')) && <DemoBadge />}</h3>
                 <p>{schoolLabel(request.teammate_school)} | {request.teammate_major}</p>
@@ -2240,9 +2500,6 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onNot
                     <span>{joinList(request.skills_needed)}</span>
                   </div>
                 </div>
-                {tab === 'connected' && (
-                  <p className="note">Team decision: {titleCase(request.team_decision || 'undecided')}</p>
-                )}
               </div>
               <div className="connection-actions">
                 <span className={`status-badge ${request.status}`}>{titleCase(request.status)}</span>
@@ -2274,28 +2531,18 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onNot
                     Cancel Request
                   </button>
                 )}
-                {tab === 'connected' && (
-                  <>
-                    <button
-                      className="secondary"
-                      onClick={() => acceptAsTeammate(request.id)}
-                      disabled={state.actionLoadingId === request.id || request.team_decision === 'accepted'}
-                    >
-                      Accept as Teammate
-                    </button>
-                    <button
-                      className="secondary"
-                      onClick={() => rejectForTeam(request.id)}
-                      disabled={state.actionLoadingId === request.id || request.team_decision === 'unaccepted'}
-                    >
-                      Not for this Team
-                    </button>
-                  </>
-                )}
                 {request.status === 'accepted' && (
                   <button className="secondary" onClick={() => onOpenChat(request.id)}>
                     <MessageCircle size={18} />
                     Message
+                  </button>
+                )}
+                {tab === 'connected' && (
+                  <button
+                    className="secondary quiet-action"
+                    onClick={() => setState((current) => ({ ...current, unmatchTarget: request, actionError: '' }))}
+                  >
+                    Unmatch
                   </button>
                 )}
               </div>
@@ -2306,6 +2553,15 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onNot
 
       {currentProfileId && !currentRequestId && (
         <p className="note">Create a current teammate search before sending new Connect requests.</p>
+      )}
+      {state.unmatchTarget && (
+        <UnmatchModal
+          teammateName={state.unmatchTarget.teammate_full_name}
+          saving={state.unmatchSaving}
+          error={state.actionError}
+          onClose={() => setState((current) => ({ ...current, unmatchTarget: null, actionError: '' }))}
+          onConfirm={unmatch}
+        />
       )}
     </main>
   );
@@ -2397,7 +2653,10 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
     detail: null,
     messages: [],
     sending: false,
-    addState: '',
+    actionError: '',
+    actionSuccess: '',
+    unmatchOpen: false,
+    unmatchSaving: false,
   });
   const [messageText, setMessageText] = useState('');
   const bottomRef = useRef(null);
@@ -2414,7 +2673,7 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
       await markNotificationsRead(currentProfileId, 'messages').catch(() => {});
       onNotificationsChanged?.();
 
-      if (!detail || detail.status !== 'accepted') {
+      if (!detail || !['accepted', 'unmatched'].includes(detail.status)) {
         setState((current) => ({
           ...current,
           loading: false,
@@ -2453,7 +2712,7 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
 
   const send = async () => {
     const body = messageText.trim();
-    if (!body || state.sending) return;
+    if (!body || state.sending || state.detail?.status !== 'accepted') return;
 
     setState((current) => ({ ...current, sending: true, error: '' }));
 
@@ -2500,21 +2759,33 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
     }
   };
 
-  const addTeammate = async () => {
-    if (!currentRequestId) {
-      setState((current) => ({ ...current, addState: 'Create a current search before adding teammates.' }));
-      return;
-    }
-
-    setState((current) => ({ ...current, addState: 'Adding...' }));
+  const unmatch = async (reason, note) => {
+    setState((current) => ({ ...current, unmatchSaving: true, actionError: '' }));
 
     try {
-      await addTeamMember({ currentProfileId, currentRequestId, connectionId });
-      setState((current) => ({ ...current, addState: 'Added to My Team' }));
+      const updated = await unmatchConnectionRequest({
+        connectionId,
+        currentProfileId,
+        reason,
+        note,
+      });
+      setState((current) => ({
+        ...current,
+        unmatchSaving: false,
+        unmatchOpen: false,
+        detail: { ...current.detail, ...updated, status: 'unmatched' },
+        actionSuccess: `You are no longer connected with ${current.detail?.teammate_full_name || 'this teammate'}.`,
+      }));
     } catch {
-      setState((current) => ({ ...current, addState: "We couldn't add this teammate. Please try again." }));
+      setState((current) => ({
+        ...current,
+        unmatchSaving: false,
+        actionError: "We couldn't unmatch this connection. Please try again.",
+      }));
     }
   };
+
+  const chatEnded = state.detail?.status === 'unmatched';
 
   return (
     <main className="screen compact">
@@ -2532,18 +2803,21 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
                 ? 'Demo Conversation'
                 : state.detail?.status === 'accepted'
                   ? 'Connected'
-                  : 'Connection required'}
+                  : chatEnded
+                    ? 'Connection ended'
+                    : 'Connection required'}
             </p>
           </div>
           {state.detail?.status === 'accepted' && (
-            <button className="secondary" onClick={addTeammate}>
-              <UsersRound size={18} />
-              Add to My Team
+            <button className="secondary quiet-action" onClick={() => setState((current) => ({ ...current, unmatchOpen: true, actionError: '' }))}>
+              Unmatch
             </button>
           )}
         </div>
 
-        {state.addState && <p className="note">{state.addState}</p>}
+        {chatEnded && <p className="note">This connection has ended.</p>}
+        {state.actionSuccess && <p className="success">{state.actionSuccess}</p>}
+        {state.actionError && <p className="error">{state.actionError}</p>}
         {state.loading && <p className="loading">Loading chat...</p>}
         {state.error && <p className="error">{state.error}</p>}
 
@@ -2578,9 +2852,10 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
                     send();
                   }
                 }}
-                placeholder="Type a message..."
+                placeholder={chatEnded ? 'This connection has ended.' : 'Type a message...'}
+                disabled={chatEnded}
               />
-              <button className="primary" onClick={send} disabled={!messageText.trim() || state.sending}>
+              <button className="primary" onClick={send} disabled={!messageText.trim() || state.sending || chatEnded}>
                 <SendHorizontal size={18} />
                 {state.sending ? 'Sending...' : 'Send'}
               </button>
@@ -2588,6 +2863,15 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
           </>
         )}
       </section>
+      {state.unmatchOpen && (
+        <UnmatchModal
+          teammateName={state.detail?.teammate_full_name || 'this teammate'}
+          saving={state.unmatchSaving}
+          error={state.actionError}
+          onClose={() => setState((current) => ({ ...current, unmatchOpen: false, actionError: '' }))}
+          onConfirm={unmatch}
+        />
+      )}
     </main>
   );
 }
@@ -2957,10 +3241,13 @@ export default function App() {
       {view === 'current-request' && requestId && (
         <CurrentRequest
           requestId={requestId}
+          currentProfileId={profileId}
           onBack={() => setView('matches')}
-          onFound={() => {
-            setRequestId('');
-            setView('found');
+          onOpenChat={openChat}
+          onViewProfile={(id) => {
+            setSelectedRequestId(id);
+            setSelectedMatchScore(null);
+            setView('profile-detail');
           }}
         />
       )}

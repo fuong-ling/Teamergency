@@ -132,6 +132,11 @@ a {
   font-weight: 750;
 }
 
+.quiet-action {
+  color: #5b6971;
+  box-shadow: none;
+}
+
 .ghost {
   min-height: 38px;
   padding: 8px 12px;
@@ -497,6 +502,11 @@ legend {
   color: #173b45;
 }
 
+.radio-list {
+  display: grid;
+  gap: 8px;
+}
+
 .request-summary-box {
   display: grid;
   gap: 10px;
@@ -505,6 +515,66 @@ legend {
   border: 1px solid rgba(23, 91, 86, 0.14);
   border-radius: 8px;
   background: #f8faf9;
+}
+
+.progress-panel,
+.matched-list,
+.inline-prompt {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid rgba(29, 36, 51, 0.1);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.progress-header,
+.matched-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.progress-header span,
+.matched-row span {
+  color: #66747d;
+  font-weight: 750;
+}
+
+.progress-track {
+  width: 100%;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #edf0f2;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: #1f7a5c;
+}
+
+.matched-row {
+  padding: 12px 0;
+  border-top: 1px solid rgba(29, 36, 51, 0.08);
+}
+
+.matched-row > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.inline-prompt {
+  border-color: rgba(31, 122, 92, 0.24);
+  background: #edf7f3;
+}
+
+.warning-prompt {
+  border-color: rgba(198, 74, 59, 0.24);
+  background: #fff8f1;
 }
 
 .text-link {
