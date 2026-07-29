@@ -22,18 +22,22 @@ import {
   getConnectionDetail,
   getConnectionRequests,
   getDiscoverProfiles,
+  getNotificationCounts,
   getMatchesForRequest,
   getMessages,
   getMessageThreads,
+  getActiveTeamRequests,
   getProfileById,
   getTeamRequestById,
   getPortfolioReferenceUrl,
+  markNotificationsRead,
   markTeamRequestFound,
   respondConnectionRequest,
   resetDemoConnection,
   sendDemoReply,
   sendChatMessage,
   sendConnectionRequest,
+  setConnectionTeamDecision,
   simulateDemoAcceptance,
   updateProfile,
   uploadPortfolioReference,
@@ -43,12 +47,15 @@ import {
   classSessionsByCourseCode,
   connectMessageSuggestions,
   contactTypes,
-  coursesBySchool,
   demoReplyPool,
+  getAllCourses,
+  getAllSkills,
+  getCoursesForSchool,
+  getRequestSkillOptions,
+  getSkillsForMajor,
   majorsBySchool,
   requirementOptions,
   schoolOptions,
-  skillOptions,
   toolOptions,
   workStyleOptions,
 } from './lib/catalog';
@@ -101,7 +108,6 @@ const emptyRequest = {
   members_needed: 1,
   work_styles: [],
   requirements_selected: [],
-  required_courses: '',
   minimum_gpa: '',
   portfolio_link_required: false,
   portfolio_upload_enabled: false,
@@ -169,7 +175,7 @@ const contactLabel = (value) => {
 const schoolLabel = (value) =>
   schoolOptions.find((school) => school.value === value)?.label || value || 'Not specified';
 
-const allCourseOptions = Object.values(coursesBySchool).flat();
+const allCourseOptions = getAllCourses();
 
 const formatCourseOption = (course) =>
   course?.code ? `${course.name} (${course.code})` : course?.name || 'Not specified';
@@ -203,16 +209,15 @@ const getProfileSkillsFromForm = (form) => [
   ...splitList(form.other_skill),
 ];
 
+const mergeOptionSets = (...groups) =>
+  [...new Set(groups.flat().filter(Boolean))];
+
 const describeRequirements = (request) => {
   const data = request?.requirements_data || {};
   const parts = [];
 
   if (data.selected?.length) {
-    parts.push(...data.selected);
-  }
-
-  if (data.required_courses?.length) {
-    parts.push(`Courses: ${data.required_courses.join(', ')}`);
+    parts.push(...data.selected.filter((item) => item !== 'Has completed specific courses'));
   }
 
   if (data.minimum_gpa) {
@@ -273,6 +278,29 @@ const PillList = ({ items }) => (
 );
 
 const DemoBadge = () => <span className="demo-badge">DEMO</span>;
+
+const getConnectionState = (connection, currentProfileId) => {
+  if (!connection || connection.status === 'declined' || connection.status === 'cancelled') return 'none';
+  if (connection.status === 'accepted') return 'accepted';
+  if (connection.status === 'pending' && connection.sender_profile_id === currentProfileId) return 'sent_pending';
+  if (connection.status === 'pending' && connection.receiver_profile_id === currentProfileId) return 'received_pending';
+  if (connection.status === 'pending') return 'pending';
+  return connection.status;
+};
+
+const connectionStateLabel = (state) => {
+  if (state === 'accepted') return 'Connected';
+  if (state === 'sent_pending') return 'Request Sent';
+  if (state === 'received_pending') return 'Respond to Request';
+  if (state === 'pending') return 'Pending';
+  return '';
+};
+
+const ConnectionStateBadge = ({ state }) => {
+  const label = connectionStateLabel(state);
+  if (!label) return null;
+  return <span className={`status-badge ${state}`}>{state === 'accepted' ? '✓ ' : ''}{label}</span>;
+};
 
 const PortfolioReference = ({ request }) => {
   const fileUrl = getPortfolioReferenceUrl(request?.portfolio_reference_path);
@@ -459,6 +487,7 @@ function ProfileForm({ onSaved }) {
   const [form, setForm] = useState(emptyProfile);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const profileSkillOptions = mergeOptionSets(getSkillsForMajor(form.major), form.skills);
 
   const updateField = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -555,8 +584,9 @@ function ProfileForm({ onSaved }) {
           </label>
           <fieldset className="wide">
             <legend>Skills & Technologies</legend>
+            <p className="field-helper">Suggested skills update based on your major. You can still add a custom skill.</p>
             <CheckboxGrid
-              options={skillOptions}
+              options={profileSkillOptions}
               selected={form.skills}
               onToggle={toggleProfileSkill}
             />
@@ -641,25 +671,11 @@ function RequestForm({ profile, onCreated, onBack }) {
   });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const courseOptions = getCoursesForSchool(form.school);
+  const requestSkillOptions = mergeOptionSets(getRequestSkillOptions(profile), form.skills_needed);
 
   const updateField = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
-  };
-
-  const updateRequestSchool = (value) => {
-    const currentCourse = findCourseByCode(form.course_code);
-    const courseStillBelongsToSchool = coursesBySchool[value]?.some(
-      (course) => course.code === currentCourse?.code,
-    );
-
-    setForm((current) => ({
-      ...current,
-      school: value,
-      major: majorsBySchool[value]?.includes(current.major) ? current.major : '',
-      course_name: courseStillBelongsToSchool ? current.course_name : '',
-      course_code: courseStillBelongsToSchool ? current.course_code : '',
-      class_session: '',
-    }));
   };
 
   const updateCourse = (courseCode) => {
@@ -693,7 +709,6 @@ function RequestForm({ profile, onCreated, onBack }) {
         return {
           ...current,
           requirements_selected: selected,
-          required_courses: '',
           minimum_gpa: '',
           portfolio_link_required: false,
           portfolio_upload_enabled: false,
@@ -757,7 +772,7 @@ function RequestForm({ profile, onCreated, onBack }) {
     const portfolioFileError = validatePortfolioFile(form.portfolio_file);
 
     if (!form.school || !form.major || !form.course_name || !form.course_code || !form.class_session || skillsNeeded.length === 0 || Number(form.members_needed) < 1) {
-      setError('Please fill in school, major, course, class/session, skills needed, and teammates needed.');
+      setError('Please fill in course, class/session, skills needed, and teammates needed.');
       return;
     }
 
@@ -789,7 +804,6 @@ function RequestForm({ profile, onCreated, onBack }) {
         work_styles: form.work_styles,
         requirements_data: {
           selected: form.requirements_selected,
-          required_courses: splitList(form.required_courses),
           minimum_gpa: form.minimum_gpa ? Number(form.minimum_gpa) : null,
           portfolio_link_required: requiresPortfolio && form.portfolio_link_required,
           required_tools: requiredTools,
@@ -832,31 +846,14 @@ function RequestForm({ profile, onCreated, onBack }) {
 
         <div className="form-grid">
           <label>
-            School
-            <select value={form.school} onChange={(event) => updateRequestSchool(event.target.value)} required>
-              <option value="">Select school</option>
-              {schoolOptions.map((school) => (
-                <option value={school.value} key={school.value}>{school.label}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Major
-            <select value={form.major} onChange={(event) => updateField('major', event.target.value)} required>
-              <option value="">Select major</option>
-              {(majorsBySchool[form.school] || []).map((major) => (
-                <option value={major} key={major}>{major}</option>
-              ))}
-            </select>
-          </label>
-          <label>
             Course
             <select value={form.course_code} onChange={(event) => updateCourse(event.target.value)} required>
               <option value="">Select course</option>
-              {(coursesBySchool[form.school] || []).map((course) => (
+              {courseOptions.map((course) => (
                 <option value={course.code} key={course.code}>{formatCourseOption(course)}</option>
               ))}
             </select>
+            <span className="field-helper">Courses are filtered by your profile school.</span>
           </label>
           <label>
             Class / Session
@@ -869,8 +866,9 @@ function RequestForm({ profile, onCreated, onBack }) {
           </label>
           <fieldset className="wide">
             <legend>What skills are you looking for?</legend>
+            <p className="field-helper">Starts with skills related to your major, plus cross-disciplinary options for mixed teams.</p>
             <CheckboxGrid
-              options={skillOptions}
+              options={requestSkillOptions}
               selected={form.skills_needed}
               onToggle={toggleSkill}
             />
@@ -908,16 +906,6 @@ function RequestForm({ profile, onCreated, onBack }) {
               selected={form.requirements_selected}
               onToggle={toggleRequirement}
             />
-            {form.requirements_selected.includes('Has completed specific courses') && (
-              <label>
-                Which courses?
-                <input
-                  value={form.required_courses}
-                  onChange={(event) => updateField('required_courses', event.target.value)}
-                  placeholder="Digital Media Studio 3, Web Programming"
-                />
-              </label>
-            )}
             {form.requirements_selected.includes('Minimum GPA') && (
               <label>
                 Minimum GPA
@@ -1009,7 +997,7 @@ function RequestForm({ profile, onCreated, onBack }) {
   );
 }
 
-function MatchCard({ request, onView }) {
+function MatchCard({ request, connectionState, onView }) {
   return (
     <article className="match-card">
       <div className="score">
@@ -1024,14 +1012,18 @@ function MatchCard({ request, onView }) {
         <span>Needs {request.members_needed}</span>
       </div>
       <div className="mini-detail">
-        <strong>Skills needed</strong>
+        <strong>Skills they have</strong>
+        <span>{joinList(request.profile.skills)}</span>
+      </div>
+      <div className="mini-detail">
+        <strong>Looking for</strong>
         <span>{joinList(request.skills_needed)}</span>
       </div>
       <div className="mini-detail">
         <strong>Work style</strong>
         <span>{joinList(getWorkStyles(request))}</span>
       </div>
-      <PillList items={request.profile.skills} />
+      <ConnectionStateBadge state={connectionState} />
       <button className="secondary" onClick={() => onView(request.id, request.matchScore)}>
         View Profile
       </button>
@@ -1039,12 +1031,10 @@ function MatchCard({ request, onView }) {
   );
 }
 
-function MatchResults({ requestId, onViewProfile, onViewCurrent, onCreateNew }) {
-  const [state, setState] = useState({ loading: true, error: '', data: null });
+function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurrent, onCreateNew }) {
+  const [state, setState] = useState({ loading: true, error: '', data: null, connectionsByProfile: {} });
   const [filters, setFilters] = useState({
     initialized: false,
-    school: '',
-    major: '',
     course: '',
     classSession: '',
     skill: '',
@@ -1054,8 +1044,27 @@ function MatchResults({ requestId, onViewProfile, onViewCurrent, onCreateNew }) 
     let alive = true;
 
     getMatchesForRequest(requestId)
-      .then((data) => {
-        if (alive) setState({ loading: false, error: '', data });
+      .then(async (data) => {
+        const connectionEntries = currentProfileId
+          ? await Promise.all(
+            [...new Set(data.matches.map((request) => request.profile_id))]
+              .map(async (profileId) => {
+                try {
+                  return [profileId, await getConnectionBetween(currentProfileId, profileId)];
+                } catch {
+                  return [profileId, null];
+                }
+              }),
+          )
+          : [];
+        if (alive) {
+          setState({
+            loading: false,
+            error: '',
+            data,
+            connectionsByProfile: Object.fromEntries(connectionEntries),
+          });
+        }
       })
       .catch(() => {
         if (alive) {
@@ -1070,7 +1079,7 @@ function MatchResults({ requestId, onViewProfile, onViewCurrent, onCreateNew }) 
     return () => {
       alive = false;
     };
-  }, [requestId]);
+  }, [requestId, currentProfileId]);
 
   useEffect(() => {
     if (state.data && !filters.initialized) {
@@ -1099,12 +1108,7 @@ function MatchResults({ requestId, onViewProfile, onViewCurrent, onCreateNew }) 
 
   const { currentRequest, matches } = state.data;
   const skillOptions = [...new Set(matches.flatMap((request) => request.skills_needed || []))];
-  const availableMajors = filters.school
-    ? majorsBySchool[filters.school] || []
-    : [...new Set(Object.values(majorsBySchool).flat())];
   const filteredMatches = matches
-    .filter((request) => !filters.school || request.school === filters.school || request.profile.school === filters.school)
-    .filter((request) => !filters.major || request.major === filters.major || request.profile.major === filters.major)
     .filter((request) => !filters.course || getCourseFilterValue(request) === filters.course)
     .filter((request) => !filters.classSession || request.class_session === filters.classSession)
     .filter((request) => !filters.skill || request.skills_needed?.includes(filters.skill) || request.profile.skills?.includes(filters.skill));
@@ -1125,27 +1129,6 @@ function MatchResults({ requestId, onViewProfile, onViewCurrent, onCreateNew }) 
       </div>
 
       <section className="filter-panel">
-        <label>
-          School
-          <select
-            value={filters.school}
-            onChange={(event) => setFilters((current) => ({ ...current, school: event.target.value, major: '' }))}
-          >
-            <option value="">All schools</option>
-            {schoolOptions.map((school) => (
-              <option value={school.value} key={school.value}>{school.label}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Major
-          <select value={filters.major} onChange={(event) => setFilters((current) => ({ ...current, major: event.target.value }))}>
-            <option value="">All majors</option>
-            {availableMajors.map((major) => (
-              <option value={major} key={major}>{major}</option>
-            ))}
-          </select>
-        </label>
         <label>
           Course
           <select value={filters.course} onChange={(event) => setFilters((current) => ({ ...current, course: event.target.value, classSession: '' }))}>
@@ -1189,7 +1172,12 @@ function MatchResults({ requestId, onViewProfile, onViewCurrent, onCreateNew }) 
       ) : (
         <div className="match-grid">
           {filteredMatches.map((request) => (
-            <MatchCard request={request} key={request.id} onView={onViewProfile} />
+            <MatchCard
+              request={request}
+              connectionState={getConnectionState(state.connectionsByProfile[request.profile_id], currentProfileId)}
+              key={request.id}
+              onView={onViewProfile}
+            />
           ))}
         </div>
       )}
@@ -1202,19 +1190,42 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
     loading: true,
     error: '',
     profiles: [],
+    activeRequests: [],
+    connectionsByProfile: {},
     sentByProfile: {},
     sendingProfileId: '',
     modalProfile: null,
     modalError: '',
   });
-  const [filters, setFilters] = useState({ school: '', major: '', skill: '' });
+  const [filters, setFilters] = useState({ school: '', major: '', course: '', skill: '' });
 
   useEffect(() => {
     let alive = true;
 
-    getDiscoverProfiles()
-      .then((profiles) => {
-        if (alive) setState((current) => ({ ...current, loading: false, error: '', profiles }));
+    Promise.all([getDiscoverProfiles(), getActiveTeamRequests()])
+      .then(async ([profiles, activeRequests]) => {
+        const visibleProfiles = profiles.filter((profile) => profile.id !== currentProfileId);
+        const connectionEntries = currentProfileId
+          ? await Promise.all(
+            visibleProfiles.map(async (profile) => {
+              try {
+                return [profile.id, await getConnectionBetween(currentProfileId, profile.id)];
+              } catch {
+                return [profile.id, null];
+              }
+            }),
+          )
+          : [];
+        if (alive) {
+          setState((current) => ({
+            ...current,
+            loading: false,
+            error: '',
+            profiles,
+            activeRequests,
+            connectionsByProfile: Object.fromEntries(connectionEntries),
+          }));
+        }
       })
       .catch(() => {
         if (alive) {
@@ -1229,18 +1240,27 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [currentProfileId]);
 
+  const requestsByProfile = state.activeRequests.reduce((map, request) => {
+    map[request.profile_id] = [...(map[request.profile_id] || []), request];
+    return map;
+  }, {});
+  const discoverCourseOptions = (filters.school
+    ? getCoursesForSchool(filters.school)
+    : getAllCourses()
+  ).filter((course, index, list) => list.findIndex((item) => item.code === course.code) === index);
   const filteredProfiles = state.profiles
     .filter((profile) => profile.id !== currentProfileId)
     .filter((profile) => !filters.school || profile.school === filters.school)
     .filter((profile) => !filters.major || profile.major === filters.major)
+    .filter((profile) => !filters.course || requestsByProfile[profile.id]?.some((request) => getCourseFilterValue(request) === filters.course))
     .filter((profile) => !filters.skill || profile.skills?.includes(filters.skill));
 
   const availableMajors = filters.school
     ? majorsBySchool[filters.school] || []
     : [...new Set(Object.values(majorsBySchool).flat())];
-  const discoverSkillOptions = skillOptions.filter((skill) => skill !== 'Other');
+  const discoverSkillOptions = getAllSkills().filter((skill) => skill !== 'Other');
 
   const sendDiscoverConnect = async (introMessage) => {
     if (!state.modalProfile) return;
@@ -1286,7 +1306,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
           School
           <select
             value={filters.school}
-            onChange={(event) => setFilters({ school: event.target.value, major: '', skill: filters.skill })}
+            onChange={(event) => setFilters({ school: event.target.value, major: '', course: '', skill: filters.skill })}
           >
             <option value="">All schools</option>
             {schoolOptions.map((school) => (
@@ -1300,6 +1320,15 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
             <option value="">All majors</option>
             {availableMajors.map((major) => (
               <option value={major} key={major}>{major}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Course
+          <select value={filters.course} onChange={(event) => setFilters((current) => ({ ...current, course: event.target.value }))}>
+            <option value="">All courses</option>
+            {discoverCourseOptions.map((course) => (
+              <option value={course.code} key={course.code}>{formatCourseOption(course)}</option>
             ))}
           </select>
         </label>
@@ -1328,8 +1357,8 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
             const disabledReason = !currentProfileId
                 ? 'Create a profile before connecting.'
                 : '';
-            const sentConnection = state.sentByProfile[profile.id];
-            const sentStatus = sentConnection?.status;
+            const connection = state.sentByProfile[profile.id] || state.connectionsByProfile[profile.id];
+            const connectionState = getConnectionState(connection, currentProfileId);
 
             return (
               <article className="discover-card" key={profile.id}>
@@ -1337,8 +1366,15 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
                 <h3>{profile.full_name} {profile.is_demo && <DemoBadge />}</h3>
                 <p>{schoolLabel(profile.school)}</p>
                 <p>{profile.major}</p>
+                {requestsByProfile[profile.id]?.[0] && (
+                  <p>{getCourseDisplay(requestsByProfile[profile.id][0])}</p>
+                )}
                 <p>{profile.short_bio || 'No bio added yet.'}</p>
-                <PillList items={profile.skills} />
+                <div className="mini-detail">
+                  <strong>Skills they have</strong>
+                  <span>{joinList(profile.skills)}</span>
+                </div>
+                <ConnectionStateBadge state={connectionState} />
                 <div className="hero-actions">
                   <button
                     className="secondary"
@@ -1351,10 +1387,12 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
                       <UserPlus size={18} />
                       Connect
                     </button>
-                  ) : sentStatus === 'accepted' ? (
+                  ) : connectionState === 'accepted' ? (
                     <button className="secondary" onClick={() => onOpenProfile(profile.id)}>View Match</button>
-                  ) : sentStatus === 'pending' ? (
-                    <button className="secondary" onClick={() => onOpenProfile(profile.id)}>Continue Demo</button>
+                  ) : connectionState === 'sent_pending' ? (
+                    <button className="secondary" onClick={() => onOpenProfile(profile.id)}>Request Sent</button>
+                  ) : connectionState === 'received_pending' ? (
+                    <button className="secondary" onClick={() => onOpenProfile(profile.id)}>Respond to Request</button>
                   ) : (
                     <button
                       className="primary"
@@ -1385,11 +1423,12 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
   );
 }
 
-function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat }) {
+function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat, onOpenConnections }) {
   const [state, setState] = useState({
     loading: true,
     error: '',
     profile: null,
+    activeRequest: null,
     connection: null,
     modalOpen: false,
     sending: false,
@@ -1402,9 +1441,13 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
 
     getProfileById(profileId)
       .then(async (profile) => {
-        const connection = currentProfileId ? await getConnectionBetween(currentProfileId, profile.id) : null;
+        const [connection, activeRequests] = await Promise.all([
+          currentProfileId ? getConnectionBetween(currentProfileId, profile.id) : Promise.resolve(null),
+          getActiveTeamRequests().catch(() => []),
+        ]);
+        const activeRequest = activeRequests.find((request) => request.profile_id === profile.id) || null;
         if (alive) {
-          setState((current) => ({ ...current, loading: false, error: '', profile, connection }));
+          setState((current) => ({ ...current, loading: false, error: '', profile, activeRequest, connection }));
         }
       })
       .catch(() => {
@@ -1432,6 +1475,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
 
   const profile = state.profile;
   const isOwnProfile = profile.id === currentProfileId;
+  const connectionState = getConnectionState(state.connection, currentProfileId);
   const disabledReason = isOwnProfile
       ? 'This is your profile.'
       : !currentProfileId
@@ -1506,7 +1550,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
         <dl>
           <div><dt>School</dt><dd>{schoolLabel(profile.school)}</dd></div>
           <div><dt>Major</dt><dd>{profile.major}</dd></div>
-          <div><dt>Skills</dt><dd>{joinList(profile.skills)}</dd></div>
+          <div><dt>Skills they have</dt><dd>{joinList(profile.skills)}</dd></div>
           <div>
             <dt>Contact</dt>
             <dd>
@@ -1518,6 +1562,20 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
             </dd>
           </div>
         </dl>
+        {state.activeRequest && (
+          <div className="request-summary-box">
+            <p className="eyebrow">Looking for a Teammate</p>
+            <h3>{getCourseDisplay(state.activeRequest)}</h3>
+            <dl>
+              <div><dt>Class / Session</dt><dd>{state.activeRequest.class_session || 'Not specified'}</dd></div>
+              <div><dt>Skills Needed</dt><dd>{joinList(state.activeRequest.skills_needed)}</dd></div>
+              <div><dt>Work Style</dt><dd>{joinList(getWorkStyles(state.activeRequest))}</dd></div>
+              <div><dt>Requirements</dt><dd>{describeRequirements(state.activeRequest)}</dd></div>
+              <div><dt>Needs</dt><dd>{state.activeRequest.members_needed} teammates</dd></div>
+              <PortfolioReference request={state.activeRequest} />
+            </dl>
+          </div>
+        )}
         {state.actionError && <p className="error">{state.actionError}</p>}
         {disabledReason ? (
           <div className="stacked-actions">
@@ -1527,10 +1585,21 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
             </button>
             <p className="connection-hint">{disabledReason}</p>
           </div>
-        ) : state.connection?.status === 'accepted' ? (
-          <button className="connected-button" disabled>Connected</button>
-        ) : state.connection?.status === 'pending' ? (
+        ) : connectionState === 'accepted' ? (
+          <div className="stacked-actions">
+            <button className="connected-button" disabled>
+              <CheckCircle2 size={18} />
+              Connected
+            </button>
+            <button className="primary link-button" onClick={() => onOpenChat(state.connection.id)}>
+              <MessageCircle size={18} />
+              Message
+            </button>
+          </div>
+        ) : connectionState === 'sent_pending' ? (
           <button className="disabled-contact" disabled>Request Sent</button>
+        ) : connectionState === 'received_pending' ? (
+          <button className="secondary link-button" onClick={onOpenConnections}>Respond to Request</button>
         ) : (
           <button className="primary link-button" onClick={() => setState((current) => ({ ...current, modalOpen: true, actionError: '' }))}>
             <UserPlus size={18} />
@@ -1569,6 +1638,7 @@ function ProfileDetail({
   matchScore,
   onBack,
   onOpenChat,
+  onOpenConnections,
 }) {
   const [state, setState] = useState({
     loading: true,
@@ -1630,6 +1700,7 @@ function ProfileDetail({
   const isOwnProfile = currentProfileId === profile.id;
   const canSendConnection = currentProfileId && !isOwnProfile;
   const connection = state.connection;
+  const connectionState = getConnectionState(connection, currentProfileId);
 
   const connect = async (introMessage) => {
     setState((current) => ({ ...current, actionLoading: true, actionError: '' }));
@@ -1729,7 +1800,7 @@ function ProfileDetail({
       );
     }
 
-    if (!connection || connection.status === 'declined' || connection.status === 'cancelled') {
+    if (connectionState === 'none') {
       return (
         <button
           className="primary link-button"
@@ -1742,11 +1813,19 @@ function ProfileDetail({
       );
     }
 
-    if (connection.status === 'pending') {
+    if (connectionState === 'sent_pending') {
       return <button className="disabled-contact" disabled>Request Sent</button>;
     }
 
-    if (connection.status === 'accepted') {
+    if (connectionState === 'received_pending') {
+      return (
+        <button className="secondary link-button" onClick={onOpenConnections}>
+          Respond to Request
+        </button>
+      );
+    }
+
+    if (connectionState === 'accepted') {
       return (
         <div className="stacked-actions">
           <button className="connected-button" disabled>
@@ -1797,7 +1876,10 @@ function ProfileDetail({
               </dd>
             </div>
           </dl>
-          <PillList items={profile.skills} />
+          <div className="mini-detail">
+            <strong>Skills they have</strong>
+            <span>{joinList(profile.skills)}</span>
+          </div>
           {state.actionError && <p className="error">{state.actionError}</p>}
           {renderConnectionAction()}
           {profile.is_demo && (
@@ -1813,7 +1895,7 @@ function ProfileDetail({
         </div>
 
         <div className="request-panel">
-          <p className="eyebrow">Current Team Request</p>
+          <p className="eyebrow">Looking for a Teammate</p>
           <h3>{getCourseDisplay(request)}</h3>
           <dl>
             {typeof matchScore === 'number' && <div><dt>Match Score</dt><dd>{matchScore}% Match</dd></div>}
@@ -1942,32 +2024,46 @@ function FoundConfirmation({ onCreateAnother, onHome }) {
   );
 }
 
-function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat }) {
-  const [tab, setTab] = useState('incoming');
+function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onNotificationsChanged }) {
+  const [tab, setTab] = useState('received');
   const [state, setState] = useState({
     loading: true,
     error: '',
-    incoming: [],
+    received: [],
     sent: [],
+    connected: [],
+    declined: [],
     currentRequest: null,
     actionLoadingId: '',
   });
 
   const loadConnections = async () => {
     if (!currentProfileId) {
-      setState((current) => ({ ...current, loading: false, incoming: [], sent: [] }));
+      setState((current) => ({ ...current, loading: false, received: [], sent: [], connected: [], declined: [] }));
       return;
     }
 
     setState((current) => ({ ...current, loading: true, error: '' }));
 
     try {
-      const [incoming, sent, currentRequest] = await Promise.all([
-        getConnectionRequests(currentProfileId, 'incoming'),
+      const [received, sent, connected, declined, currentRequest] = await Promise.all([
+        getConnectionRequests(currentProfileId, 'received'),
         getConnectionRequests(currentProfileId, 'sent'),
+        getConnectionRequests(currentProfileId, 'connected'),
+        getConnectionRequests(currentProfileId, 'declined'),
         currentRequestId ? getTeamRequestById(currentRequestId).catch(() => null) : Promise.resolve(null),
       ]);
-      setState((current) => ({ ...current, loading: false, incoming, sent, currentRequest }));
+      await markNotificationsRead(currentProfileId, 'connections').catch(() => {});
+      onNotificationsChanged?.();
+      setState((current) => ({
+        ...current,
+        loading: false,
+        received,
+        sent,
+        connected,
+        declined,
+        currentRequest,
+      }));
     } catch {
       setState((current) => ({
         ...current,
@@ -2015,7 +2111,53 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat }) {
     }
   };
 
-  const activeRows = tab === 'incoming' ? state.incoming : state.sent;
+  const acceptAsTeammate = async (connectionId) => {
+    setState((current) => ({ ...current, actionLoadingId: connectionId, error: '' }));
+
+    try {
+      if (currentRequestId) {
+        await addTeamMember({ currentProfileId, currentRequestId, connectionId });
+      } else {
+        await setConnectionTeamDecision({ connectionId, currentProfileId, decision: 'accepted' });
+      }
+      await loadConnections();
+    } catch {
+      setState((current) => ({
+        ...current,
+        actionLoadingId: '',
+        error: "We couldn't update this teammate decision. Please try again.",
+      }));
+    }
+  };
+
+  const rejectForTeam = async (connectionId) => {
+    setState((current) => ({ ...current, actionLoadingId: connectionId, error: '' }));
+
+    try {
+      await setConnectionTeamDecision({ connectionId, currentProfileId, decision: 'unaccepted' });
+      await loadConnections();
+    } catch {
+      setState((current) => ({
+        ...current,
+        actionLoadingId: '',
+        error: "We couldn't update this teammate decision. Please try again.",
+      }));
+    }
+  };
+
+  const tabs = [
+    { id: 'received', label: 'Received', rows: state.received },
+    { id: 'sent', label: 'Sent', rows: state.sent },
+    { id: 'connected', label: 'Connected', rows: state.connected },
+    { id: 'declined', label: 'Not Accepted', rows: state.declined },
+  ];
+  const activeRows = tabs.find((item) => item.id === tab)?.rows || [];
+  const emptyCopy = {
+    received: 'No connection requests yet.',
+    sent: 'No pending sent requests yet.',
+    connected: 'No connected teammates yet.',
+    declined: 'No declined or cancelled requests yet.',
+  };
 
   return (
     <main className="screen">
@@ -2025,12 +2167,11 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat }) {
           <h2>Connection requests</h2>
         </div>
         <div className="segmented">
-          <button className={tab === 'incoming' ? 'selected' : ''} onClick={() => setTab('incoming')}>
-            Incoming
-          </button>
-          <button className={tab === 'sent' ? 'selected' : ''} onClick={() => setTab('sent')}>
-            Sent
-          </button>
+          {tabs.map((item) => (
+            <button className={tab === item.id ? 'selected' : ''} onClick={() => setTab(item.id)} key={item.id}>
+              {item.label}{item.rows.length ? ` (${item.rows.length})` : ''}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -2045,7 +2186,7 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat }) {
 
       {currentProfileId && !state.loading && activeRows.length === 0 && (
         <section className="empty-state">
-          <p>{tab === 'incoming' ? 'No connection requests yet.' : 'No sent requests yet.'}</p>
+          <p>{emptyCopy[tab]}</p>
         </section>
       )}
 
@@ -2054,7 +2195,13 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat }) {
           {activeRows.map((request) => (
             <article className="connection-row" key={request.id}>
               <div>
-                <h3>{request.teammate_full_name} {request.teammate_full_name?.includes('(Demo)') && <DemoBadge />}</h3>
+                <p className="eyebrow">
+                  {tab === 'received' && `Received from ${request.teammate_full_name}`}
+                  {tab === 'sent' && `Sent to ${request.teammate_full_name}`}
+                  {tab === 'connected' && `Connected with ${request.teammate_full_name}`}
+                  {tab === 'declined' && 'Not Accepted'}
+                </p>
+                <h3>{request.teammate_full_name} {(request.teammate_is_demo || request.teammate_full_name?.includes('(Demo)')) && <DemoBadge />}</h3>
                 <p>{schoolLabel(request.teammate_school)} | {request.teammate_major}</p>
                 {getCourseFilterValue(request) ? (
                   <p>{getCourseDisplay(request)}{request.class_session ? ` | ${request.class_session}` : ''}</p>
@@ -2062,7 +2209,7 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat }) {
                   <p>Discover connection</p>
                 )}
                 {request.intro_message && <blockquote className="intro-message">{request.intro_message}</blockquote>}
-                {tab === 'incoming' && request.sender_team_request_id && state.currentRequest && (
+                {request.sender_team_request_id && state.currentRequest && (
                   <div className="score inline-score">
                     <Sparkles size={16} />
                     {calculateMatchScore(state.currentRequest.profile, state.currentRequest, {
@@ -2083,11 +2230,23 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat }) {
                     })}% Match
                   </div>
                 )}
-                <PillList items={request.teammate_skills} />
+                <div className="connection-context">
+                  <div className="mini-detail">
+                    <strong>Skills they have</strong>
+                    <span>{joinList(request.teammate_skills)}</span>
+                  </div>
+                  <div className="mini-detail">
+                    <strong>Looking for</strong>
+                    <span>{joinList(request.skills_needed)}</span>
+                  </div>
+                </div>
+                {tab === 'connected' && (
+                  <p className="note">Team decision: {titleCase(request.team_decision || 'undecided')}</p>
+                )}
               </div>
               <div className="connection-actions">
                 <span className={`status-badge ${request.status}`}>{titleCase(request.status)}</span>
-                {tab === 'incoming' && (
+                {tab === 'received' && (
                   <>
                     <button
                       className="primary"
@@ -2115,6 +2274,24 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat }) {
                     Cancel Request
                   </button>
                 )}
+                {tab === 'connected' && (
+                  <>
+                    <button
+                      className="secondary"
+                      onClick={() => acceptAsTeammate(request.id)}
+                      disabled={state.actionLoadingId === request.id || request.team_decision === 'accepted'}
+                    >
+                      Accept as Teammate
+                    </button>
+                    <button
+                      className="secondary"
+                      onClick={() => rejectForTeam(request.id)}
+                      disabled={state.actionLoadingId === request.id || request.team_decision === 'unaccepted'}
+                    >
+                      Not for this Team
+                    </button>
+                  </>
+                )}
                 {request.status === 'accepted' && (
                   <button className="secondary" onClick={() => onOpenChat(request.id)}>
                     <MessageCircle size={18} />
@@ -2134,7 +2311,7 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat }) {
   );
 }
 
-function MessagesList({ currentProfileId, onOpenChat }) {
+function MessagesList({ currentProfileId, onOpenChat, onNotificationsChanged }) {
   const [state, setState] = useState({ loading: true, error: '', threads: [] });
 
   useEffect(() => {
@@ -2145,9 +2322,13 @@ function MessagesList({ currentProfileId, onOpenChat }) {
       return;
     }
 
-    getMessageThreads(currentProfileId)
-      .then((threads) => {
+    Promise.all([
+      getMessageThreads(currentProfileId),
+      markNotificationsRead(currentProfileId, 'messages').catch(() => null),
+    ])
+      .then(([threads]) => {
         if (alive) setState({ loading: false, error: '', threads });
+        onNotificationsChanged?.();
       })
       .catch(() => {
         if (alive) {
@@ -2209,7 +2390,7 @@ function MessagesList({ currentProfileId, onOpenChat }) {
   );
 }
 
-function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack }) {
+function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, onNotificationsChanged }) {
   const [state, setState] = useState({
     loading: true,
     error: '',
@@ -2230,6 +2411,8 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack }) 
         getConnectionDetail(connectionId, currentProfileId),
         getMessages(connectionId, currentProfileId),
       ]);
+      await markNotificationsRead(currentProfileId, 'messages').catch(() => {});
+      onNotificationsChanged?.();
 
       if (!detail || detail.status !== 'accepted') {
         setState((current) => ({
@@ -2415,6 +2598,7 @@ function MyProfile({ profile, onCreateProfile, onCreateSearch, onProfileUpdated 
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const profileSkillOptions = mergeOptionSets(getSkillsForMajor(form.major), form.skills);
 
   const startEdit = () => {
     const school = schoolOptions.some((option) => option.value === profile.school) ? profile.school : '';
@@ -2531,8 +2715,9 @@ function MyProfile({ profile, onCreateProfile, onCreateSearch, onProfileUpdated 
               </label>
               <fieldset className="wide">
                 <legend>Skills & Technologies</legend>
+                <p className="field-helper">Suggested skills update based on your major. You can still add a custom skill.</p>
                 <CheckboxGrid
-                  options={skillOptions}
+                  options={profileSkillOptions}
                   selected={form.skills}
                   onToggle={toggleProfileSkill}
                 />
@@ -2611,6 +2796,7 @@ export default function App() {
   const [selectedConnectionId, setSelectedConnectionId] = useState('');
   const [selectedDiscoverProfileId, setSelectedDiscoverProfileId] = useState('');
   const [bootError, setBootError] = useState('');
+  const [notificationCounts, setNotificationCounts] = useState({ connections: 0, messages: 0 });
 
   useEffect(() => {
     const storedProfileId = getStoredProfileId();
@@ -2625,6 +2811,26 @@ export default function App() {
         .catch(() => setProfileId(''));
     }
   }, []);
+
+  const refreshNotificationCounts = async () => {
+    if (!profileId) {
+      setNotificationCounts({ connections: 0, messages: 0 });
+      return;
+    }
+
+    try {
+      const counts = await getNotificationCounts(profileId);
+      setNotificationCounts(counts);
+    } catch {
+      setNotificationCounts({ connections: 0, messages: 0 });
+    }
+  };
+
+  useEffect(() => {
+    refreshNotificationCounts();
+    const intervalId = setInterval(refreshNotificationCounts, 10000);
+    return () => clearInterval(intervalId);
+  }, [profileId, view]);
 
   const configWarning = useMemo(() => {
     if (hasSupabaseConfig) return '';
@@ -2675,11 +2881,11 @@ export default function App() {
           TEAMERGENCY
         </button>
         <div className="top-actions">
-          {requestId && <button className="ghost" onClick={findMatches}>Find Teammates</button>}
           <button className="ghost" onClick={() => setView('discover')}>Discover</button>
+          {requestId && <button className="ghost" onClick={findMatches}>Find Teammates</button>}
           {requestId && <button className="ghost" onClick={() => setView('current-request')}>My Request</button>}
-          <button className="ghost" onClick={() => setView('connections')}>Connections</button>
-          <button className="ghost" onClick={() => setView('messages')}>Messages</button>
+          <button className="ghost" onClick={() => setView('connections')}>Connections{notificationCounts.connections > 0 && <span className="nav-badge">{notificationCounts.connections}</span>}</button>
+          <button className="ghost" onClick={() => setView('messages')}>Messages{notificationCounts.messages > 0 && <span className="nav-badge">{notificationCounts.messages}</span>}</button>
           <button className="ghost" onClick={() => setView('my-profile')}>My Profile</button>
         </div>
       </header>
@@ -2725,6 +2931,7 @@ export default function App() {
       {view === 'matches' && requestId && (
         <MatchResults
           requestId={requestId}
+          currentProfileId={profileId}
           onCreateNew={startRequest}
           onViewCurrent={() => setView('current-request')}
           onViewProfile={(id, score) => {
@@ -2743,6 +2950,7 @@ export default function App() {
           requestId={selectedRequestId}
           onBack={() => setView('matches')}
           onOpenChat={openChat}
+          onOpenConnections={() => setView('connections')}
         />
       )}
 
@@ -2769,6 +2977,7 @@ export default function App() {
           currentProfileId={profileId}
           currentRequestId={requestId}
           onOpenChat={openChat}
+          onNotificationsChanged={refreshNotificationCounts}
         />
       )}
 
@@ -2788,6 +2997,7 @@ export default function App() {
           currentProfileId={profileId}
           onBack={() => setView('discover')}
           onOpenChat={openChat}
+          onOpenConnections={() => setView('connections')}
         />
       )}
 
@@ -2795,6 +3005,7 @@ export default function App() {
         <MessagesList
           currentProfileId={profileId}
           onOpenChat={openChat}
+          onNotificationsChanged={refreshNotificationCounts}
         />
       )}
 
@@ -2804,6 +3015,7 @@ export default function App() {
           currentProfileId={profileId}
           currentRequestId={requestId}
           onBack={() => setView('messages')}
+          onNotificationsChanged={refreshNotificationCounts}
         />
       )}
 

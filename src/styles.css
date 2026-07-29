@@ -89,6 +89,20 @@ a {
   gap: 8px;
 }
 
+.nav-badge {
+  display: inline-flex;
+  min-width: 20px;
+  min-height: 20px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  border-radius: 999px;
+  color: #ffffff;
+  background: #c64a3b;
+  font-size: 0.78rem;
+  font-weight: 950;
+}
+
 .primary {
   padding: 12px 18px;
   color: #ffffff;
@@ -481,6 +495,16 @@ legend {
 
 .conditional-box strong {
   color: #173b45;
+}
+
+.request-summary-box {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0;
+  padding: 14px;
+  border: 1px solid rgba(23, 91, 86, 0.14);
+  border-radius: 8px;
+  background: #f8faf9;
 }
 
 .text-link {
@@ -952,10 +976,21 @@ dd {
   color: #175b56;
 }
 
+.status-badge.sent_pending,
+.status-badge.received_pending {
+  background: #fff3df;
+  color: #6f4514;
+}
+
 .status-badge.declined,
 .status-badge.cancelled {
   background: #ffe9e5;
   color: #8a241d;
+}
+
+.connection-context {
+  display: grid;
+  gap: 8px;
 }
 
 .thread-row {
