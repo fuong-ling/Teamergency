@@ -154,6 +154,69 @@ export const skillsByMajor = {
   ],
 };
 
+export const skillsBySchool = {
+  SCD: [
+    'Photography',
+    'Videography',
+    'Video Editing',
+    'Motion Graphics',
+    'Graphic Design',
+    'UI/UX',
+    'Figma',
+    'Adobe Photoshop',
+    'Adobe Illustrator',
+    'Premiere Pro',
+    'After Effects',
+    'Blender',
+    '3D Modelling',
+    'TouchDesigner',
+    'Creative Coding',
+    'HTML/CSS',
+    'JavaScript',
+    'Content Creation',
+    'Copywriting',
+    'Social Media',
+    'Research',
+    'Writing',
+    'Presentation',
+  ],
+  TBS: [
+    'Marketing',
+    'Market Research',
+    'Business Strategy',
+    'Finance',
+    'Accounting',
+    'Economics',
+    'Data Analysis',
+    'Excel',
+    'Project Management',
+    'Presentation',
+    'Sales',
+    'Branding',
+    'Consumer Research',
+    'Entrepreneurship',
+  ],
+  SSET: [
+    'Python',
+    'Java',
+    'JavaScript',
+    'C++',
+    'HTML/CSS',
+    'SQL',
+    'Database',
+    'Git/GitHub',
+    'Web Development',
+    'Software Development',
+    'Data Analysis',
+    'Machine Learning',
+    'CAD',
+    'MATLAB',
+    'Engineering Design',
+    'Prototyping',
+    'Project Management',
+  ],
+};
+
 export const classSessionsByCourseCode = {
   COMM2784: ['Tuesday 09:30', 'Thursday 13:30', 'Friday 09:30'],
   COMM2750: ['Tuesday 13:30', 'Thursday 09:30'],
@@ -205,8 +268,12 @@ export const skillOptions = [
   'Business Strategy',
   'Finance',
   'Accounting',
+  'Economics',
   'Data Analysis',
   'Excel',
+  'Sales',
+  'Consumer Research',
+  'Entrepreneurship',
   'Python',
   'Java',
   'C++',
@@ -214,6 +281,8 @@ export const skillOptions = [
   'Database',
   'Git/GitHub',
   'Web Development',
+  'Software Development',
+  'Machine Learning',
   'Dashboard Design',
   'Algorithms',
   'CAD',
@@ -230,6 +299,7 @@ export const academicCatalog = schoolOptions.map((school) => ({
     skills: skillsByMajor[major] || [],
   })),
   courses: coursesBySchool[school.value] || [],
+  skills: skillsBySchool[school.value] || [],
 }));
 
 export const uniqueList = (items) => [...new Set(items.filter(Boolean))];
@@ -237,10 +307,13 @@ export const uniqueList = (items) => [...new Set(items.filter(Boolean))];
 export const getSkillsForMajor = (major) =>
   uniqueList([...(skillsByMajor[major] || []), 'Other']);
 
+export const getSkillsForSchool = (school) =>
+  uniqueList([...(skillsBySchool[school] || []), 'Other']);
+
 export const getAllSkills = () => skillOptions;
 
 export const getRequestSkillOptions = (profile = {}) => {
-  const suggested = skillsByMajor[profile.major] || [];
+  const suggested = skillsBySchool[profile.school] || skillsByMajor[profile.major] || [];
   return uniqueList([
     ...suggested,
     ...skillOptions.filter((skill) => skill !== 'Other'),

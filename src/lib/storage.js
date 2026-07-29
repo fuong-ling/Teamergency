@@ -15,7 +15,9 @@ export const getStoredRequestEditToken = () =>
 
 export const storeCurrentRequest = (requestId, editToken) => {
   localStorage.setItem(REQUEST_ID_KEY, requestId);
-  localStorage.setItem(REQUEST_EDIT_TOKEN_KEY, editToken);
+  if (editToken) {
+    localStorage.setItem(REQUEST_EDIT_TOKEN_KEY, editToken);
+  }
 };
 
 export const clearCurrentRequest = () => {

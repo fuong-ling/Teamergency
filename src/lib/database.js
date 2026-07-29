@@ -129,6 +129,60 @@ export const createTeamRequest = async (profileId, requestData) => {
   return { ...data[0], editToken: data[0].edit_token };
 };
 
+export const listMyTeamRequests = async (profileId) => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc('list_my_team_requests', {
+    current_profile: profileId,
+  });
+
+  if (error) throw error;
+  return data || [];
+};
+
+export const updateTeamRequest = async (requestId, profileId, requestData) => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc('update_team_request', {
+    p_request_id: requestId,
+    p_profile_id: profileId,
+    p_school: requestData.school,
+    p_major: requestData.major,
+    p_course: requestData.course,
+    p_course_name: requestData.course_name,
+    p_course_code: requestData.course_code,
+    p_class_session: requestData.class_session,
+    p_skills_needed: requestData.skills_needed,
+    p_members_needed: requestData.members_needed,
+    p_work_styles: requestData.work_styles,
+    p_requirements_data: requestData.requirements_data,
+    p_requires_portfolio: requestData.requires_portfolio,
+    p_portfolio_reference_path: requestData.portfolio_reference_path,
+    p_portfolio_reference_name: requestData.portfolio_reference_name,
+    p_requirements: requestData.requirements,
+  });
+
+  if (error) throw error;
+  if (!data?.length) {
+    throw new Error('Team request was not updated.');
+  }
+
+  return data[0];
+};
+
+export const cancelTeamRequest = async (requestId, profileId) => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc('cancel_team_request', {
+    request_id: requestId,
+    current_profile: profileId,
+  });
+
+  if (error) throw error;
+  if (!data?.length) {
+    throw new Error('Team request was not cancelled.');
+  }
+
+  return data[0];
+};
+
 const portfolioFileRules = {
   maxSize: 10 * 1024 * 1024,
   mimeTypes: ['application/pdf', 'image/png', 'image/jpeg'],
