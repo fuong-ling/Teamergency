@@ -5,9 +5,12 @@ import {
   Clock3,
   GraduationCap,
   MessageCircle,
+  Pencil,
+  Plus,
   Search,
   SendHorizontal,
   Sparkles,
+  Trash2,
   UserPlus,
   UserRound,
   UsersRound,
@@ -15,6 +18,7 @@ import {
 } from 'lucide-react';
 import {
   cancelConnectionRequest,
+  cancelTeamRequest,
   createProfile,
   createTeamRequest,
   getConnectionBetween,
@@ -27,6 +31,7 @@ import {
   getMessageThreads,
   getActiveTeamRequests,
   getProfileById,
+  listMyTeamRequests,
   getTeamRequestProgress,
   getTeamRequestById,
   getPortfolioReferenceUrl,
@@ -41,6 +46,7 @@ import {
   simulateDemoAcceptance,
   unmatchConnectionRequest,
   updateProfile,
+  updateTeamRequest,
   uploadPortfolioReference,
 } from './lib/database';
 import { hasSupabaseConfig } from './lib/supabase';
@@ -53,7 +59,7 @@ import {
   getAllSkills,
   getCoursesForSchool,
   getRequestSkillOptions,
-  getSkillsForMajor,
+  getSkillsForSchool,
   majorsBySchool,
   requirementOptions,
   schoolOptions,
@@ -64,6 +70,7 @@ import {
   getStoredProfileId,
   getStoredRequestEditToken,
   getStoredRequestId,
+  clearCurrentRequest,
   storeCurrentRequest,
   storeProfileId,
 } from './lib/storage';
@@ -122,9 +129,42 @@ const emptyRequest = {
   portfolio_link_required: false,
   portfolio_upload_enabled: false,
   portfolio_file: null,
+  portfolio_reference_path: null,
+  portfolio_reference_name: null,
   required_tools: [],
   other_tool: '',
   requirements: '',
+};
+
+const buildRequestFormState = (profile, request = null) => {
+  if (!request) {
+    return {
+      ...emptyRequest,
+      school: schoolOptions.some((school) => school.value === profile.school) ? profile.school : '',
+      major: profile.major || '',
+    };
+  }
+
+  const requirementsData = request.requirements_data || {};
+  return {
+    ...emptyRequest,
+    school: request.school || profile.school || '',
+    major: request.major || profile.major || '',
+    course_name: request.course_name || request.course || '',
+    course_code: request.course_code || '',
+    class_session: request.class_session || '',
+    skills_needed: request.skills_needed || [],
+    members_needed: request.members_needed || 1,
+    work_styles: getWorkStyles(request),
+    requirements_selected: requirementsData.selected || [],
+    minimum_gpa: requirementsData.minimum_gpa ?? '',
+    portfolio_link_required: Boolean(requirementsData.portfolio_link_required),
+    portfolio_upload_enabled: Boolean(request.portfolio_reference_path),
+    portfolio_reference_path: request.portfolio_reference_path || null,
+    portfolio_reference_name: request.portfolio_reference_name || null,
+    required_tools: requirementsData.required_tools || [],
+    requirements: request.requirements || '',
+  };
 };
 
 const splitList = (value) =>
@@ -219,6 +259,14 @@ const getProfileSkillsFromForm = (form) => [
   ...splitList(form.other_skill),
 ];
 
+const filterSkillsForSchool = (skills, school) => {
+  const schoolSkills = new Set(getSkillsForSchool(school));
+  const knownSkills = new Set(getAllSkills());
+  return (skills || []).filter((skill) =>
+    skill === 'Other' || schoolSkills.has(skill) || !knownSkills.has(skill),
+  );
+};
+
 const mergeOptionSets = (...groups) =>
   [...new Set(groups.flat().filter(Boolean))];
 
@@ -304,6 +352,15 @@ const connectionStateLabel = (state) => {
   if (state === 'received_pending') return 'Respond to Request';
   if (state === 'pending') return 'Pending';
   return '';
+};
+
+const connectionStatusLabel = (status, tab) => {
+  if (tab === 'received' && status === 'pending') return 'Needs response';
+  if (tab === 'sent' && status === 'pending') return 'Pending';
+  if (tab === 'connected' && status === 'accepted') return 'Accepted';
+  if (tab === 'declined') return 'Not accepted';
+  if (tab === 'unmatched') return 'Connection ended';
+  return titleCase(status);
 };
 
 const ConnectionStateBadge = ({ state }) => {
@@ -567,7 +624,7 @@ function ProfileForm({ onSaved }) {
   const [form, setForm] = useState(emptyProfile);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-  const profileSkillOptions = mergeOptionSets(getSkillsForMajor(form.major), form.skills);
+  const profileSkillOptions = mergeOptionSets(getSkillsForSchool(form.school), form.skills);
 
   const updateField = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -578,6 +635,7 @@ function ProfileForm({ onSaved }) {
       ...current,
       school: value,
       major: majorsBySchool[value]?.includes(current.major) ? current.major : '',
+      skills: filterSkillsForSchool(current.skills, value),
     }));
   };
 
@@ -664,7 +722,7 @@ function ProfileForm({ onSaved }) {
           </label>
           <fieldset className="wide">
             <legend>Skills & Technologies</legend>
-            <p className="field-helper">Suggested skills update based on your major. You can still add a custom skill.</p>
+            <p className="field-helper">Suggested skills update based on your school. You can still add a custom skill.</p>
             <CheckboxGrid
               options={profileSkillOptions}
               selected={form.skills}
@@ -743,16 +801,16 @@ function ProfileSaved({ profile, onContinue }) {
   );
 }
 
-function RequestForm({ profile, onCreated, onBack }) {
-  const [form, setForm] = useState({
-    ...emptyRequest,
-    school: schoolOptions.some((school) => school.value === profile.school) ? profile.school : '',
-    major: profile.major || '',
-  });
+function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mode = 'create' }) {
+  const [form, setForm] = useState(() => buildRequestFormState(profile, request));
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const courseOptions = getCoursesForSchool(form.school);
   const requestSkillOptions = mergeOptionSets(getRequestSkillOptions(profile), form.skills_needed);
+
+  useEffect(() => {
+    setForm(buildRequestFormState(profile, request));
+  }, [profile.id, request?.id]);
 
   const updateField = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -868,8 +926,14 @@ function RequestForm({ profile, onCreated, onBack }) {
         ? await uploadPortfolioReference(form.portfolio_file, profile.id)
         : null;
       const requiresPortfolio = form.requirements_selected.includes('Has a portfolio');
+      const portfolioReferencePath = requiresPortfolio
+        ? portfolioUpload?.path || form.portfolio_reference_path || null
+        : null;
+      const portfolioReferenceName = requiresPortfolio
+        ? portfolioUpload?.name || form.portfolio_reference_name || null
+        : null;
 
-      const request = await createTeamRequest(profile.id, {
+      const payload = {
         school: form.school,
         major: form.major,
         course: form.course_name.trim(),
@@ -889,14 +953,24 @@ function RequestForm({ profile, onCreated, onBack }) {
           required_tools: requiredTools,
         },
         requires_portfolio: requiresPortfolio,
-        portfolio_reference_path: portfolioUpload?.path || null,
-        portfolio_reference_name: portfolioUpload?.name || null,
+        portfolio_reference_path: portfolioReferencePath,
+        portfolio_reference_name: portfolioReferenceName,
         requirements: form.requirements.trim() || null,
-      });
-      storeCurrentRequest(request.id, request.editToken);
-      onCreated(request);
+      };
+
+      if (mode === 'edit' && request?.id) {
+        const updatedRequest = await updateTeamRequest(request.id, profile.id, payload);
+        onUpdated?.(updatedRequest);
+      } else {
+        const createdRequest = await createTeamRequest(profile.id, payload);
+        storeCurrentRequest(createdRequest.id, createdRequest.editToken);
+        onCreated(createdRequest);
+      }
     } catch (err) {
-      setError(getFriendlyError(err, "We couldn't create your teammate search. Please try again."));
+      const fallback = mode === 'edit'
+        ? "We couldn't update your teammate search. Please try again."
+        : "We couldn't create your teammate search. Please try again.";
+      setError(getFriendlyError(err, fallback));
     } finally {
       setSaving(false);
     }
@@ -913,8 +987,8 @@ function RequestForm({ profile, onCreated, onBack }) {
         <div className="form-heading">
           <Search size={28} />
           <div>
-            <p className="eyebrow">Create Teammate Search Request</p>
-            <h2>What team do you need right now?</h2>
+            <p className="eyebrow">{mode === 'edit' ? 'Edit Team Request' : 'Create Teammate Search Request'}</p>
+            <h2>{mode === 'edit' ? 'Update this teammate search' : 'What team do you need right now?'}</h2>
           </div>
         </div>
 
@@ -925,28 +999,31 @@ function RequestForm({ profile, onCreated, onBack }) {
         </div>
 
         <div className="form-grid">
-          <label>
-            Course
-            <select value={form.course_code} onChange={(event) => updateCourse(event.target.value)} required>
-              <option value="">Select course</option>
-              {courseOptions.map((course) => (
-                <option value={course.code} key={course.code}>{formatCourseOption(course)}</option>
-              ))}
-            </select>
-            <span className="field-helper">Courses are filtered by your profile school.</span>
-          </label>
-          <label>
-            Class / Session
-            <select value={form.class_session} onChange={(event) => updateField('class_session', event.target.value)} required>
-              <option value="">Select class/session</option>
-              {(classSessionsByCourseCode[form.course_code] || []).map((session) => (
-                <option value={session} key={session}>{session}</option>
-              ))}
-            </select>
-          </label>
+          <div className="course-session-row wide">
+            <label>
+              Course
+              <select value={form.course_code} onChange={(event) => updateCourse(event.target.value)} required>
+                <option value="">Select course</option>
+                {courseOptions.map((course) => (
+                  <option value={course.code} key={course.code}>{formatCourseOption(course)}</option>
+                ))}
+              </select>
+              <span className="field-helper">Courses are filtered by your profile school.</span>
+            </label>
+            <label>
+              Class / Session
+              <select value={form.class_session} onChange={(event) => updateField('class_session', event.target.value)} required>
+                <option value="">Select class/session</option>
+                {(classSessionsByCourseCode[form.course_code] || []).map((session) => (
+                  <option value={session} key={session}>{session}</option>
+                ))}
+              </select>
+              <span className="field-helper invisible-helper">Select the class/session for this course.</span>
+            </label>
+          </div>
           <fieldset className="wide">
             <legend>What skills are you looking for?</legend>
-            <p className="field-helper">Starts with skills related to your major, plus cross-disciplinary options for mixed teams.</p>
+            <p className="field-helper">Starts with skills related to your school, plus cross-disciplinary options for mixed teams.</p>
             <CheckboxGrid
               options={requestSkillOptions}
               selected={form.skills_needed}
@@ -1070,7 +1147,7 @@ function RequestForm({ profile, onCreated, onBack }) {
 
         {error && <p className="error">{error}</p>}
         <button className="primary" type="submit" disabled={saving}>
-          {saving ? 'Creating...' : 'Find Matches'}
+          {saving ? (mode === 'edit' ? 'Saving...' : 'Creating...') : (mode === 'edit' ? 'Save Changes' : 'Find Matches')}
         </button>
       </form>
     </main>
@@ -2062,35 +2139,71 @@ function ProfileDetail({
   );
 }
 
-function CurrentRequest({ requestId, currentProfileId, onBack, onOpenChat, onViewProfile }) {
+function CurrentRequest({
+  requestId,
+  currentProfileId,
+  profile,
+  onBack,
+  onOpenChat,
+  onViewProfile,
+  onSelectRequest,
+  onCreateNew,
+}) {
   const [state, setState] = useState({
     loading: true,
     error: '',
-    request: null,
-    progress: { found_count: 0, teammates: [] },
+    requests: [],
+    progressById: {},
+    selectedId: requestId || '',
+    editingRequest: null,
+    cancelTarget: null,
     saving: false,
     success: '',
     dismissedComplete: false,
     dismissedReopen: false,
   });
 
-  const loadCurrentRequest = () => {
+  const loadRequests = () => {
     let alive = true;
 
-    Promise.all([
-      getTeamRequestById(requestId),
-      currentProfileId ? getTeamRequestProgress(requestId, currentProfileId) : Promise.resolve({ found_count: 0, teammates: [] }),
-    ])
-      .then(([request, progress]) => {
+    if (!currentProfileId) {
+      setState((current) => ({ ...current, loading: false, requests: [], progressById: {} }));
+      return () => { alive = false; };
+    }
+
+    listMyTeamRequests(currentProfileId)
+      .then(async (requests) => {
+        const progressEntries = await Promise.all(
+          requests.map(async (request) => {
+            try {
+              return [request.id, await getTeamRequestProgress(request.id, currentProfileId)];
+            } catch {
+              return [request.id, { found_count: 0, teammates: [] }];
+            }
+          }),
+        );
+
         if (alive) {
+          const stillSelected = requests.some((request) => request.id === (requestId || state.selectedId));
+          const currentMatchRequest = requests.find((request) => request.id === requestId && request.status === 'looking');
+          const nextMatchRequest = currentMatchRequest || requests.find((request) => request.status === 'looking') || null;
+          const nextSelectedId = stillSelected
+            ? requestId || state.selectedId
+            : nextMatchRequest?.id || requests[0]?.id || '';
+
           setState((current) => ({
             ...current,
             loading: false,
             error: '',
-            request,
-            progress,
+            requests,
+            progressById: Object.fromEntries(progressEntries),
+            selectedId: nextSelectedId,
             saving: false,
           }));
+
+          if ((nextMatchRequest?.id || '') !== requestId) {
+            onSelectRequest(nextMatchRequest?.id || '');
+          }
         }
       })
       .catch(() => {
@@ -2099,7 +2212,6 @@ function CurrentRequest({ requestId, currentProfileId, onBack, onOpenChat, onVie
             ...current,
             loading: false,
             error: "We couldn't load teammates right now. Please try again.",
-            request: null,
             saving: false,
           }));
         }
@@ -2109,20 +2221,22 @@ function CurrentRequest({ requestId, currentProfileId, onBack, onOpenChat, onVie
   };
 
   useEffect(() => {
-    return loadCurrentRequest();
+    return loadRequests();
   }, [requestId, currentProfileId]);
 
   const markFound = async () => {
     setState((current) => ({ ...current, saving: true, error: '', success: '' }));
 
     try {
-      const updated = await markTeamRequestFound(requestId, {
+      const updated = await markTeamRequestFound(state.selectedId, {
         editToken: getStoredRequestEditToken(),
       });
       setState((current) => ({
         ...current,
         saving: false,
-        request: { ...current.request, ...updated },
+        requests: current.requests.map((request) =>
+          request.id === updated.id ? { ...request, ...updated } : request,
+        ),
         success: 'Your request is marked as complete.',
       }));
     } catch {
@@ -2138,11 +2252,13 @@ function CurrentRequest({ requestId, currentProfileId, onBack, onOpenChat, onVie
     setState((current) => ({ ...current, saving: true, error: '', success: '' }));
 
     try {
-      const updated = await reopenTeamRequest(requestId, currentProfileId);
+      const updated = await reopenTeamRequest(state.selectedId, currentProfileId);
       setState((current) => ({
         ...current,
         saving: false,
-        request: { ...current.request, ...updated },
+        requests: current.requests.map((request) =>
+          request.id === updated.id ? { ...request, ...updated } : request,
+        ),
         dismissedReopen: true,
         success: 'Your request is open again.',
       }));
@@ -2155,31 +2271,197 @@ function CurrentRequest({ requestId, currentProfileId, onBack, onOpenChat, onVie
     }
   };
 
+  const cancelRequest = async () => {
+    const target = state.cancelTarget;
+    if (!target) return;
+
+    setState((current) => ({ ...current, saving: true, error: '', success: '' }));
+
+    try {
+      const updated = await cancelTeamRequest(target.id, currentProfileId);
+      const updatedRequests = state.requests.map((request) =>
+        request.id === updated.id ? { ...request, ...updated } : request,
+      );
+      const nextActiveRequest = updatedRequests.find((request) => request.status === 'looking');
+
+      setState((current) => ({
+        ...current,
+        requests: updatedRequests,
+        saving: false,
+        cancelTarget: null,
+        selectedId: current.selectedId === target.id ? nextActiveRequest?.id || target.id : current.selectedId,
+        success: 'Request cancelled.',
+      }));
+
+      if (state.selectedId === target.id) {
+        onSelectRequest(nextActiveRequest?.id || '');
+      }
+    } catch {
+      setState((current) => ({
+        ...current,
+        saving: false,
+        error: "We couldn't cancel this request. Please try again.",
+      }));
+    }
+  };
+
+  const selectRequest = (request, useForMatches = false) => {
+    setState((current) => ({
+      ...current,
+      selectedId: request.id,
+      dismissedComplete: false,
+      dismissedReopen: false,
+      success: '',
+      error: '',
+    }));
+    if (useForMatches && request.status === 'looking') {
+      onSelectRequest(request.id);
+    }
+  };
+
   if (state.loading) {
-    return <main className="screen compact"><p className="loading">Loading request...</p></main>;
+    return <main className="screen compact"><p className="loading">Loading requests...</p></main>;
   }
 
-  if (state.error && !state.request) {
+  if (state.error && state.requests.length === 0) {
     return <main className="screen compact"><p className="error">{state.error}</p></main>;
   }
 
-  const request = state.request;
-  const teammates = state.progress?.teammates || [];
-  const foundCount = Number(state.progress?.found_count || 0);
-  const membersNeeded = Number(request.members_needed || 0);
+  const selectedRequest = state.requests.find((request) => request.id === state.selectedId) || state.requests[0] || null;
+  const progress = selectedRequest ? state.progressById[selectedRequest.id] || { found_count: 0, teammates: [] } : { found_count: 0, teammates: [] };
+  const teammates = progress.teammates || [];
+  const foundCount = Number(progress.found_count || 0);
+  const membersNeeded = Number(selectedRequest?.members_needed || 0);
   const remaining = Math.max(0, membersNeeded - foundCount);
   const teamComplete = membersNeeded > 0 && foundCount >= membersNeeded;
-  const noLongerComplete = request.status === 'found' && !teamComplete;
+  const noLongerComplete = selectedRequest?.status === 'found' && !teamComplete;
   const progressPercent = membersNeeded ? Math.min(100, (foundCount / membersNeeded) * 100) : 0;
+  const groupedRequests = {
+    active: state.requests.filter((request) => request.status === 'looking'),
+    completed: state.requests.filter((request) => request.status === 'found'),
+    cancelled: state.requests.filter((request) => request.status === 'cancelled'),
+  };
+
+  const RequestRow = ({ request }) => {
+    const requestProgress = state.progressById[request.id] || { found_count: 0 };
+    const requestFoundCount = Number(requestProgress.found_count || 0);
+    const requestMembersNeeded = Number(request.members_needed || 0);
+    const requestRemaining = Math.max(0, requestMembersNeeded - requestFoundCount);
+    const isSelected = selectedRequest?.id === request.id;
+
+    return (
+      <article className={isSelected ? 'request-list-row selected' : 'request-list-row'}>
+        <div>
+          <h3>{getCourseDisplay(request)}</h3>
+          <p>{request.class_session || 'No class/session'} | {titleCase(request.status)}</p>
+          <p className="note">
+            {requestFoundCount} / {requestMembersNeeded} teammates found
+            {request.status === 'looking' && requestRemaining > 0 ? ` | ${requestRemaining} still needed` : ''}
+          </p>
+        </div>
+        <div className="request-row-actions">
+          <button className="secondary" onClick={() => selectRequest(request)}>View Details</button>
+          {request.status === 'looking' && (
+            <button className="secondary" onClick={() => selectRequest(request, true)}>
+              <Search size={18} />
+              Use for Matches
+            </button>
+          )}
+          <button className="secondary" onClick={() => setState((current) => ({ ...current, editingRequest: request, success: '', error: '' }))}>
+            <Pencil size={18} />
+            Edit Request
+          </button>
+          {request.status === 'looking' && (
+            <button className="secondary quiet-action" onClick={() => setState((current) => ({ ...current, cancelTarget: request, success: '', error: '' }))}>
+              <Trash2 size={18} />
+              Cancel Request
+            </button>
+          )}
+        </div>
+      </article>
+    );
+  };
+
+  const RequestSection = ({ title, requests }) => (
+    <section className="request-list-section">
+      <h3>{title}</h3>
+      {requests.length === 0 ? (
+        <p className="note">No {title.toLowerCase()} requests.</p>
+      ) : (
+        <div className="request-list">
+          {requests.map((request) => <RequestRow request={request} key={request.id} />)}
+        </div>
+      )}
+    </section>
+  );
+
+  if (state.editingRequest && profile) {
+    return (
+      <RequestForm
+        profile={profile}
+        request={state.editingRequest}
+        mode="edit"
+        onBack={() => setState((current) => ({ ...current, editingRequest: null, error: '', success: '' }))}
+        onUpdated={(updatedRequest) => {
+          setState((current) => ({
+            ...current,
+            editingRequest: null,
+            requests: current.requests.map((request) =>
+              request.id === updatedRequest.id ? { ...request, ...updatedRequest } : request,
+            ),
+            selectedId: updatedRequest.id,
+            success: 'Request updated successfully.',
+          }));
+          if (updatedRequest.status === 'looking') {
+            onSelectRequest(updatedRequest.id);
+          }
+        }}
+      />
+    );
+  }
+
+  if (!selectedRequest) {
+    return (
+      <main className="screen compact">
+        <section className="empty-state">
+          <p>No team requests yet.</p>
+          <button className="primary" onClick={onCreateNew}>
+            <Plus size={18} />
+            New Request
+          </button>
+        </section>
+      </main>
+    );
+  }
+
+  const request = selectedRequest;
 
   return (
-    <main className="screen compact">
+    <main className="screen">
       <button className="ghost" type="button" onClick={onBack}>
         <ArrowLeft size={18} />
-        Back to Matches
+        Back
       </button>
+      <div className="results-header">
+        <div>
+          <p className="eyebrow">My Request</p>
+          <h2>Your team searches</h2>
+        </div>
+        <button className="primary" onClick={onCreateNew}>
+          <Plus size={18} />
+          New Request
+        </button>
+      </div>
+
+      <div className="request-management-grid">
+        <section className="request-list-panel">
+          <RequestSection title="Active" requests={groupedRequests.active} />
+          <RequestSection title="Completed" requests={groupedRequests.completed} />
+          <RequestSection title="Cancelled" requests={groupedRequests.cancelled} />
+        </section>
+
       <section className="request-panel standalone">
-        <p className="eyebrow">My Current Request</p>
+        <p className="eyebrow">Selected Request</p>
         <h2>{getCourseDisplay(request)}</h2>
         <dl>
           <div><dt>School</dt><dd>{schoolLabel(request.school || request.profile?.school)}</dd></div>
@@ -2192,6 +2474,18 @@ function CurrentRequest({ requestId, currentProfileId, onBack, onOpenChat, onVie
           <PortfolioReference request={request} />
           <div><dt>Status</dt><dd>{titleCase(request.status)}</dd></div>
         </dl>
+        <div className="hero-actions">
+          <button className="secondary" onClick={() => setState((current) => ({ ...current, editingRequest: request, success: '', error: '' }))}>
+            <Pencil size={18} />
+            Edit Request
+          </button>
+          {request.status === 'looking' && (
+            <button className="secondary quiet-action" onClick={() => setState((current) => ({ ...current, cancelTarget: request, success: '', error: '' }))}>
+              <Trash2 size={18} />
+              Cancel Request
+            </button>
+          )}
+        </div>
         <section className="progress-panel">
           <div className="progress-header">
             <strong>Progress</strong>
@@ -2270,6 +2564,30 @@ function CurrentRequest({ requestId, currentProfileId, onBack, onOpenChat, onVie
         {state.success && <p className="success">{state.success}</p>}
         {state.error && <p className="error">{state.error}</p>}
       </section>
+      </div>
+
+      {state.cancelTarget && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="connect-modal" role="dialog" aria-modal="true" aria-label="Cancel request confirmation">
+            <div className="modal-header">
+              <div>
+                <p className="eyebrow">Cancel Request</p>
+                <h2>Cancel this request?</h2>
+              </div>
+              <button className="ghost" onClick={() => setState((current) => ({ ...current, cancelTarget: null }))} type="button">Close</button>
+            </div>
+            <p className="note">Are you sure you no longer want to look for teammates for this request?</p>
+            <div className="hero-actions">
+              <button className="secondary" onClick={() => setState((current) => ({ ...current, cancelTarget: null }))} type="button">
+                Keep Request
+              </button>
+              <button className="primary danger-action" onClick={cancelRequest} disabled={state.saving}>
+                {state.saving ? 'Cancelling...' : 'Cancel Request'}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   );
 }
@@ -2299,6 +2617,8 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onNot
     received: [],
     sent: [],
     connected: [],
+    declined: [],
+    unmatched: [],
     currentRequest: null,
     actionLoadingId: '',
     actionError: '',
@@ -2322,6 +2642,10 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onNot
         getConnectionRequests(currentProfileId, 'connected'),
         currentRequestId ? getTeamRequestById(currentRequestId).catch(() => null) : Promise.resolve(null),
       ]);
+      const [declined, unmatched] = await Promise.all([
+        getConnectionRequests(currentProfileId, 'declined'),
+        getConnectionRequests(currentProfileId, 'unmatched'),
+      ]);
       await markNotificationsRead(currentProfileId, 'connections').catch(() => {});
       onNotificationsChanged?.();
       setState((current) => ({
@@ -2330,6 +2654,8 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onNot
         received,
         sent,
         connected,
+        declined,
+        unmatched,
         currentRequest,
       }));
     } catch {
@@ -2411,12 +2737,16 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onNot
     { id: 'received', label: 'Received', rows: state.received },
     { id: 'sent', label: 'Sent', rows: state.sent },
     { id: 'connected', label: 'Connected', rows: state.connected },
+    { id: 'declined', label: 'Not Accepted', rows: state.declined },
+    { id: 'unmatched', label: 'Ended', rows: state.unmatched },
   ];
   const activeRows = tabs.find((item) => item.id === tab)?.rows || [];
   const emptyCopy = {
     received: 'No connection requests yet.',
     sent: 'No pending sent requests yet.',
     connected: 'No connected teammates yet.',
+    declined: 'No declined or cancelled requests.',
+    unmatched: 'No ended connections.',
   };
 
   return (
@@ -2460,6 +2790,8 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onNot
                   {tab === 'received' && `Received from ${request.teammate_full_name}`}
                   {tab === 'sent' && `Sent to ${request.teammate_full_name}`}
                   {tab === 'connected' && `Connected with ${request.teammate_full_name}`}
+                  {tab === 'declined' && `Not accepted with ${request.teammate_full_name}`}
+                  {tab === 'unmatched' && `Connection ended with ${request.teammate_full_name}`}
                 </p>
                 <h3>{request.teammate_full_name} {(request.teammate_is_demo || request.teammate_full_name?.includes('(Demo)')) && <DemoBadge />}</h3>
                 <p>{schoolLabel(request.teammate_school)} | {request.teammate_major}</p>
@@ -2502,7 +2834,7 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onNot
                 </div>
               </div>
               <div className="connection-actions">
-                <span className={`status-badge ${request.status}`}>{titleCase(request.status)}</span>
+                <span className={`status-badge ${request.status}`}>{connectionStatusLabel(request.status, tab)}</span>
                 {tab === 'received' && (
                   <>
                     <button
@@ -2882,7 +3214,7 @@ function MyProfile({ profile, onCreateProfile, onCreateSearch, onProfileUpdated 
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const profileSkillOptions = mergeOptionSets(getSkillsForMajor(form.major), form.skills);
+  const profileSkillOptions = mergeOptionSets(getSkillsForSchool(form.school), form.skills);
 
   const startEdit = () => {
     const school = schoolOptions.some((option) => option.value === profile.school) ? profile.school : '';
@@ -2911,6 +3243,7 @@ function MyProfile({ profile, onCreateProfile, onCreateSearch, onProfileUpdated 
       ...current,
       school: value,
       major: majorsBySchool[value]?.includes(current.major) ? current.major : '',
+      skills: filterSkillsForSchool(current.skills, value),
     }));
   };
 
@@ -2999,7 +3332,7 @@ function MyProfile({ profile, onCreateProfile, onCreateSearch, onProfileUpdated 
               </label>
               <fieldset className="wide">
                 <legend>Skills & Technologies</legend>
-                <p className="field-helper">Suggested skills update based on your major. You can still add a custom skill.</p>
+                <p className="field-helper">Suggested skills update based on your school. You can still add a custom skill.</p>
                 <CheckboxGrid
                   options={profileSkillOptions}
                   selected={form.skills}
@@ -3152,6 +3485,15 @@ export default function App() {
     setView('matches');
   };
 
+  const selectCurrentRequest = (nextRequestId) => {
+    if (nextRequestId) {
+      storeCurrentRequest(nextRequestId);
+    } else {
+      clearCurrentRequest();
+    }
+    setRequestId(nextRequestId || '');
+  };
+
   const openChat = (connectionId) => {
     setSelectedConnectionId(connectionId);
     setView('chat');
@@ -3167,7 +3509,7 @@ export default function App() {
         <div className="top-actions">
           <button className="ghost" onClick={() => setView('discover')}>Discover</button>
           {requestId && <button className="ghost" onClick={findMatches}>Find Teammates</button>}
-          {requestId && <button className="ghost" onClick={() => setView('current-request')}>My Request</button>}
+          {profileId && <button className="ghost" onClick={() => setView('current-request')}>My Request</button>}
           <button className="ghost" onClick={() => setView('connections')}>Connections{notificationCounts.connections > 0 && <span className="nav-badge">{notificationCounts.connections}</span>}</button>
           <button className="ghost" onClick={() => setView('messages')}>Messages{notificationCounts.messages > 0 && <span className="nav-badge">{notificationCounts.messages}</span>}</button>
           <button className="ghost" onClick={() => setView('my-profile')}>My Profile</button>
@@ -3238,17 +3580,20 @@ export default function App() {
         />
       )}
 
-      {view === 'current-request' && requestId && (
+      {view === 'current-request' && profileId && (
         <CurrentRequest
           requestId={requestId}
           currentProfileId={profileId}
-          onBack={() => setView('matches')}
+          profile={profile}
+          onBack={() => setView(requestId ? 'matches' : 'home')}
           onOpenChat={openChat}
           onViewProfile={(id) => {
             setSelectedRequestId(id);
             setSelectedMatchScore(null);
             setView('profile-detail');
           }}
+          onSelectRequest={selectCurrentRequest}
+          onCreateNew={startRequest}
         />
       )}
 

@@ -388,6 +388,17 @@ h3 {
   grid-template-columns: 1fr;
 }
 
+.course-session-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.invisible-helper {
+  visibility: hidden;
+}
+
 label,
 fieldset {
   display: grid;
@@ -527,6 +538,60 @@ legend {
   border: 1px solid rgba(29, 36, 51, 0.1);
   border-radius: 8px;
   background: #ffffff;
+}
+
+.request-management-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.82fr) minmax(0, 1.18fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.request-list-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.request-list-section,
+.request-list-row {
+  display: grid;
+  gap: 12px;
+}
+
+.request-list-section {
+  padding: 18px;
+  border: 1px solid rgba(29, 36, 51, 0.08);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 12px 30px rgba(29, 36, 51, 0.06);
+}
+
+.request-list-section h3,
+.request-list-row h3 {
+  margin: 0;
+}
+
+.request-list {
+  display: grid;
+  gap: 10px;
+}
+
+.request-list-row {
+  padding: 14px;
+  border: 1px solid rgba(29, 36, 51, 0.08);
+  border-radius: 8px;
+  background: #f8faf9;
+}
+
+.request-list-row.selected {
+  border-color: rgba(31, 122, 92, 0.45);
+  background: #edf7f3;
+}
+
+.request-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .progress-header,
@@ -1058,6 +1123,15 @@ dd {
   color: #8a241d;
 }
 
+.status-badge.unmatched {
+  background: #edf0f2;
+  color: #5b6971;
+}
+
+.danger-action {
+  background: #b84a42;
+}
+
 .connection-context {
   display: grid;
   gap: 8px;
@@ -1203,7 +1277,8 @@ dd {
 
 @media (max-width: 900px) {
   .home-grid,
-  .detail-layout {
+  .detail-layout,
+  .request-management-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1262,6 +1337,7 @@ dd {
   }
 
   .form-grid,
+  .course-session-row,
   .checkbox-grid,
   .match-grid,
   .discover-grid,
