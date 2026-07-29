@@ -1,4 +1,4 @@
-const normalize = (value) => value.trim().toLowerCase();
+const normalize = (value = '') => String(value || '').trim().toLowerCase();
 
 const toSet = (items = []) =>
   new Set(items.map(normalize).filter(Boolean));
@@ -35,10 +35,21 @@ const complementarySkillScore = (currentProfile, currentRequest, candidate) => {
   return candidateHasWhatUserNeeds;
 };
 
+const courseAliases = (request = {}) =>
+  [...new Set([
+    request.course_code,
+    request.course_name,
+    request.course,
+  ].map(normalize).filter(Boolean))];
+
+const coursesMatch = (left, right) => {
+  const leftAliases = courseAliases(left);
+  const rightAliases = new Set(courseAliases(right));
+  return leftAliases.some((alias) => rightAliases.has(alias));
+};
+
 export const calculateMatchScore = (currentProfile, currentRequest, candidate) => {
-  const currentCourseKey = currentRequest?.course_code || currentRequest?.course_name || currentRequest?.course || '';
-  const candidateCourseKey = candidate?.course_code || candidate?.course_name || candidate?.course || '';
-  const sameCourse = normalize(currentCourseKey) === normalize(candidateCourseKey);
+  const sameCourse = coursesMatch(currentRequest, candidate);
   const sameClass =
     normalize(currentRequest?.class_session || '') === normalize(candidate?.class_session || '');
   const sameMajor =
