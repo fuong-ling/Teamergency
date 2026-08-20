@@ -76,13 +76,15 @@ export const updateProfile = async (profileId, profileData) => {
 
   const { data, error } = await client.rpc('update_profile', {
     p_profile_id: profileId,
-    p_full_name: profileData.full_name,
+    p_university: profileData.university || 'RMIT University',
     p_school: profileData.school,
     p_major: profileData.major,
+    p_full_name: profileData.full_name,
     p_skills: profileData.skills,
     p_contact_type: profileData.contact_type,
     p_contact_value: profileData.contact_value,
     p_short_bio: profileData.short_bio,
+    p_is_available: profileData.is_available ?? true,
   });
 
   if (error) throw error;
@@ -91,6 +93,89 @@ export const updateProfile = async (profileId, profileData) => {
   }
 
   return data[0];
+};
+
+const fallbackAssessment = (match) => ({
+  ...match,
+  aiScore: match.matchScore,
+  aiExplanation: 'Calculated using standard matching.',
+  aiStrengths: [],
+  aiGaps: [],
+  aiFallbackUsed: true,
+});
+
+const saveAIMatchResult = async (client, currentRequest, candidate, ruleBasedScore, assessment) => {
+  if (!assessment || assessment.fallback_used) return;
+
+  await client
+    .from('ai_match_results')
+    .insert({
+      request_id: currentRequest.id,
+      candidate_profile_id: candidate.profile_id,
+      candidate_request_id: candidate.id,
+      rule_based_score: ruleBasedScore,
+      ai_score: assessment.match_score,
+      explanation: assessment.explanation,
+      strengths: assessment.strengths || [],
+      potential_gaps: assessment.potential_gaps || [],
+      fallback_used: false,
+    })
+    .throwOnError()
+    .catch(() => null);
+};
+
+const getAIMatchAssessment = async (client, currentProfile, currentRequest, candidate) => {
+  const { data, error } = await client.functions.invoke('ai-match', {
+    body: {
+      ruleBasedScore: candidate.matchScore,
+      currentProfile,
+      currentRequest,
+      candidateProfile: candidate.profile,
+      candidateRequest: candidate,
+      reviewSummary: candidate.profile?.review_summary || null,
+    },
+  });
+
+  if (error) throw error;
+  if (!data || data.fallback_used) {
+    throw new Error('AI assessment unavailable.');
+  }
+
+  return {
+    match_score: Math.max(0, Math.min(100, Math.round(Number(data.match_score || candidate.matchScore)))),
+    explanation: data.explanation || 'Calculated using AI-assisted matching.',
+    strengths: Array.isArray(data.strengths) ? data.strengths : [],
+    potential_gaps: Array.isArray(data.potential_gaps) ? data.potential_gaps : [],
+    fallback_used: false,
+  };
+};
+
+const enhanceMatchesWithAI = async (currentProfile, currentRequest, matches) => {
+  const { client } = await getAuthenticatedClient();
+
+  const enhanced = await Promise.all(
+    matches.map(async (match) => {
+      try {
+        const assessment = await getAIMatchAssessment(client, currentProfile, currentRequest, match);
+        await saveAIMatchResult(client, currentRequest, match, match.matchScore, assessment);
+
+        return {
+          ...match,
+          ruleBasedScore: match.matchScore,
+          matchScore: assessment.match_score,
+          aiScore: assessment.match_score,
+          aiExplanation: assessment.explanation,
+          aiStrengths: assessment.strengths,
+          aiGaps: assessment.potential_gaps,
+          aiFallbackUsed: false,
+        };
+      } catch {
+        return fallbackAssessment(match);
+      }
+    }),
+  );
+
+  return enhanced;
 };
 
 export const createTeamRequest = async (profileId, requestData) => {
@@ -281,19 +366,22 @@ export const getMatchesForRequest = async (requestId) => {
   const matches = activeRequests
     .filter((request) => request.id !== requestId)
     .filter((request) => request.profile_id !== currentRequest.profile_id)
-    .filter((request) =>
-      (request.profile?.major || request.major || '').trim().toLowerCase() ===
-      (currentProfile?.major || currentRequest.major || '').trim().toLowerCase(),
-    )
+    .filter((request) => {
+      const currentUniversity = (currentProfile?.university || 'RMIT University').trim().toLowerCase();
+      const candidateUniversity = (request.profile?.university || 'RMIT University').trim().toLowerCase();
+      return currentUniversity === candidateUniversity;
+    })
     .map((request) => ({
       ...request,
       matchScore: calculateMatchScore(currentProfile, currentRequest, request),
     }));
+  const sortedRuleMatches = sortMatches(matches);
+  const enhancedMatches = await enhanceMatchesWithAI(currentProfile, currentRequest, sortedRuleMatches);
 
   return {
     currentProfile,
     currentRequest,
-    matches: sortMatches(matches),
+    matches: sortMatches(enhancedMatches),
   };
 };
 
@@ -361,13 +449,27 @@ export const sendConnectionRequest = async ({
   return data[0];
 };
 
-export const getConnectionBetween = async (currentProfileId, teammateProfileId) => {
+export const getConnectionBetween = async (currentProfileId, teammateProfileId, context = '') => {
   const { client } = await getAuthenticatedClient();
-  const { data, error } = await client.rpc('get_connection_between', {
-    current_profile: currentProfileId,
-    teammate_profile: teammateProfileId,
-  });
+  let result = context
+    ? await client.rpc('get_connection_between_for_context', {
+      current_profile: currentProfileId,
+      teammate_profile: teammateProfileId,
+      requested_context: context,
+    })
+    : await client.rpc('get_connection_between', {
+      current_profile: currentProfileId,
+      teammate_profile: teammateProfileId,
+    });
 
+  if (result.error && context && result.error.message?.includes('get_connection_between_for_context')) {
+    result = await client.rpc('get_connection_between', {
+      current_profile: currentProfileId,
+      teammate_profile: teammateProfileId,
+    });
+  }
+
+  const { data, error } = result;
   if (error) throw error;
   return data?.[0] || null;
 };
@@ -554,4 +656,74 @@ export const resetDemoConnection = async (connectionId, currentProfileId) => {
 
   if (error) throw error;
   return data?.[0] || null;
+};
+
+export const listFriends = async (currentProfileId) => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc('list_friends', {
+    current_profile: currentProfileId,
+  });
+
+  if (error) throw error;
+  return data || [];
+};
+
+export const listProfileReviews = async (profileId) => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc('list_profile_reviews', {
+    requested_profile: profileId,
+  });
+
+  if (error) throw error;
+  return data || [];
+};
+
+export const createReview = async ({
+  reviewerProfileId,
+  reviewedProfileId,
+  connectionId,
+  teamRequestId,
+  rating,
+  reviewText,
+}) => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc('create_review', {
+    reviewer_profile: reviewerProfileId,
+    reviewed_profile: reviewedProfileId,
+    connection_request: connectionId,
+    team_request: teamRequestId,
+    rating_value: rating,
+    review_body: reviewText || '',
+  });
+
+  if (error) throw error;
+  if (!data?.length) {
+    throw new Error('Review was not saved.');
+  }
+
+  return data[0];
+};
+
+export const createMatchFeedback = async ({
+  connectionId,
+  teamRequestId,
+  reviewerProfileId,
+  score,
+  feedbackText,
+}) => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc('create_match_usefulness_feedback', {
+    team_request: teamRequestId,
+    reviewer_profile: reviewerProfileId,
+    connection_request: connectionId || null,
+    rating_value: score,
+    feedback_body: feedbackText || '',
+  });
+
+  if (error) throw error;
+  if (!data?.length) {
+    throw new Error('Feedback was not saved.');
+  }
+
+  return data[0];
 };

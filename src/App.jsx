@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
+  ArrowRight,
   CheckCircle2,
   Clock3,
   GraduationCap,
@@ -20,6 +21,8 @@ import {
   cancelConnectionRequest,
   cancelTeamRequest,
   createProfile,
+  createMatchFeedback,
+  createReview,
   createTeamRequest,
   getConnectionBetween,
   getConnectionDetail,
@@ -37,6 +40,8 @@ import {
   getPortfolioReferenceUrl,
   markNotificationsRead,
   markTeamRequestFound,
+  listFriends,
+  listProfileReviews,
   respondConnectionRequest,
   resetDemoConnection,
   reopenTeamRequest,
@@ -50,6 +55,7 @@ import {
   uploadPortfolioReference,
 } from './lib/database';
 import { hasSupabaseConfig } from './lib/supabase';
+import { REVIEW_WAIT_DAYS } from './lib/config';
 import {
   classSessionsByCourseCode,
   connectMessageSuggestions,
@@ -59,11 +65,13 @@ import {
   getAllSkills,
   getCoursesForSchool,
   getRequestSkillOptions,
+  getSchoolsForUniversity,
   getSkillsForSchool,
   majorsBySchool,
   requirementOptions,
   schoolOptions,
   toolOptions,
+  universityOptions,
   workStyleOptions,
 } from './lib/catalog';
 import {
@@ -104,6 +112,7 @@ const unmatchReasons = [
 
 const emptyProfile = {
   full_name: '',
+  university: 'RMIT University',
   school: '',
   major: '',
   skills: [],
@@ -111,6 +120,7 @@ const emptyProfile = {
   contact_type: 'email',
   contact_value: '',
   short_bio: '',
+  is_available: true,
   consent_public_visibility: false,
 };
 
@@ -209,12 +219,28 @@ const getFriendlyError = (error, fallback) => {
     return 'The team size migration has not been applied yet. Run supabase/bidirectional_match_team_size.sql in Supabase.';
   }
 
+  if (
+    error?.message?.includes('p_university')
+    || error?.message?.includes("Could not find the 'university' column")
+    || error?.message?.includes("Could not find the 'is_available' column")
+  ) {
+    return 'The A3 iteration migration has not been applied yet. Run supabase/a3_iteration_features.sql in Supabase.';
+  }
+
   if (error?.message?.includes('Profile ownership required')) {
     return 'This profile is not linked to the current browser session. Refresh the app first. If this keeps happening, create a new profile on this browser.';
   }
 
   if (error?.message?.includes('Profile was not updated')) {
     return 'This profile is not linked to the current browser session, so it cannot be edited from here. Refresh first; if it still happens, create a new profile on this browser.';
+  }
+
+  if (error?.message?.includes('Review is not available yet')) {
+    return `Review not available yet. You’ll be able to review this teammate after at least ${REVIEW_WAIT_DAYS} days.`;
+  }
+
+  if (error?.code === '23505' || error?.message?.includes('duplicate key')) {
+    return 'You already submitted this once for this match.';
   }
 
   return error?.message ? `${fallback} (${error.message})` : fallback;
@@ -232,6 +258,62 @@ const contactLabel = (value) => {
 
 const schoolLabel = (value) =>
   schoolOptions.find((school) => school.value === value)?.label || value || 'Not specified';
+
+const universityLabel = (value) =>
+  universityOptions.find((university) => university.value === value)?.label || value || 'RMIT University';
+
+const getReviewSummary = (profile = {}) => {
+  const summary = profile.review_summary || {};
+  return {
+    average: Number(summary.average_rating || summary.average || 0),
+    count: Number(summary.review_count || summary.count || 0),
+  };
+};
+
+const reviewSummaryLabel = (profile = {}) => {
+  const summary = getReviewSummary(profile);
+  return summary.count > 0
+    ? `${summary.average.toFixed(1)} ★ · Based on ${summary.count} ${summary.count === 1 ? 'review' : 'reviews'}`
+    : 'No reviews yet.';
+};
+
+const normalizeSkill = (value) => String(value || '').trim().toLowerCase();
+
+const calculateSkillGap = (request, profile, teammates = []) => {
+  const required = request?.skills_needed || [];
+  const teamSkills = [
+    ...(profile?.skills || []),
+    ...teammates.flatMap((teammate) => teammate.skills || teammate.teammate_skills || []),
+  ];
+  const teamSkillSet = new Set(teamSkills.map(normalizeSkill).filter(Boolean));
+
+  const covered = required.filter((skill) => teamSkillSet.has(normalizeSkill(skill)));
+  const missing = required.filter((skill) => !teamSkillSet.has(normalizeSkill(skill)));
+
+  return {
+    covered,
+    missing,
+    total: required.length,
+  };
+};
+
+const getReviewEligibility = (connection) => {
+  const acceptedAt = connection?.accepted_at || connection?.updated_at || connection?.created_at;
+  const acceptedDate = acceptedAt ? new Date(acceptedAt) : null;
+
+  if (!acceptedDate || Number.isNaN(acceptedDate.getTime())) {
+    return { eligible: false, remainingDays: REVIEW_WAIT_DAYS, eligibleAt: null };
+  }
+
+  const eligibleAt = new Date(acceptedDate.getTime() + REVIEW_WAIT_DAYS * 24 * 60 * 60 * 1000);
+  const remainingDays = Math.max(0, Math.ceil((eligibleAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000)));
+
+  return {
+    eligible: remainingDays === 0,
+    remainingDays,
+    eligibleAt,
+  };
+};
 
 const allCourseOptions = getAllCourses();
 
@@ -638,47 +720,25 @@ function Home({ profileId, requestId, onStartProfile, onStartRequest, onFindMatc
   return (
     <main className="home-grid">
       <section className="intro">
-        <div className="brand-mark">
-          <UsersRound size={32} />
-        </div>
-        <p className="eyebrow">TEAMERGENCY</p>
-        <h1>Find your team before it becomes an emergency.</h1>
+        <h1>
+          <span className="hero-line">Find the right <span className="brand-blue">Teammate.</span></span>
+          <span className="hero-line">Build better projects <span className="brand-red">Emergency.</span></span>
+        </h1>
         <p className="lead">
-          Create a reusable student profile, post one current teammate search, then browse
-          classmates who fit your course, skills, and schedule.
+          Help students connect with the right teammates faster and build great projects together.
         </p>
         <div className="hero-actions">
-          <button className="primary" onClick={profileId ? onStartRequest : onStartProfile}>
-            {profileId ? 'Create Teammate Search' : 'Create Profile'}
+          <button className="primary" onClick={requestId ? onFindMatches : (profileId ? onStartRequest : onStartProfile)}>
+            Find Teammates
+            <ArrowRight size={18} />
           </button>
-          {requestId && (
-            <button className="secondary" onClick={onFindMatches}>
-              <Search size={18} />
-              Find Matches
-            </button>
-          )}
+          <button className="secondary" onClick={profileId ? onStartRequest : onStartProfile}>
+            Create a Request
+          </button>
         </div>
-      </section>
-
-      <section className="flow-panel" aria-label="Current setup">
-        <StepRail step={profileId ? (requestId ? 2 : 1) : 0} />
-        <div className="status-grid">
-          <div>
-            <UserRound size={22} />
-            <strong>{profileId ? 'Profile saved' : 'Profile needed'}</strong>
-            <span>Long-term student details</span>
-          </div>
-          <div>
-            <Search size={22} />
-            <strong>{requestId ? 'Search active' : 'No current search'}</strong>
-            <span>One course-specific request</span>
-          </div>
-          <div>
-            <CheckCircle2 size={22} />
-            <strong>Found is per request</strong>
-            <span>Your profile stays reusable</span>
-          </div>
-        </div>
+        <button className="signup-inline" type="button" onClick={onStartProfile}>
+          Not have an Account? <span>Sign Up</span>
+        </button>
       </section>
     </main>
   );
@@ -689,6 +749,7 @@ function ProfileForm({ onSaved }) {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const profileSkillOptions = mergeOptionSets(getSkillsForSchool(form.school), form.skills);
+  const profileSchoolOptions = getSchoolsForUniversity(form.university);
 
   const updateField = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -732,12 +793,14 @@ function ProfileForm({ onSaved }) {
     try {
       const profile = await createProfile({
         full_name: form.full_name.trim(),
+        university: form.university || 'RMIT University',
         school: form.school.trim(),
         major: form.major.trim(),
         skills,
         contact_type: form.contact_type,
         contact_value: form.contact_value.trim() || null,
         short_bio: form.short_bio.trim(),
+        is_available: true,
         consent_public_visibility: true,
       });
       storeProfileId(profile.id);
@@ -767,10 +830,18 @@ function ProfileForm({ onSaved }) {
             <input value={form.full_name} onChange={(event) => updateField('full_name', event.target.value)} required />
           </label>
           <label>
+            University
+            <select value={form.university} onChange={(event) => updateField('university', event.target.value)} required>
+              {universityOptions.map((university) => (
+                <option value={university.value} key={university.value}>{university.label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
             School
             <select value={form.school} onChange={(event) => updateSchool(event.target.value)} required>
               <option value="">Select school</option>
-              {schoolOptions.map((school) => (
+              {profileSchoolOptions.map((school) => (
                 <option value={school.value} key={school.value}>{school.label}</option>
               ))}
             </select>
@@ -1249,8 +1320,14 @@ function MatchCard({ request, connectionState, onView }) {
         <Sparkles size={18} />
         {request.matchScore}% Match
       </div>
+      {request.ruleBasedScore !== undefined && request.ruleBasedScore !== request.matchScore && (
+        <p className="note">Standard score: {request.ruleBasedScore}%</p>
+      )}
       <h3>{displayName(request.profile.full_name)} {request.profile.is_demo && <DemoBadge />}</h3>
-      <p>{schoolLabel(request.profile.school)} | {request.profile.major}</p>
+      <p>{universityLabel(request.profile.university)} | {schoolLabel(request.profile.school)} | {request.profile.major}</p>
+      <p className={request.profile.is_available === false ? 'note unavailable-text' : 'note'}>
+        {request.profile.is_available === false ? 'Unavailable' : reviewSummaryLabel(request.profile)}
+      </p>
       <div className="match-meta">
         <span>{getCourseDisplay(request)}</span>
         {request.class_session && <span>{request.class_session}</span>}
@@ -1268,6 +1345,22 @@ function MatchCard({ request, connectionState, onView }) {
         <strong>Work style</strong>
         <span>{joinList(getWorkStyles(request))}</span>
       </div>
+      <div className="mini-detail">
+        <strong>Why this match</strong>
+        <span>{request.aiExplanation || 'Calculated using standard matching.'}</span>
+      </div>
+      {request.aiStrengths?.length > 0 && (
+        <div className="mini-detail">
+          <strong>Strengths</strong>
+          <span>{joinList(request.aiStrengths)}</span>
+        </div>
+      )}
+      {request.aiGaps?.length > 0 && (
+        <div className="mini-detail">
+          <strong>Potential gaps</strong>
+          <span>{joinList(request.aiGaps)}</span>
+        </div>
+      )}
       <ConnectionStateBadge state={connectionState} />
       <button className="secondary" onClick={() => onView(request.id, request.matchScore)}>
         View Profile
@@ -1374,7 +1467,7 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
             [...new Set(data.matches.map((request) => request.profile_id))]
               .map(async (profileId) => {
                 try {
-                  return [profileId, await getConnectionBetween(currentProfileId, profileId)];
+                  return [profileId, await getConnectionBetween(currentProfileId, profileId, 'team_request')];
                 } catch {
                   return [profileId, null];
                 }
@@ -1498,7 +1591,7 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
 
       {matches.length === 0 ? (
         <section className="empty-state">
-          <p>No same-major teammate searches are available right now.</p>
+          <p>No active teammate searches are available right now.</p>
           <button className="primary" onClick={onCreateNew}>Create Another Search</button>
         </section>
       ) : visibleMatches.length === 0 ? (
@@ -1534,7 +1627,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
     modalProfile: null,
     modalError: '',
   });
-  const [filters, setFilters] = useState({ school: '', major: '', course: '', skill: '' });
+  const [filters, setFilters] = useState({ university: '', school: '', major: '', course: '', skill: '' });
 
   useEffect(() => {
     let alive = true;
@@ -1546,7 +1639,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
           ? await Promise.all(
             visibleProfiles.map(async (profile) => {
               try {
-                return [profile.id, await getConnectionBetween(currentProfileId, profile.id)];
+                return [profile.id, await getConnectionBetween(currentProfileId, profile.id, 'discover')];
               } catch {
                 return [profile.id, null];
               }
@@ -1589,6 +1682,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
   ).filter((course, index, list) => list.findIndex((item) => item.code === course.code) === index);
   const filteredProfiles = state.profiles
     .filter((profile) => profile.id !== currentProfileId)
+    .filter((profile) => !filters.university || (profile.university || 'RMIT University') === filters.university)
     .filter((profile) => !filters.school || profile.school === filters.school)
     .filter((profile) => !filters.major || profile.major === filters.major)
     .filter((profile) => !filters.course || requestsByProfile[profile.id]?.some((request) => courseMatchesFilter(request, filters.course)))
@@ -1639,6 +1733,18 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
       </div>
 
       <section className="filter-panel">
+        <label>
+          University
+          <select
+            value={filters.university}
+            onChange={(event) => setFilters((current) => ({ ...current, university: event.target.value }))}
+          >
+            <option value="">All universities</option>
+            {universityOptions.map((university) => (
+              <option value={university.value} key={university.value}>{university.label}</option>
+            ))}
+          </select>
+        </label>
         <label>
           School
           <select
@@ -1701,8 +1807,10 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
               <article className="discover-card" key={profile.id}>
                 <div className="avatar">{displayInitial(profile.full_name)}</div>
                 <h3>{displayName(profile.full_name)} {profile.is_demo && <DemoBadge />}</h3>
+                <p>{universityLabel(profile.university)}</p>
                 <p>{schoolLabel(profile.school)}</p>
                 <p>{profile.major}</p>
+                <p className="note">{profile.is_available === false ? 'Unavailable' : reviewSummaryLabel(profile)}</p>
                 {requestsByProfile[profile.id]?.[0] && (
                   <p>{getCourseDisplay(requestsByProfile[profile.id][0])}</p>
                 )}
@@ -1767,6 +1875,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
     profile: null,
     activeRequest: null,
     connection: null,
+    reviews: [],
     modalOpen: false,
     sending: false,
     simulating: false,
@@ -1782,12 +1891,13 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
     getProfileById(profileId)
       .then(async (profile) => {
         const [connection, activeRequests] = await Promise.all([
-          currentProfileId ? getConnectionBetween(currentProfileId, profile.id) : Promise.resolve(null),
+          currentProfileId ? getConnectionBetween(currentProfileId, profile.id, 'discover') : Promise.resolve(null),
           getActiveTeamRequests().catch(() => []),
         ]);
+        const reviews = await listProfileReviews(profile.id).catch(() => []);
         const activeRequest = activeRequests.find((request) => request.profile_id === profile.id) || null;
         if (alive) {
-          setState((current) => ({ ...current, loading: false, error: '', profile, activeRequest, connection }));
+          setState((current) => ({ ...current, loading: false, error: '', profile, activeRequest, connection, reviews }));
         }
       })
       .catch(() => {
@@ -1915,7 +2025,9 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
         <p>{profile.short_bio || 'No bio added yet.'}</p>
         <dl>
           <div><dt>School</dt><dd>{schoolLabel(profile.school)}</dd></div>
+          <div><dt>University</dt><dd>{universityLabel(profile.university)}</dd></div>
           <div><dt>Major</dt><dd>{profile.major}</dd></div>
+          <div><dt>Availability</dt><dd>{profile.is_available === false ? 'Unavailable' : 'Available for collaboration'}</dd></div>
           <div><dt>Skills they have</dt><dd>{joinList(profile.skills)}</dd></div>
           <div>
             <dt>Contact</dt>
@@ -1928,6 +2040,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
             </dd>
           </div>
         </dl>
+        <ReviewsSection profile={profile} reviews={state.reviews} />
         {state.activeRequest && (
           <div className="request-summary-box">
             <p className="eyebrow">Looking for a Teammate</p>
@@ -2011,6 +2124,179 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
   );
 }
 
+function ReviewsSection({ reviews = [], profile }) {
+  return (
+    <section className="request-summary-box">
+      <p className="eyebrow">Teammate Reviews</p>
+      <h3>{reviewSummaryLabel(profile)}</h3>
+      {reviews.length === 0 ? (
+        <p className="note">No teammate reviews yet.</p>
+      ) : (
+        <div className="review-list">
+          {reviews.map((review) => (
+            <article className="review-card" key={review.id}>
+              {review.is_demo && <span className="status-badge pending">Demo Review</span>}
+              <strong>{'★'.repeat(review.rating)}{'☆'.repeat(5 - review.rating)}</strong>
+              {review.review_text && <p>"{review.review_text}"</p>}
+              {review.course_name && <span>Course: {review.course_name}</span>}
+              {review.review_context && <span>Reviewed after: {review.review_context}</span>}
+              <span>{review.reviewer_name || 'A teammate'}</span>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function TeammateFeedbackPanel({ connection, currentProfileId, reviewedProfileId, teamRequestId }) {
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewText, setReviewText] = useState('');
+  const [saving, setSaving] = useState('');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  if (!connection || connection.status !== 'accepted' || connection.connection_context !== 'team_request' || !teamRequestId) {
+    return null;
+  }
+
+  const eligibility = getReviewEligibility(connection);
+
+  const submitReview = async (event) => {
+    event.preventDefault();
+    setSaving('review');
+    setMessage('');
+    setError('');
+
+    try {
+      await createReview({
+        reviewerProfileId: currentProfileId,
+        reviewedProfileId,
+        connectionId: connection.id,
+        teamRequestId,
+        rating: Number(reviewRating),
+        reviewText,
+      });
+      setMessage('Teammate review saved.');
+    } catch (err) {
+      setError(getFriendlyError(err, "We couldn't save your review. Please try again."));
+    } finally {
+      setSaving('');
+    }
+  };
+
+  return (
+    <section className="request-summary-box">
+      <p className="eyebrow">Teammate Review</p>
+      {!eligibility.eligible ? (
+        <div className="locked-box">
+          <h3>Review not available yet</h3>
+          <p>You’ll be able to review this teammate after you’ve worked together for at least {REVIEW_WAIT_DAYS} days.</p>
+          <p className="note">Available in {eligibility.remainingDays} {eligibility.remainingDays === 1 ? 'day' : 'days'}.</p>
+        </div>
+      ) : (
+        <form className="feedback-form" onSubmit={submitReview}>
+          <h3>How was it working with this teammate?</h3>
+          <label>
+            Teammate rating
+            <select value={reviewRating} onChange={(event) => setReviewRating(event.target.value)}>
+              {[5, 4, 3, 2, 1].map((rating) => (
+                <option value={rating} key={rating}>{rating} star{rating === 1 ? '' : 's'}</option>
+              ))}
+            </select>
+          </label>
+          <textarea
+            value={reviewText}
+            onChange={(event) => setReviewText(event.target.value)}
+            rows="3"
+            placeholder="Reliable and communicates clearly."
+          />
+          <button className="secondary" type="submit" disabled={saving === 'review'}>
+            {saving === 'review' ? 'Saving...' : 'Submit Teammate Review'}
+          </button>
+        </form>
+      )}
+      {message && <p className="success">{message}</p>}
+      {error && <p className="error">{error}</p>}
+    </section>
+  );
+}
+
+function MatchUsefulnessPanel({ request, currentProfileId, teamComplete }) {
+  const [rating, setRating] = useState(5);
+  const [feedbackText, setFeedbackText] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  if (!request || !currentProfileId || !teamComplete) return null;
+
+  const labels = {
+    1: 'Not useful',
+    2: 'Not very useful',
+    3: 'Okay',
+    4: 'Useful',
+    5: 'Very useful',
+  };
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    setMessage('');
+    setError('');
+
+    try {
+      await createMatchFeedback({
+        connectionId: null,
+        teamRequestId: request.id,
+        reviewerProfileId: currentProfileId,
+        score: Number(rating),
+        feedbackText,
+      });
+      setMessage('Match usefulness rating saved.');
+    } catch (err) {
+      setError(getFriendlyError(err, "We couldn't save match usefulness rating. Please try again."));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="request-summary-box">
+      <p className="eyebrow">Match Usefulness Rating</p>
+      <h3>How useful were Teamergency’s matches in helping you form this team?</h3>
+      <p className="note">This rating is about the quality of Teamergency’s match recommendation, not the other person.</p>
+      <form className="feedback-form" onSubmit={submit}>
+        <div className="star-rating" role="radiogroup" aria-label="Match usefulness rating">
+          {[1, 2, 3, 4, 5].map((value) => (
+            <button
+              className={Number(rating) >= value ? 'selected' : ''}
+              key={value}
+              type="button"
+              onClick={() => setRating(value)}
+              aria-label={`${value} stars - ${labels[value]}`}
+            >
+              ★
+            </button>
+          ))}
+        </div>
+        <strong>{labels[rating]}</strong>
+        <textarea
+          value={feedbackText}
+          onChange={(event) => setFeedbackText(event.target.value)}
+          rows="3"
+          placeholder="What worked well or what could improve?"
+        />
+        <button className="secondary" type="submit" disabled={saving}>
+          {saving ? 'Saving...' : 'Submit Match Usefulness Rating'}
+        </button>
+      </form>
+      {message && <p className="success">{message}</p>}
+      {error && <p className="error">{error}</p>}
+    </section>
+  );
+}
+
 function ProfileDetail({
   requestId,
   currentProfileId,
@@ -2025,6 +2311,7 @@ function ProfileDetail({
     error: '',
     request: null,
     connection: null,
+    reviews: [],
     actionError: '',
     actionSuccess: '',
     actionLoading: false,
@@ -2040,8 +2327,9 @@ function ProfileDetail({
     getTeamRequestById(requestId)
       .then(async (request) => {
         const connection = currentProfileId
-          ? await getConnectionBetween(currentProfileId, request.profile.id)
+          ? await getConnectionBetween(currentProfileId, request.profile.id, 'team_request')
           : null;
+        const reviews = await listProfileReviews(request.profile.id).catch(() => []);
 
         if (alive) {
           setState((current) => ({
@@ -2050,6 +2338,7 @@ function ProfileDetail({
             error: '',
             request,
             connection,
+            reviews,
           }));
         }
       })
@@ -2083,6 +2372,9 @@ function ProfileDetail({
   const canSendConnection = currentProfileId && !isOwnProfile;
   const connection = state.connection;
   const connectionState = getConnectionState(connection, currentProfileId);
+  const feedbackTeamRequestId = connection?.sender_profile_id === currentProfileId
+    ? connection.sender_team_request_id
+    : connection?.receiver_team_request_id || request.id;
 
   const connect = async (introMessage) => {
     setState((current) => ({ ...current, actionLoading: true, actionError: '' }));
@@ -2249,8 +2541,11 @@ function ProfileDetail({
           <h2>{displayName(profile.full_name)} {profile.is_demo && <DemoBadge />}</h2>
           <p>{profile.short_bio || 'No bio added yet.'}</p>
           <dl>
+            <div><dt>University</dt><dd>{universityLabel(profile.university)}</dd></div>
             <div><dt>School</dt><dd>{schoolLabel(profile.school)}</dd></div>
             <div><dt>Major</dt><dd>{profile.major}</dd></div>
+            <div><dt>Availability</dt><dd>{profile.is_available === false ? 'Unavailable' : 'Available for collaboration'}</dd></div>
+            <div><dt>Reviews</dt><dd>{reviewSummaryLabel(profile)}</dd></div>
             <div>
               <dt>Contact</dt>
               <dd>
@@ -2269,6 +2564,7 @@ function ProfileDetail({
           {state.actionError && <p className="error">{state.actionError}</p>}
           {state.actionSuccess && <p className="success">{state.actionSuccess}</p>}
           {renderConnectionAction()}
+          <ReviewsSection profile={profile} reviews={state.reviews} />
           {profile.is_demo && (
             <DemoSimulationPanel
               connection={connection}
@@ -2297,6 +2593,12 @@ function ProfileDetail({
             <PortfolioReference request={request} />
           </dl>
           {currentRequestId === request.id && <p className="note">This is your current request.</p>}
+          <TeammateFeedbackPanel
+            connection={connection}
+            currentProfileId={currentProfileId}
+            reviewedProfileId={profile.id}
+            teamRequestId={feedbackTeamRequestId}
+          />
         </div>
       </section>
       {state.connectModalOpen && (
@@ -2512,6 +2814,7 @@ function CurrentRequest({
   const metrics = getTeamProgress(selectedRequest, progress);
   const foundCount = metrics.found;
   const teamComplete = metrics.complete;
+  const skillGap = calculateSkillGap(selectedRequest, profile, teammates);
   const noLongerComplete = selectedRequest?.status === 'found' && !teamComplete;
   const groupedRequests = {
     active: state.requests.filter((request) => request.status === 'looking'),
@@ -2666,6 +2969,29 @@ function CurrentRequest({
           </div>
           {teamComplete ? <p className="success">Team complete 🎉</p> : <p className="note">{remainingSummary(metrics)}</p>}
           {metrics.matchedCount > 0 && !teamComplete && <p className="note">You found another teammate! {remainingSummary(metrics)}</p>}
+        </section>
+
+        <MatchUsefulnessPanel
+          request={request}
+          currentProfileId={currentProfileId}
+          teamComplete={teamComplete}
+        />
+
+        <section className="progress-panel">
+          <div className="progress-header">
+            <strong>Skill Coverage</strong>
+            <span>{skillGap.covered.length} / {skillGap.total} skills covered</span>
+          </div>
+          <div className="connection-context">
+            <div className="mini-detail">
+              <strong>Covered Skills</strong>
+              <span>{joinList(skillGap.covered)}</span>
+            </div>
+            <div className="mini-detail">
+              <strong>Missing Skills</strong>
+              <span>{joinList(skillGap.missing)}</span>
+            </div>
+          </div>
         </section>
 
         <section className="matched-list">
@@ -3064,6 +3390,128 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onNot
   );
 }
 
+function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
+  const [state, setState] = useState({ loading: true, error: '', friends: [], removeTarget: null, saving: false, success: '' });
+
+  const loadFriends = () => {
+    if (!currentProfileId) {
+      setState((current) => ({ ...current, loading: false, friends: [] }));
+      return;
+    }
+
+    setState((current) => ({ ...current, loading: true, error: '' }));
+    listFriends(currentProfileId)
+      .then((friends) => setState((current) => ({ ...current, loading: false, friends })))
+      .catch(() => setState((current) => ({
+        ...current,
+        loading: false,
+        error: "We couldn't load friends right now. Please try again.",
+      })));
+  };
+
+  useEffect(() => {
+    loadFriends();
+  }, [currentProfileId]);
+
+  const removeFriend = async (reason = 'Our project needs have changed') => {
+    const target = state.removeTarget;
+    if (!target) return;
+    setState((current) => ({ ...current, saving: true, error: '' }));
+
+    try {
+      await unmatchConnectionRequest({
+        connectionId: target.connection_id,
+        currentProfileId,
+        reason,
+        note: 'Removed from Friends',
+      });
+      setState((current) => ({
+        ...current,
+        saving: false,
+        removeTarget: null,
+        success: `Removed ${displayName(target.teammate_full_name)} from Friends.`,
+      }));
+      loadFriends();
+    } catch {
+      setState((current) => ({
+        ...current,
+        saving: false,
+        error: "We couldn't remove this friend. Please try again.",
+      }));
+    }
+  };
+
+  return (
+    <main className="screen">
+      <div className="results-header">
+        <div>
+          <p className="eyebrow">Friends</p>
+          <h2>Discover connections</h2>
+        </div>
+      </div>
+      {!currentProfileId && <section className="empty-state"><p>Create a profile before adding Friends.</p></section>}
+      {state.loading && currentProfileId && <p className="loading">Loading friends...</p>}
+      {state.error && <p className="error">{state.error}</p>}
+      {state.success && <p className="success">{state.success}</p>}
+      {!state.loading && currentProfileId && state.friends.length === 0 && (
+        <section className="empty-state">
+          <p>No Friends yet. Discover students and connect for networking.</p>
+        </section>
+      )}
+      {!state.loading && state.friends.length > 0 && (
+        <div className="discover-grid">
+          {state.friends.map((friend) => (
+            <article className="discover-card" key={friend.connection_id}>
+              <div className="avatar">{displayInitial(friend.teammate_full_name)}</div>
+              <h3>{displayName(friend.teammate_full_name)} {friend.teammate_is_demo && <DemoBadge />}</h3>
+              <p>{universityLabel(friend.teammate_university)}</p>
+              <p>{schoolLabel(friend.teammate_school)} | {friend.teammate_major}</p>
+              <div className="mini-detail">
+                <strong>Skills they have</strong>
+                <span>{joinList(friend.teammate_skills)}</span>
+              </div>
+              <div className="hero-actions">
+                <button className="primary" onClick={() => onOpenChat(friend.connection_id)}>
+                  <MessageCircle size={18} />
+                  Message
+                </button>
+                <button className="secondary" onClick={() => onViewProfile(friend.teammate_profile_id)}>
+                  View Profile
+                </button>
+                <button className="secondary quiet-action" onClick={() => setState((current) => ({ ...current, removeTarget: friend }))}>
+                  Remove Friend
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+      {state.removeTarget && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="connect-modal" role="dialog" aria-modal="true" aria-label="Remove friend confirmation">
+            <div className="modal-header">
+              <div>
+                <p className="eyebrow">Remove Friend</p>
+                <h2>Remove {displayName(state.removeTarget.teammate_full_name)} from your friends?</h2>
+              </div>
+              <button className="ghost" onClick={() => setState((current) => ({ ...current, removeTarget: null }))} type="button">Close</button>
+            </div>
+            <p className="note">This only ends the Discover friendship. It does not delete old messages.</p>
+            <div className="hero-actions">
+              <button className="secondary" onClick={() => setState((current) => ({ ...current, removeTarget: null }))} type="button">
+                Cancel
+              </button>
+              <button className="primary danger-action" onClick={() => removeFriend()} disabled={state.saving}>
+                {state.saving ? 'Removing...' : 'Remove Friend'}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+    </main>
+  );
+}
+
 function MessagesList({ currentProfileId, onOpenChat, onNotificationsChanged }) {
   const [state, setState] = useState({ loading: true, error: '', threads: [] });
 
@@ -3380,11 +3828,13 @@ function MyProfile({ profile, onCreateProfile, onCreateSearch, onProfileUpdated 
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const profileSkillOptions = mergeOptionSets(getSkillsForSchool(form.school), form.skills);
+  const profileSchoolOptions = getSchoolsForUniversity(form.university);
 
   const startEdit = () => {
     const school = schoolOptions.some((option) => option.value === profile.school) ? profile.school : '';
     setForm({
       full_name: profile.full_name || '',
+      university: profile.university || 'RMIT University',
       school,
       major: school && majorsBySchool[school]?.includes(profile.major) ? profile.major : '',
       skills: profile.skills || [],
@@ -3392,6 +3842,7 @@ function MyProfile({ profile, onCreateProfile, onCreateSearch, onProfileUpdated 
       contact_type: profile.contact_type || 'email',
       contact_value: profile.contact_value || '',
       short_bio: profile.short_bio || '',
+      is_available: profile.is_available ?? true,
       consent_public_visibility: profile.consent_public_visibility ?? true,
     });
     setMessage('');
@@ -3442,12 +3893,14 @@ function MyProfile({ profile, onCreateProfile, onCreateSearch, onProfileUpdated 
     try {
       const updated = await updateProfile(profile.id, {
         full_name: form.full_name.trim(),
+        university: form.university || 'RMIT University',
         school: form.school.trim(),
         major: form.major.trim(),
         skills,
         contact_type: form.contact_type,
         contact_value: form.contact_value.trim(),
         short_bio: form.short_bio.trim(),
+        is_available: form.is_available,
       });
       onProfileUpdated(updated);
       setEditing(false);
@@ -3478,10 +3931,18 @@ function MyProfile({ profile, onCreateProfile, onCreateSearch, onProfileUpdated 
                 <input value={form.full_name} onChange={(event) => updateField('full_name', event.target.value)} required />
               </label>
               <label>
+                University
+                <select value={form.university} onChange={(event) => updateField('university', event.target.value)} required>
+                  {universityOptions.map((university) => (
+                    <option value={university.value} key={university.value}>{university.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
                 School
                 <select value={form.school} onChange={(event) => updateSchool(event.target.value)} required>
                   <option value="">Select school</option>
-                  {schoolOptions.map((school) => (
+                  {profileSchoolOptions.map((school) => (
                     <option value={school.value} key={school.value}>{school.label}</option>
                   ))}
                 </select>
@@ -3536,6 +3997,14 @@ function MyProfile({ profile, onCreateProfile, onCreateSearch, onProfileUpdated 
                   required
                 />
               </label>
+              <label className={form.is_available ? 'consent-box selected wide' : 'consent-box wide'}>
+                <input
+                  type="checkbox"
+                  checked={form.is_available}
+                  onChange={() => updateField('is_available', !form.is_available)}
+                />
+                <span>Available for collaboration</span>
+              </label>
             </div>
             {error && <p className="error">{error}</p>}
             <div className="hero-actions">
@@ -3550,8 +4019,11 @@ function MyProfile({ profile, onCreateProfile, onCreateSearch, onProfileUpdated 
             <div className="avatar">{displayInitial(profile.full_name)}</div>
             <h2>{displayName(profile.full_name)}</h2>
             <dl>
+              <div><dt>University</dt><dd>{universityLabel(profile.university)}</dd></div>
               <div><dt>School</dt><dd>{schoolLabel(profile.school)}</dd></div>
               <div><dt>Major</dt><dd>{profile.major}</dd></div>
+              <div><dt>Availability</dt><dd>{profile.is_available === false ? 'Unavailable' : 'Available for collaboration'}</dd></div>
+              <div><dt>Reviews</dt><dd>{reviewSummaryLabel(profile)}</dd></div>
               <div><dt>Contact</dt><dd>{contactLabel(profile.contact_type)}: {profile.contact_value}</dd></div>
               <div><dt>Bio</dt><dd>{profile.short_bio || 'Not specified'}</dd></div>
             </dl>
@@ -3665,19 +4137,32 @@ export default function App() {
   };
 
   return (
-    <div className="app">
+    <div className={view === 'home' ? 'app landing-mode' : 'app'}>
       <header className="topbar">
         <button className="logo-button" onClick={() => setView('home')}>
-          <UsersRound size={22} />
-          TEAMERGENCY
+          <span className="brand-logo">
+            <span>TEA</span><span>M</span><span>ERGENCY</span>
+          </span>
         </button>
         <div className="top-actions">
-          <button className="ghost" onClick={() => setView('discover')}>Discover</button>
-          {requestId && <button className="ghost" onClick={findMatches}>Find Teammates</button>}
-          {profileId && <button className="ghost" onClick={() => setView('current-request')}>My Request</button>}
-          <button className="ghost" onClick={() => setView('connections')}>Connections{notificationCounts.connections > 0 && <span className="nav-badge">{notificationCounts.connections}</span>}</button>
-          <button className="ghost" onClick={() => setView('messages')}>Messages{notificationCounts.messages > 0 && <span className="nav-badge">{notificationCounts.messages}</span>}</button>
-          <button className="ghost" onClick={() => setView('my-profile')}>My Profile</button>
+          {view === 'home' ? (
+            <>
+              <button className="ghost" onClick={() => setView('discover')}>Discovery</button>
+              <button className="ghost" onClick={findMatches}>Find Teammates</button>
+              <button className="ghost nav-outline" onClick={() => setView('my-profile')}>Log In</button>
+              <button className="ghost" onClick={() => setView('profile')}>Sign Up</button>
+            </>
+          ) : (
+            <>
+              <button className="ghost" onClick={() => setView('discover')}>Discover</button>
+              {requestId && <button className="ghost" onClick={findMatches}>Find Teammates</button>}
+              {profileId && <button className="ghost" onClick={() => setView('current-request')}>My Request</button>}
+              <button className="ghost" onClick={() => setView('connections')}>Connections{notificationCounts.connections > 0 && <span className="nav-badge">{notificationCounts.connections}</span>}</button>
+              <button className="ghost" onClick={() => setView('friends')}>Friends</button>
+              <button className="ghost" onClick={() => setView('messages')}>Messages{notificationCounts.messages > 0 && <span className="nav-badge">{notificationCounts.messages}</span>}</button>
+              <button className="ghost" onClick={() => setView('my-profile')}>My Profile</button>
+            </>
+          )}
         </div>
       </header>
 
@@ -3783,6 +4268,17 @@ export default function App() {
         <DiscoverPage
           currentProfileId={profileId}
           onOpenProfile={(id) => {
+            setSelectedDiscoverProfileId(id);
+            setView('discover-profile');
+          }}
+        />
+      )}
+
+      {view === 'friends' && (
+        <FriendsPage
+          currentProfileId={profileId}
+          onOpenChat={openChat}
+          onViewProfile={(id) => {
             setSelectedDiscoverProfileId(id);
             setView('discover-profile');
           }}

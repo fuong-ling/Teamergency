@@ -1,5 +1,9 @@
 export const contactTypes = ['email', 'instagram', 'messenger', 'url'];
 
+export const universityOptions = [
+  { value: 'RMIT University', label: 'RMIT University' },
+];
+
 export const schoolOptions = [
   { value: 'SCD', label: 'School of Communication & Design (SCD)' },
   { value: 'TBS', label: 'The Business School (TBS)' },
@@ -301,6 +305,15 @@ export const academicCatalog = schoolOptions.map((school) => ({
   courses: coursesBySchool[school.value] || [],
   skills: skillsBySchool[school.value] || [],
 }));
+
+export const academicData = {
+  'RMIT University': {
+    schools: academicCatalog,
+  },
+};
+
+export const getSchoolsForUniversity = (university) =>
+  academicData[university]?.schools || academicCatalog;
 
 export const uniqueList = (items) => [...new Set(items.filter(Boolean))];
 
