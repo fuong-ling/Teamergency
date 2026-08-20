@@ -26,22 +26,23 @@ Find Matches
   -> Other user accepts / declines
   -> Connected
   -> Chat
-  -> Add to My Team
   -> Mark Team Found
 ```
 
-There is no SSO, login UI, AI scoring, ratings, reviews, personal GPA profile field, hobbies, notification system, voice call, or video call in this MVP. Public testing uses Supabase Anonymous Auth silently in the browser for basic ownership checks.
+There is no SSO, login UI, personal GPA profile field, hobbies, push notification, voice call, or video call in this MVP. Public testing uses Supabase Anonymous Auth silently in the browser for basic ownership checks.
 
 ## Why Profiles and Requests Are Separate
 
 `profiles` stores long-term student information:
 
 - Full name
+- University
 - School: `SCD`, `TBS`, or `SSET`
 - Major
 - Skills and technologies
 - Contact method and contact value
 - Short bio
+- Available / unavailable mode
 - Public visibility consent
 
 `team_requests` stores one current teammate search:
@@ -79,12 +80,17 @@ Marking one request as `found` does not make the profile unavailable.
 - sender profile
 - receiver profile
 - sender team request, nullable when sent from Discover
+- connection context: `team_request` or `discover`
 - intro message
-- status: `pending`, `accepted`, `declined`, or `cancelled`
+- status: `pending`, `accepted`, `declined`, `cancelled`, or `unmatched`
 
 `messages` stores chat messages for accepted connections only.
 
-`team_members` records the lightweight "Add to My Team" action. It does not create complex team management.
+`reviews` stores teammate ratings for accepted team-request connections.
+
+`match_feedback` stores feedback about whether Teamergency recommended the right match. It is separate from teammate ratings.
+
+`ai_match_results` can store AI-assisted match metadata for later A3 evidence.
 
 ## Supabase Setup
 
@@ -112,6 +118,11 @@ Do not put a `service_role` key in the frontend.
 - `supabase/demo_flow.sql` enables simulated demo acceptance and scripted demo chat replies.
 - `supabase/course_portfolio_update.sql` adds `course_name`, `course_code`, portfolio requirement fields, and the `request-portfolios` Storage bucket.
 - `supabase/real_public_testing.sql` adds anonymous-auth ownership checks, safer public read functions, and real-user public testing hardening.
+- `supabase/request_management_bugfix.sql` adds edit/cancel/multiple request management, unmatch notifications, and teammate count bug fixes.
+- `supabase/bidirectional_match_team_size.sql` adds total team size, bidirectional request progress, and request-aware connection counting.
+- `supabase/digital_media_demo_boost.sql` refreshes demo Digital Media Studio 4 coverage.
+- `supabase/a3_iteration_features.sql` adds University, Available mode, Friends context, Reviews, Match Quality Feedback, Skill Gap support data, and AI match metadata.
+- `supabase/reviews_feedback_iteration.sql` separates Teammate Reviews from Match Usefulness Rating, adds 30-day review eligibility, accepted timestamps, and seeded demo reviews.
 - `supabase/seed.sql` creates 15 fictional demo profiles and 15 active demo team requests.
 
 Demo profiles use:
@@ -145,6 +156,84 @@ supabase/demo_flow.sql
 ```
 
 To refresh demo seed data, run `supabase/seed.sql`. This deletes and recreates demo profiles only; it does not delete real profiles.
+
+## A3 Iteration Features
+
+Run this migration after the previous MVP migrations:
+
+```text
+supabase/a3_iteration_features.sql
+```
+
+This adds:
+
+- `profiles.university`
+- `profiles.is_available`
+- `connections.connection_context`
+- `reviews`
+- `match_feedback`
+- `ai_match_results`
+
+Existing real profiles are backfilled to `RMIT University` and `Available`. Existing connections are backfilled as `team_request` when they have a team request ID, otherwise `discover`.
+
+## AI Match Score
+
+Rule-based scoring remains the fallback and baseline. AI matching is optional and runs through a Supabase Edge Function so the OpenAI API key is not exposed in the frontend.
+
+Deploy:
+
+```text
+supabase/functions/ai-match/index.ts
+```
+
+Set Edge Function secrets in Supabase:
+
+```env
+OPENAI_API_KEY=your_openai_api_key
+OPENAI_MATCH_MODEL=gpt-4o-mini
+```
+
+If the Edge Function is not deployed, the key is missing, the request times out, or AI returns invalid output, the app keeps using the standard rule-based match score.
+
+## Skill Gap Analysis
+
+Skill Coverage is shown in My Request. It is deterministic:
+
+```text
+required skills = team_request.skills_needed
+team skills = current user skills + accepted teammates' skills
+covered = required skills found in team skills
+missing = required skills not found in team skills
+```
+
+Discover-only Friends do not count toward Skill Gap Analysis.
+
+## Friends
+
+Connections from Discover use `connection_context = discover`. Accepted Discover connections appear in Friends and do not affect teammate count.
+
+Connections from Find Teammates use `connection_context = team_request`. Accepted team-request connections affect teammate count and can receive teammate reviews / match quality feedback.
+
+## Reviews and Match Usefulness
+
+Run this after `supabase/a3_iteration_features.sql`:
+
+```text
+supabase/reviews_feedback_iteration.sql
+```
+
+Teammate Reviews answer: "Was this person a good teammate?"
+
+- only for accepted team-request connections
+- locked until `REVIEW_WAIT_DAYS = 30`
+- appears on the reviewed teammate's profile
+- demo profile reviews are seeded and labeled as Demo Review
+
+Match Usefulness Rating answers: "Was Teamergency's recommendation useful?"
+
+- appears when a team request is complete
+- stored in `match_feedback`
+- does not affect the teammate's profile rating
 
 ## Row Level Security
 
@@ -183,7 +272,9 @@ Connect/chat functions include:
 - `simulate_demo_acceptance`
 - `send_demo_reply`
 - `reset_demo_connection`
-- `add_team_member`
+- `list_friends`
+- `create_review`
+- `create_match_feedback`
 
 These functions check profile involvement and connection status before changing data.
 
@@ -208,10 +299,12 @@ Security limitations:
 - Anyone with access to the same browser session can act as that user.
 - Real production ownership should use Supabase Auth.
 - Public profile data is visible after consent; contact value is intended to be visible only to the owner or accepted connections.
+- Reviews and match feedback are protected by RPC checks, but production should still move to stronger user accounts before high-stakes deployment.
+- AI provider secrets must live in Supabase Edge Function secrets, never in frontend `.env`.
 
 ## Match Logic
 
-Match score is rule-based and not AI-generated.
+Match score starts with rule-based scoring and can be enhanced by AI when the Edge Function is configured.
 
 Weights:
 
