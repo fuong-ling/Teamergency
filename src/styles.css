@@ -564,12 +564,16 @@ legend {
 
 .star-rating {
   display: flex;
-  gap: 6px;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 .star-rating button {
-  width: 36px;
-  height: 36px;
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
   border: 1px solid rgba(23, 91, 86, 0.18);
   border-radius: 8px;
   background: #ffffff;
@@ -582,6 +586,10 @@ legend {
   color: #175b56;
   background: #edf7f3;
   border-color: rgba(23, 91, 86, 0.38);
+}
+
+.star-rating button:hover {
+  transform: translateY(-1px);
 }
 
 .demo-fallback-note,
@@ -3148,6 +3156,18 @@ select {
 
 .connection-actions .secondary {
   min-width: 132px;
+}
+
+.star-rating button {
+  border-color: rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.star-rating button.selected {
+  border-color: rgba(255, 215, 85, 0.62);
+  color: #ffd95c;
+  background: rgba(255, 215, 85, 0.12);
 }
 
 @media (max-width: 720px) {

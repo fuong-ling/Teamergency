@@ -11,6 +11,7 @@ import {
   Search,
   SendHorizontal,
   Sparkles,
+  Star,
   Trash2,
   UserPlus,
   UserRound,
@@ -2204,14 +2205,22 @@ function TeammateFeedbackPanel({ connection, currentProfileId, reviewedProfileId
       <p className="eyebrow">Write a Teammate Review</p>
       <form className="feedback-form" onSubmit={submitReview}>
         <h3>How was it working with this teammate?</h3>
-        <label>
-          Teammate rating
-          <select value={reviewRating} onChange={(event) => setReviewRating(event.target.value)}>
-            {[5, 4, 3, 2, 1].map((rating) => (
-              <option value={rating} key={rating}>{rating} star{rating === 1 ? '' : 's'}</option>
+        <div>
+          <strong>Teammate rating</strong>
+          <div className="star-rating" role="radiogroup" aria-label="Teammate rating">
+            {[1, 2, 3, 4, 5].map((rating) => (
+              <button
+                className={Number(reviewRating) >= rating ? 'selected' : ''}
+                key={rating}
+                type="button"
+                onClick={() => setReviewRating(rating)}
+                aria-label={`${rating} star${rating === 1 ? '' : 's'}`}
+              >
+                <Star size={22} fill="currentColor" strokeWidth={2.2} />
+              </button>
             ))}
-          </select>
-        </label>
+          </div>
+        </div>
         <textarea
           value={reviewText}
           onChange={(event) => setReviewText(event.target.value)}
@@ -2282,7 +2291,7 @@ function MatchUsefulnessPanel({ request, currentProfileId, teamComplete }) {
               onClick={() => setRating(value)}
               aria-label={`${value} stars - ${labels[value]}`}
             >
-              ★
+              <Star size={22} fill="currentColor" strokeWidth={2.2} />
             </button>
           ))}
         </div>
