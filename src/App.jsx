@@ -1898,7 +1898,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
     getProfileById(profileId)
       .then(async (profile) => {
         const [connection, activeRequests] = await Promise.all([
-          currentProfileId ? getConnectionBetween(currentProfileId, profile.id, 'discover') : Promise.resolve(null),
+          currentProfileId ? getConnectionBetween(currentProfileId, profile.id) : Promise.resolve(null),
           getActiveTeamRequests().catch(() => []),
         ]);
         const reviews = await listProfileReviews(profile.id).catch(() => []);
