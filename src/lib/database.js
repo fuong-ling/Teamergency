@@ -344,6 +344,29 @@ export const getActiveTeamRequests = async () => {
   return data;
 };
 
+const normalizeValue = (value = '') => String(value || '').trim().toLowerCase();
+
+const requestCourseKey = (request = {}) =>
+  normalizeValue(request.course_code || request.course_name || request.course);
+
+const parseSession = (session = '') => {
+  const [day = '', startTime = ''] = String(session || '').trim().split(/\s+/);
+  return { day: normalizeValue(day), startTime: normalizeValue(startTime) };
+};
+
+const requestSessionKey = (request = {}) => {
+  const parsed = parseSession(request.class_session);
+  const day = normalizeValue(request.class_day || parsed.day);
+  const startTime = normalizeValue(request.class_start_time || parsed.startTime);
+  return `${day}|${startTime}`;
+};
+
+const requestsShareCourseAndSession = (left, right) =>
+  requestCourseKey(left) &&
+  requestCourseKey(left) === requestCourseKey(right) &&
+  requestSessionKey(left) !== '|' &&
+  requestSessionKey(left) === requestSessionKey(right);
+
 export const getTeamRequestById = async (requestId) => {
   const { client } = await getAuthenticatedClient();
   const { data, error } = await client.rpc('get_team_request_public', {
@@ -361,7 +384,22 @@ export const getTeamRequestById = async (requestId) => {
 export const getMatchesForRequest = async (requestId) => {
   const currentRequest = await getTeamRequestById(requestId);
   const currentProfile = currentRequest.profile;
-  const activeRequests = await getActiveTeamRequests();
+  const { client } = await getAuthenticatedClient();
+  let activeRequests = [];
+
+  try {
+    const { data, error } = await client.rpc('get_match_candidates_for_request', {
+      requested_request: requestId,
+      current_profile: currentRequest.profile_id,
+    });
+
+    if (error) throw error;
+    activeRequests = data || [];
+  } catch {
+    activeRequests = (await getActiveTeamRequests()).filter((request) =>
+      requestsShareCourseAndSession(currentRequest, request),
+    );
+  }
 
   const matches = activeRequests
     .filter((request) => request.id !== requestId)
@@ -371,6 +409,7 @@ export const getMatchesForRequest = async (requestId) => {
       const candidateUniversity = (request.profile?.university || 'RMIT University').trim().toLowerCase();
       return currentUniversity === candidateUniversity;
     })
+    .filter((request) => requestsShareCourseAndSession(currentRequest, request))
     .map((request) => ({
       ...request,
       matchScore: calculateMatchScore(currentProfile, currentRequest, request),
@@ -666,6 +705,28 @@ export const listFriends = async (currentProfileId) => {
 
   if (error) throw error;
   return data || [];
+};
+
+export const confirmFriendMatch = async ({
+  connectionId,
+  currentProfileId,
+  currentRequestId,
+  friendRequestId,
+}) => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc('confirm_friend_match', {
+    connection_request: connectionId,
+    current_profile: currentProfileId,
+    current_request: currentRequestId,
+    friend_request: friendRequestId || null,
+  });
+
+  if (error) throw error;
+  if (!data?.length) {
+    throw new Error('Match+ was not created.');
+  }
+
+  return data[0];
 };
 
 export const listProfileReviews = async (profileId) => {
