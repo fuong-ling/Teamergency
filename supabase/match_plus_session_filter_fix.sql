@@ -439,12 +439,10 @@ as $$
       where tr.profile_id = fc.friend_profile
         and tr.status = 'looking'
         and public.requests_same_course_and_session(my_request.id, tr.id)
-        and public.get_request_remaining_spots(tr.id) > 0
       order by tr.created_at desc
       limit 1
     ) friend_request on true
     where my_request.status = 'looking'
-      and public.get_request_remaining_spots(my_request.id) > 0
       and not exists (
         select 1
         from public.teammate_relationships rel
@@ -534,14 +532,6 @@ begin
     ) then
       raise exception 'Friend request is not active.';
     end if;
-  end if;
-
-  if public.get_request_remaining_spots(current_request) <= 0 then
-    raise exception 'Your team is already complete.';
-  end if;
-
-  if friend_request is not null and public.get_request_remaining_spots(friend_request) <= 0 then
-    raise exception 'This friend has no open teammate spots.';
   end if;
 
   insert into public.teammate_relationships (
