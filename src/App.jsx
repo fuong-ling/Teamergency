@@ -2144,10 +2144,10 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
   );
 }
 
-function ReviewsSection({ reviews = [], profile }) {
+function ReviewsSection({ reviews = [], profile, title = 'Existing Reviews' }) {
   return (
     <section className="request-summary-box">
-      <p className="eyebrow">Existing Reviews</p>
+      <p className="eyebrow">{title}</p>
       <h3>{reviewSummaryLabel(profile)}</h3>
       {reviews.length === 0 ? (
         <p className="note">No teammate reviews yet.</p>
@@ -3857,11 +3857,45 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
 function MyProfile({ profile, onCreateProfile, onCreateSearch, onProfileUpdated }) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(emptyProfile);
+  const [reviewsState, setReviewsState] = useState({ loading: false, error: '', reviews: [] });
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const profileSkillOptions = mergeOptionSets(getSkillsForSchool(form.school), form.skills);
   const profileSchoolOptions = getSchoolsForUniversity(form.university);
+
+  useEffect(() => {
+    let alive = true;
+
+    if (!profile?.id) {
+      setReviewsState({ loading: false, error: '', reviews: [] });
+      return () => {
+        alive = false;
+      };
+    }
+
+    setReviewsState((current) => ({ ...current, loading: true, error: '' }));
+
+    listProfileReviews(profile.id)
+      .then((reviews) => {
+        if (alive) {
+          setReviewsState({ loading: false, error: '', reviews });
+        }
+      })
+      .catch(() => {
+        if (alive) {
+          setReviewsState({
+            loading: false,
+            error: "We couldn't load reviews about you right now.",
+            reviews: [],
+          });
+        }
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [profile?.id]);
 
   const startEdit = () => {
     const school = schoolOptions.some((option) => option.value === profile.school) ? profile.school : '';
@@ -4061,6 +4095,15 @@ function MyProfile({ profile, onCreateProfile, onCreateSearch, onProfileUpdated 
               <div><dt>Bio</dt><dd>{profile.short_bio || 'Not specified'}</dd></div>
             </dl>
             <PillList items={profile.skills} />
+            {reviewsState.loading && <p className="loading">Loading reviews...</p>}
+            {reviewsState.error && <p className="error">{reviewsState.error}</p>}
+            {!reviewsState.loading && !reviewsState.error && (
+              <ReviewsSection
+                profile={profile}
+                reviews={reviewsState.reviews}
+                title="Reviews About You"
+              />
+            )}
             {message && <p className="success">{message}</p>}
             <div className="stacked-actions">
               <button className="primary link-button" onClick={startEdit}>Edit Profile</button>
