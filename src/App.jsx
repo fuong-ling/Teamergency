@@ -3551,7 +3551,7 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
         ...current,
         loading: false,
         friends,
-        requests: (requests || []).filter((request) => request.status === 'looking'),
+        requests: (requests || []).filter((request) => normalizeFilterValue(request.status) === 'looking'),
       })))
       .catch(() => setState((current) => ({
         ...current,
@@ -3656,6 +3656,58 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
     return [...optionsByRequest.values()];
   };
 
+  const openMatchPlus = async (friend, initialOptions = []) => {
+    if (initialOptions.length > 0) {
+      setState((current) => ({
+        ...current,
+        matchTarget: { ...friend, match_options: initialOptions },
+        selectedMatchIndex: 0,
+        error: '',
+        success: '',
+      }));
+      return;
+    }
+
+    setState((current) => ({
+      ...current,
+      saving: true,
+      error: '',
+      success: '',
+    }));
+
+    try {
+      const requests = await listMyTeamRequests(currentProfileId);
+      const activeRequests = (requests || []).filter((request) => normalizeFilterValue(request.status) === 'looking');
+      const friendWithRequests = { ...friend, match_options: [] };
+      const nextOptions = activeRequests.map((request) => ({
+        current_request_id: request.id,
+        friend_request_id: null,
+        course_name: request.course_name || request.course,
+        course_code: request.course_code,
+        class_day: request.class_day || parseClassSession(request.class_session).day,
+        class_start_time: request.class_start_time || parseClassSession(request.class_session).startTime,
+        class_end_time: request.class_end_time || parseClassSession(request.class_session).endTime,
+        class_session: request.class_session,
+        is_suitable: friendLooksSuitableForRequest(friend, request),
+      }));
+
+      setState((current) => ({
+        ...current,
+        saving: false,
+        requests: activeRequests,
+        matchTarget: { ...friendWithRequests, match_options: nextOptions },
+        selectedMatchIndex: 0,
+      }));
+    } catch {
+      setState((current) => ({
+        ...current,
+        saving: false,
+        matchTarget: { ...friend, match_options: [] },
+        selectedMatchIndex: 0,
+      }));
+    }
+  };
+
   return (
     <main className="screen">
       <div className="results-header">
@@ -3697,16 +3749,9 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
               </div>
               <div className="hero-actions">
                 <button
-                  className={canMatch ? 'primary match-plus-button' : 'secondary'}
-                  disabled={!canMatch}
-                  title={canMatch ? 'Add this friend as a teammate for one of your active requests.' : 'Create an active team request before using Match+.'}
-                  onClick={() => setState((current) => ({
-                    ...current,
-                    matchTarget: { ...friend, match_options: matchOptions },
-                    selectedMatchIndex: 0,
-                    error: '',
-                    success: '',
-                  }))}
+                  className="primary match-plus-button"
+                  title="Choose one of your active team requests and add this friend as a teammate."
+                  onClick={() => openMatchPlus(friend, matchOptions)}
                 >
                   <Sparkles size={18} />
                   Match+
@@ -3722,7 +3767,7 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
                   Remove Friend
                 </button>
               </div>
-              {!canMatch && <p className="note">Create an active team request to use Match+.</p>}
+              {!canMatch && <p className="note">Match+ will ask you which active team request to use.</p>}
               {canMatch && !hasSuitableOption && <p className="note">No suitability label yet, but you can still match them if they fit your team.</p>}
                   </>
                 );
@@ -3747,9 +3792,9 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
                 Close
               </button>
             </div>
-            {(state.matchTarget.match_options || []).length > 1 && (
+            {(state.matchTarget.match_options || []).length > 0 && (
               <label>
-                Choose your request
+                Choose which team request this match is for
                 <select
                   value={state.selectedMatchIndex}
                   onChange={(event) => setState((current) => ({ ...current, selectedMatchIndex: Number(event.target.value) }))}
@@ -3761,6 +3806,13 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
                   ))}
                 </select>
               </label>
+            )}
+            {(state.matchTarget.match_options || []).length === 0 && (
+              <div className="request-summary-box">
+                <p className="eyebrow">No active request found</p>
+                <h3>Create or reopen a team request first.</h3>
+                <p className="note">Match+ needs one of your active team requests so Teamergency knows which course/team this friend should count toward.</p>
+              </div>
             )}
             {(() => {
               const option = state.matchTarget.match_options?.[state.selectedMatchIndex] || state.matchTarget.match_options?.[0];
@@ -3781,7 +3833,11 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
               >
                 Cancel
               </button>
-              <button className="primary match-plus-button" onClick={confirmMatchPlus} disabled={state.saving}>
+              <button
+                className="primary match-plus-button"
+                onClick={confirmMatchPlus}
+                disabled={state.saving || !(state.matchTarget.match_options || []).length}
+              >
                 {state.saving ? 'Matching...' : 'Confirm Match'}
               </button>
             </div>
