@@ -525,6 +525,14 @@ const connectionStateLabel = (state) => {
   return '';
 };
 
+const connectionRelationshipLabel = (connection) =>
+  connection?.relationship_type === 'teammate' ? 'Teammate' : 'Friend';
+
+const connectedButtonLabel = (connection) =>
+  connection?.status === 'accepted'
+    ? `Connected · ${connectionRelationshipLabel(connection)}`
+    : 'Connected';
+
 const connectionStatusLabel = (status, tab) => {
   if (tab === 'received' && status === 'pending') return 'Needs response';
   if (tab === 'sent' && status === 'pending') return 'Pending';
@@ -538,6 +546,12 @@ const ConnectionStateBadge = ({ state }) => {
   const label = connectionStateLabel(state);
   if (!label) return null;
   return <span className={`status-badge ${state}`}>{state === 'accepted' ? '✓ ' : ''}{label}</span>;
+};
+
+const ConnectionRelationshipBadge = ({ connection }) => {
+  if (connection?.status !== 'accepted') return null;
+  const relationship = connectionRelationshipLabel(connection);
+  return <span className={`status-badge ${relationship.toLowerCase()}`}>{relationship}</span>;
 };
 
 const PortfolioReference = ({ request }) => {
@@ -1845,6 +1859,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
                   <span>{joinList(profile.skills)}</span>
                 </div>
                 <ConnectionStateBadge state={connectionState} />
+                <ConnectionRelationshipBadge connection={connection} />
                 <div className="hero-actions">
                   <button
                     className="secondary"
@@ -1860,7 +1875,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
                   ) : connectionState === 'accepted' ? (
                     <button className="connected-button" disabled>
                       <CheckCircle2 size={18} />
-                      Connected
+                      {connectedButtonLabel(connection)}
                     </button>
                   ) : connectionState === 'sent_pending' ? (
                     <button className="secondary" onClick={() => onOpenProfile(profile.id)}>Request Sent</button>
@@ -1954,7 +1969,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
   const profile = state.profile;
   const isOwnProfile = profile.id === currentProfileId;
   const connectionState = getConnectionState(state.connection, currentProfileId);
-  const reviewTeamRequestId = state.connection?.connection_context === 'team_request'
+  const reviewTeamRequestId = state.connection?.connection_context === 'team_request' && state.connection?.relationship_type === 'teammate'
     ? state.connection.sender_team_request_id || state.connection.receiver_team_request_id || state.activeRequest?.id
     : null;
   const disabledReason = isOwnProfile
@@ -2107,8 +2122,9 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
           <div className="stacked-actions">
             <button className="connected-button" disabled>
               <CheckCircle2 size={18} />
-              Connected
+              {connectedButtonLabel(state.connection)}
             </button>
+            <ConnectionRelationshipBadge connection={state.connection} />
             <button className="primary link-button" onClick={() => onOpenChat(state.connection.id)}>
               <MessageCircle size={18} />
               Message
@@ -2193,7 +2209,7 @@ function TeammateFeedbackPanel({ connection, currentProfileId, reviewedProfileId
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
-  if (!connection || connection.status !== 'accepted' || connection.connection_context !== 'team_request' || !teamRequestId) {
+  if (!connection || connection.status !== 'accepted' || connection.relationship_type !== 'teammate' || !teamRequestId) {
     return null;
   }
 
@@ -2407,9 +2423,13 @@ function ProfileDetail({
   const canSendConnection = currentProfileId && !isOwnProfile;
   const connection = state.connection;
   const connectionState = getConnectionState(connection, currentProfileId);
-  const feedbackTeamRequestId = connection?.sender_profile_id === currentProfileId
-    ? connection.sender_team_request_id
-    : connection?.receiver_team_request_id || request.id;
+  const feedbackTeamRequestId = connection?.relationship_type === 'teammate'
+    ? (
+        connection?.sender_profile_id === currentProfileId
+          ? connection.sender_team_request_id
+          : connection?.receiver_team_request_id || request.id
+      )
+    : null;
 
   const connect = async (introMessage) => {
     setState((current) => ({ ...current, actionLoading: true, actionError: '' }));
@@ -2546,8 +2566,9 @@ function ProfileDetail({
         <div className="stacked-actions">
           <button className="connected-button" disabled>
             <CheckCircle2 size={18} />
-            Connected
+            {connectedButtonLabel(connection)}
           </button>
+          <ConnectionRelationshipBadge connection={connection} />
           <button className="primary link-button" onClick={() => onOpenChat(connection.id)}>
             <MessageCircle size={18} />
             Message
@@ -2909,13 +2930,19 @@ function CurrentRequest({
         request={state.editingRequest}
         mode="edit"
         onBack={() => setState((current) => ({ ...current, editingRequest: null, error: '', success: '' }))}
-        onUpdated={(updatedRequest) => {
+        onUpdated={async (updatedRequest) => {
+          const updatedProgress = await getTeamRequestProgress(updatedRequest.id, currentProfileId)
+            .catch(() => ({ found_count: 0, teammates: [] }));
           setState((current) => ({
             ...current,
             editingRequest: null,
             requests: current.requests.map((request) =>
               request.id === updatedRequest.id ? { ...request, ...updatedRequest } : request,
             ),
+            progressById: {
+              ...current.progressById,
+              [updatedRequest.id]: updatedProgress,
+            },
             selectedId: updatedRequest.id,
             success: 'Request updated successfully.',
           }));
@@ -3312,7 +3339,7 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
                 <p className="eyebrow">
                   {tab === 'received' && `Received from ${displayName(request.teammate_full_name)}`}
                   {tab === 'sent' && `Sent to ${displayName(request.teammate_full_name)}`}
-                  {tab === 'connected' && `Connected with ${displayName(request.teammate_full_name)}`}
+                  {tab === 'connected' && `${connectionRelationshipLabel(request)} · Connected with ${displayName(request.teammate_full_name)}`}
                   {tab === 'declined' && (
                     request.status === 'unmatched'
                       ? `Connection ended with ${displayName(request.teammate_full_name)}`
@@ -3361,6 +3388,7 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
               </div>
               <div className="connection-actions">
                 <span className={`status-badge ${request.status}`}>{connectionStatusLabel(request.status, tab)}</span>
+                {request.status === 'accepted' && <ConnectionRelationshipBadge connection={request} />}
                 {tab === 'received' && (
                   <>
                     <button
@@ -3790,7 +3818,7 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
               {state.detail?.teammate_is_demo
                 ? 'Demo Conversation'
                 : state.detail?.status === 'accepted'
-                  ? 'Connected'
+                  ? connectedButtonLabel(state.detail)
                   : chatEnded
                     ? 'Connection ended'
                     : 'Connection required'}

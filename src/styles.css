@@ -2829,6 +2829,16 @@ dl div,
   background: rgba(69, 232, 108, 0.13);
 }
 
+.status-badge.teammate {
+  color: #c8d7ff;
+  background: rgba(77, 124, 255, 0.18);
+}
+
+.status-badge.friend {
+  color: #bdf8e4;
+  background: rgba(46, 204, 113, 0.14);
+}
+
 .status-badge.pending,
 .status-badge.sent_pending,
 .status-badge.received_pending {
