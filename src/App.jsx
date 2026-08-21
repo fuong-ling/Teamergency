@@ -3528,6 +3528,7 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
     loading: true,
     error: '',
     friends: [],
+    requests: [],
     removeTarget: null,
     matchTarget: null,
     selectedMatchIndex: 0,
@@ -3537,13 +3538,21 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
 
   const loadFriends = () => {
     if (!currentProfileId) {
-      setState((current) => ({ ...current, loading: false, friends: [] }));
+      setState((current) => ({ ...current, loading: false, friends: [], requests: [] }));
       return;
     }
 
     setState((current) => ({ ...current, loading: true, error: '' }));
-    listFriends(currentProfileId)
-      .then((friends) => setState((current) => ({ ...current, loading: false, friends })))
+    Promise.all([
+      listFriends(currentProfileId),
+      listMyTeamRequests(currentProfileId),
+    ])
+      .then(([friends, requests]) => setState((current) => ({
+        ...current,
+        loading: false,
+        friends,
+        requests: (requests || []).filter((request) => request.status === 'looking'),
+      })))
       .catch(() => setState((current) => ({
         ...current,
         loading: false,
@@ -3614,6 +3623,39 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
     }
   };
 
+  const friendLooksSuitableForRequest = (friend, request) => {
+    const friendSkills = new Set((friend.teammate_skills || []).map(normalizeFilterValue));
+    const neededSkills = (request.skills_needed || []).map(normalizeFilterValue);
+    const skillOverlap = neededSkills.some((skill) => friendSkills.has(skill));
+    const sameSchool = normalizeFilterValue(friend.teammate_school) === normalizeFilterValue(request.school);
+    const sameMajor = normalizeFilterValue(friend.teammate_major) === normalizeFilterValue(request.major);
+    return skillOverlap || sameSchool || sameMajor;
+  };
+
+  const getFriendMatchOptions = (friend) => {
+    const serverOptions = Array.isArray(friend.match_options) ? friend.match_options : [];
+    const optionsByRequest = new Map(
+      serverOptions.map((option) => [option.current_request_id, option]),
+    );
+
+    state.requests.forEach((request) => {
+      if (optionsByRequest.has(request.id)) return;
+      optionsByRequest.set(request.id, {
+        current_request_id: request.id,
+        friend_request_id: null,
+        course_name: request.course_name || request.course,
+        course_code: request.course_code,
+        class_day: request.class_day || parseClassSession(request.class_session).day,
+        class_start_time: request.class_start_time || parseClassSession(request.class_session).startTime,
+        class_end_time: request.class_end_time || parseClassSession(request.class_session).endTime,
+        class_session: request.class_session,
+        is_suitable: friendLooksSuitableForRequest(friend, request),
+      });
+    });
+
+    return [...optionsByRequest.values()];
+  };
+
   return (
     <main className="screen">
       <div className="results-header">
@@ -3636,7 +3678,7 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
           {state.friends.map((friend) => (
             <article className="discover-card" key={friend.connection_id}>
               {(() => {
-                const matchOptions = Array.isArray(friend.match_options) ? friend.match_options : [];
+                const matchOptions = getFriendMatchOptions(friend);
                 const canMatch = matchOptions.length > 0;
                 const hasSuitableOption = matchOptions.some((option) => option.is_suitable);
 
@@ -3660,7 +3702,7 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
                   title={canMatch ? 'Add this friend as a teammate for one of your active requests.' : 'Create an active team request before using Match+.'}
                   onClick={() => setState((current) => ({
                     ...current,
-                    matchTarget: friend,
+                    matchTarget: { ...friend, match_options: matchOptions },
                     selectedMatchIndex: 0,
                     error: '',
                     success: '',
