@@ -21,6 +21,7 @@ import {
 import {
   cancelConnectionRequest,
   cancelTeamRequest,
+  confirmFriendMatch,
   createProfile,
   createMatchFeedback,
   createReview,
@@ -58,7 +59,7 @@ import {
 import { hasSupabaseConfig } from './lib/supabase';
 import { REVIEW_WAIT_DAYS } from './lib/config';
 import {
-  classSessionsByCourseCode,
+  classDayOptions,
   connectMessageSuggestions,
   contactTypes,
   demoReplyPool,
@@ -125,12 +126,33 @@ const emptyProfile = {
   consent_public_visibility: false,
 };
 
+const parseClassSession = (session = '') => {
+  const parts = String(session || '').trim().split(/\s+/);
+  const [day = '', startTime = '', endTime = ''] = parts;
+
+  return {
+    day: classDayOptions.includes(day) ? day : '',
+    startTime: /^\d{2}:\d{2}$/.test(startTime) ? startTime : '',
+    endTime: /^\d{2}:\d{2}$/.test(endTime) ? endTime : '',
+  };
+};
+
+const formatClassSession = ({ class_day, class_start_time, class_end_time }) => {
+  if (!class_day || !class_start_time) return '';
+  return class_end_time
+    ? `${class_day} ${class_start_time} ${class_end_time}`
+    : `${class_day} ${class_start_time}`;
+};
+
 const emptyRequest = {
   school: '',
   major: '',
   course_name: '',
   course_code: '',
   class_session: '',
+  class_day: '',
+  class_start_time: '',
+  class_end_time: '',
   skills_needed: [],
   other_skill: '',
   members_needed: 1,
@@ -150,6 +172,8 @@ const emptyRequest = {
 };
 
 const buildRequestFormState = (profile, request = null) => {
+  const parsedSession = parseClassSession(request?.class_session);
+
   if (!request) {
     return {
       ...emptyRequest,
@@ -166,6 +190,9 @@ const buildRequestFormState = (profile, request = null) => {
     course_name: request.course_name || request.course || '',
     course_code: request.course_code || '',
     class_session: request.class_session || '',
+    class_day: request.class_day || parsedSession.day,
+    class_start_time: request.class_start_time || parsedSession.startTime,
+    class_end_time: request.class_end_time || parsedSession.endTime,
     skills_needed: request.skills_needed || [],
     members_needed: request.members_needed || 1,
     total_team_size: request.total_team_size || Number(request.members_needed || 1) + 1,
@@ -353,6 +380,17 @@ const getCourseDisplay = (request) => {
   if (request.course_name && request.course_code) return `${request.course_name} (${request.course_code})`;
   if (request.course_name) return request.course_name;
   return request.course || 'Not specified';
+};
+
+const getSessionDisplay = (request = {}) => {
+  const parsed = parseClassSession(request.class_session);
+  const day = request.class_day || parsed.day;
+  const start = request.class_start_time || parsed.startTime;
+  const end = request.class_end_time || parsed.endTime;
+
+  if (day && start && end) return `${day} · ${start}-${end}`;
+  if (day && start) return `${day} · ${start}`;
+  return request.class_session || 'Not specified';
 };
 
 const getCourseFilterValue = (request) =>
@@ -997,6 +1035,9 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
       course_name: selectedCourse?.name || '',
       course_code: selectedCourse?.code || '',
       class_session: '',
+      class_day: '',
+      class_start_time: '',
+      class_end_time: '',
     }));
   };
 
@@ -1085,8 +1126,8 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
     const totalTeamSize = Number(form.total_team_size);
     const teammatesNeededInitial = Number(form.teammates_needed_initial);
 
-    if (!form.school || !form.major || !form.course_name || !form.course_code || !form.class_session || skillsNeeded.length === 0 || totalTeamSize < 2 || teammatesNeededInitial < 1) {
-      setError('Please fill in course, class/session, skills needed, total team size, and spots remaining.');
+    if (!form.school || !form.major || !form.course_name || !form.course_code || !form.class_day || !form.class_start_time || skillsNeeded.length === 0 || totalTeamSize < 2 || teammatesNeededInitial < 1) {
+      setError('Please fill in course, class day, start time, skills needed, total team size, and spots remaining.');
       return;
     }
 
@@ -1107,6 +1148,7 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
         ? await uploadPortfolioReference(form.portfolio_file, profile.id)
         : null;
       const requiresPortfolio = form.requirements_selected.includes('Has a portfolio');
+      const classSession = formatClassSession(form);
       const portfolioReferencePath = requiresPortfolio
         ? portfolioUpload?.path || form.portfolio_reference_path || null
         : null;
@@ -1120,7 +1162,10 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
         course: form.course_name.trim(),
         course_name: form.course_name.trim(),
         course_code: form.course_code.trim(),
-        class_session: form.class_session,
+        class_session: classSession,
+        class_day: form.class_day,
+        class_start_time: form.class_start_time,
+        class_end_time: form.class_end_time || null,
         skills_needed: skillsNeeded,
         members_needed: teammatesNeededInitial,
         total_team_size: totalTeamSize,
@@ -1194,14 +1239,35 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
               <span className="field-helper">Courses are filtered by your profile school.</span>
             </label>
             <label>
-              Class / Session
-              <select value={form.class_session} onChange={(event) => updateField('class_session', event.target.value)} required>
-                <option value="">Select class/session</option>
-                {(classSessionsByCourseCode[form.course_code] || []).map((session) => (
-                  <option value={session} key={session}>{session}</option>
+              Day
+              <select value={form.class_day} onChange={(event) => updateField('class_day', event.target.value)} required>
+                <option value="">Select day</option>
+                {classDayOptions.map((day) => (
+                  <option value={day} key={day}>{day}</option>
                 ))}
               </select>
-              <span className="field-helper invisible-helper">Select the class/session for this course.</span>
+              <span className="field-helper invisible-helper">Select the class day.</span>
+            </label>
+          </div>
+          <div className="course-session-row wide">
+            <label>
+              Start Time
+              <input
+                type="time"
+                value={form.class_start_time}
+                onChange={(event) => updateField('class_start_time', event.target.value)}
+                required
+              />
+              <span className="field-helper">Use your actual class start time.</span>
+            </label>
+            <label>
+              End Time
+              <input
+                type="time"
+                value={form.class_end_time}
+                onChange={(event) => updateField('class_end_time', event.target.value)}
+              />
+              <span className="field-helper">Optional.</span>
             </label>
           </div>
           <fieldset className="wide">
@@ -1369,7 +1435,7 @@ function MatchCard({ request, connectionState, onView }) {
       </p>
       <div className="match-meta">
         <span>{getCourseDisplay(request)}</span>
-        {request.class_session && <span>{request.class_session}</span>}
+        <span>{getSessionDisplay(request)}</span>
         <span>{getInitialNeeded(request)} {getInitialNeeded(request) === 1 ? 'spot' : 'spots'} remaining</span>
       </div>
       <div className="mini-detail">
@@ -1611,7 +1677,7 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
             <select value={currentRequest.id} onChange={(event) => handleRequestChange(event.target.value)}>
               {state.activeRequests.map((request) => (
                 <option value={request.id} key={request.id}>
-                  {request.id === currentRequest.id ? '✓ ' : ''}{getCourseDisplay(request)}{request.class_session ? ` | ${request.class_session}` : ''}
+                  {request.id === currentRequest.id ? '✓ ' : ''}{getCourseDisplay(request)} | {getSessionDisplay(request)}
                 </option>
               ))}
               <option value="__new__">+ Create New Request</option>
@@ -2092,7 +2158,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
             <p className="eyebrow">Looking for a Teammate</p>
             <h3>{getCourseDisplay(state.activeRequest)}</h3>
             <dl>
-              <div><dt>Class / Session</dt><dd>{state.activeRequest.class_session || 'Not specified'}</dd></div>
+              <div><dt>Class / Session</dt><dd>{getSessionDisplay(state.activeRequest)}</dd></div>
               <div><dt>Skills Needed</dt><dd>{joinList(state.activeRequest.skills_needed)}</dd></div>
               <div><dt>Work Style</dt><dd>{joinList(getWorkStyles(state.activeRequest))}</dd></div>
               <div><dt>Requirements</dt><dd>{describeRequirements(state.activeRequest)}</dd></div>
@@ -2640,7 +2706,7 @@ function ProfileDetail({
             {typeof matchScore === 'number' && <div><dt>Match Score</dt><dd>{matchScore}% Match</dd></div>}
             <div><dt>School</dt><dd>{schoolLabel(request.school || profile.school)}</dd></div>
             <div><dt>Major</dt><dd>{request.major || profile.major}</dd></div>
-            <div><dt>Class / Session</dt><dd>{request.class_session || 'Not specified'}</dd></div>
+            <div><dt>Class / Session</dt><dd>{getSessionDisplay(request)}</dd></div>
             <div><dt>Skills Needed</dt><dd>{joinList(request.skills_needed)}</dd></div>
             <div><dt>Team Size</dt><dd>{getTotalTeamSize(request)}</dd></div>
             <div><dt>Looking For</dt><dd>{getInitialNeeded(request)} {getInitialNeeded(request) === 1 ? 'spot' : 'spots'}</dd></div>
@@ -2887,7 +2953,7 @@ function CurrentRequest({
       <article className={isSelected ? 'request-list-row selected' : 'request-list-row'}>
         <div>
           <h3>{getCourseDisplay(request)}</h3>
-          <p>{request.class_session || 'No class/session'} | {titleCase(request.status)}</p>
+          <p>{getSessionDisplay(request)} | {titleCase(request.status)}</p>
           <p className="note">
             {progressSummary(requestMetrics)}
             {request.status === 'looking' ? ` | ${remainingSummary(requestMetrics)}` : ''}
@@ -3000,7 +3066,7 @@ function CurrentRequest({
         <dl>
           <div><dt>School</dt><dd>{schoolLabel(request.school || request.profile?.school)}</dd></div>
           <div><dt>Major</dt><dd>{request.major || request.profile?.major || 'Not specified'}</dd></div>
-          <div><dt>Class / Session</dt><dd>{request.class_session || 'Not specified'}</dd></div>
+          <div><dt>Class / Session</dt><dd>{getSessionDisplay(request)}</dd></div>
           <div><dt>Skills Needed</dt><dd>{joinList(request.skills_needed)}</dd></div>
           <div><dt>Total Team Size</dt><dd>{getTotalTeamSize(request)}</dd></div>
           <div><dt>Initially Looking For</dt><dd>{getInitialNeeded(request)}</dd></div>
@@ -3349,7 +3415,7 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
                 <h3>{displayName(request.teammate_full_name)} {(request.teammate_is_demo || request.teammate_full_name?.includes('(Demo)')) && <DemoBadge />}</h3>
                 <p>{schoolLabel(request.teammate_school)} | {request.teammate_major}</p>
                 {getCourseFilterValue(request) ? (
-                  <p>{getCourseDisplay(request)}{request.class_session ? ` | ${request.class_session}` : ''}</p>
+                  <p>{getCourseDisplay(request)} | {getSessionDisplay(request)}</p>
                 ) : (
                   <p>Discover connection</p>
                 )}
@@ -3457,7 +3523,16 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
 }
 
 function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
-  const [state, setState] = useState({ loading: true, error: '', friends: [], removeTarget: null, saving: false, success: '' });
+  const [state, setState] = useState({
+    loading: true,
+    error: '',
+    friends: [],
+    removeTarget: null,
+    matchTarget: null,
+    selectedMatchIndex: 0,
+    saving: false,
+    success: '',
+  });
 
   const loadFriends = () => {
     if (!currentProfileId) {
@@ -3507,6 +3582,37 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
     }
   };
 
+  const confirmMatchPlus = async () => {
+    const target = state.matchTarget;
+    const option = target?.match_options?.[state.selectedMatchIndex] || target?.match_options?.[0];
+    if (!target || !option) return;
+
+    setState((current) => ({ ...current, saving: true, error: '', success: '' }));
+
+    try {
+      await confirmFriendMatch({
+        connectionId: target.connection_id,
+        currentProfileId,
+        currentRequestId: option.current_request_id,
+        friendRequestId: option.friend_request_id,
+      });
+      setState((current) => ({
+        ...current,
+        saving: false,
+        matchTarget: null,
+        selectedMatchIndex: 0,
+        success: `Matched with ${displayName(target.teammate_full_name)} for ${option.course_name || 'this request'}.`,
+      }));
+      loadFriends();
+    } catch (err) {
+      setState((current) => ({
+        ...current,
+        saving: false,
+        error: getFriendlyError(err, "We couldn't create this teammate match. Please try again."),
+      }));
+    }
+  };
+
   return (
     <main className="screen">
       <div className="results-header">
@@ -3528,8 +3634,18 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
         <div className="discover-grid">
           {state.friends.map((friend) => (
             <article className="discover-card" key={friend.connection_id}>
+              {(() => {
+                const matchOptions = Array.isArray(friend.match_options) ? friend.match_options : [];
+                const canMatch = matchOptions.length > 0;
+                const hasSuitableOption = matchOptions.some((option) => option.is_suitable);
+
+                return (
+                  <>
               <div className="avatar">{displayInitial(friend.teammate_full_name)}</div>
-              <h3>{displayName(friend.teammate_full_name)} {friend.teammate_is_demo && <DemoBadge />}</h3>
+              <h3>
+                {displayName(friend.teammate_full_name)} {friend.teammate_is_demo && <DemoBadge />}
+                {hasSuitableOption && <span className="status-badge suitable">Suitable</span>}
+              </h3>
               <p>{universityLabel(friend.teammate_university)}</p>
               <p>{schoolLabel(friend.teammate_school)} | {friend.teammate_major}</p>
               <div className="mini-detail">
@@ -3537,6 +3653,21 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
                 <span>{joinList(friend.teammate_skills)}</span>
               </div>
               <div className="hero-actions">
+                <button
+                  className={canMatch ? 'primary match-plus-button' : 'secondary'}
+                  disabled={!canMatch}
+                  title={canMatch ? 'Add this friend as a teammate for one of your active requests.' : 'Create an active team request before using Match+.'}
+                  onClick={() => setState((current) => ({
+                    ...current,
+                    matchTarget: friend,
+                    selectedMatchIndex: 0,
+                    error: '',
+                    success: '',
+                  }))}
+                >
+                  <Sparkles size={18} />
+                  Match+
+                </button>
                 <button className="primary" onClick={() => onOpenChat(friend.connection_id)}>
                   <MessageCircle size={18} />
                   Message
@@ -3548,8 +3679,70 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
                   Remove Friend
                 </button>
               </div>
+              {!canMatch && <p className="note">Create an active team request to use Match+.</p>}
+              {canMatch && !hasSuitableOption && <p className="note">No suitability label yet, but you can still match them if they fit your team.</p>}
+                  </>
+                );
+              })()}
             </article>
           ))}
+        </div>
+      )}
+      {state.matchTarget && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="connect-modal" role="dialog" aria-modal="true" aria-label="Match plus confirmation">
+            <div className="modal-header">
+              <div>
+                <p className="eyebrow">Match+</p>
+                <h2>Match with {displayName(state.matchTarget.teammate_full_name)}?</h2>
+              </div>
+              <button
+                className="ghost"
+                onClick={() => setState((current) => ({ ...current, matchTarget: null, selectedMatchIndex: 0 }))}
+                type="button"
+              >
+                Close
+              </button>
+            </div>
+            {(state.matchTarget.match_options || []).length > 1 && (
+              <label>
+                Choose your request
+                <select
+                  value={state.selectedMatchIndex}
+                  onChange={(event) => setState((current) => ({ ...current, selectedMatchIndex: Number(event.target.value) }))}
+                >
+                  {state.matchTarget.match_options.map((option, index) => (
+                    <option value={index} key={`${option.current_request_id}-${option.friend_request_id || 'friend-optional'}`}>
+                      {option.course_name || 'Course'} {option.course_code ? `(${option.course_code})` : ''} | {option.class_day} {option.class_start_time}{option.is_suitable ? ' · Suitable' : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {(() => {
+              const option = state.matchTarget.match_options?.[state.selectedMatchIndex] || state.matchTarget.match_options?.[0];
+              return option ? (
+                <div className="request-summary-box">
+                  <p className="eyebrow">{option.is_suitable ? 'Suitable for this request' : 'Your selected request'}</p>
+                  <h3>{option.course_name || 'Selected course'} {option.course_code ? `(${option.course_code})` : ''}</h3>
+                  <p>{option.class_day} · {option.class_start_time}{option.class_end_time ? `-${option.class_end_time}` : ''}</p>
+                  {!option.is_suitable && <p className="note">Teamergency does not see a strong automatic signal yet. You can still choose this friend if they fit your team.</p>}
+                </div>
+              ) : null;
+            })()}
+            <div className="hero-actions">
+              <button
+                className="secondary"
+                onClick={() => setState((current) => ({ ...current, matchTarget: null, selectedMatchIndex: 0 }))}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button className="primary match-plus-button" onClick={confirmMatchPlus} disabled={state.saving}>
+                {state.saving ? 'Matching...' : 'Confirm Match'}
+              </button>
+            </div>
+          </section>
         </div>
       )}
       {state.removeTarget && (
@@ -4166,6 +4359,7 @@ function MyProfile({ profile, onCreateProfile, onCreateSearch, onProfileUpdated 
 
 export default function App() {
   const [view, setView] = useState('home');
+  const [viewHistory, setViewHistory] = useState([]);
   const [profileId, setProfileId] = useState('');
   const [requestId, setRequestId] = useState('');
   const [profile, setProfile] = useState(null);
@@ -4219,22 +4413,22 @@ export default function App() {
     setBootError('');
 
     if (!profileId) {
-      setView('profile');
+      navigate('profile');
       return;
     }
 
     if (profile) {
-      setView('request');
+      navigate('request');
       return;
     }
 
     try {
       const loadedProfile = await getProfileById(profileId, { claimLegacy: true });
       setProfile(loadedProfile);
-      setView('request');
+      navigate('request');
     } catch {
       setBootError("We couldn't load your saved profile. Please create a profile again on this device.");
-      setView('profile');
+      navigate('profile');
     }
   };
 
@@ -4243,7 +4437,7 @@ export default function App() {
       startRequest();
       return;
     }
-    setView('matches');
+    navigate('matches');
   };
 
   const selectCurrentRequest = (nextRequestId) => {
@@ -4257,13 +4451,28 @@ export default function App() {
 
   const openChat = (connectionId) => {
     setSelectedConnectionId(connectionId);
-    setView('chat');
+    navigate('chat');
+  };
+
+  const navigate = (nextView) => {
+    setViewHistory((current) => (
+      nextView === view ? current : [...current, view].slice(-20)
+    ));
+    setView(nextView);
+  };
+
+  const goBack = (fallbackView = 'home') => {
+    setViewHistory((current) => {
+      const previousView = current[current.length - 1];
+      setView(previousView || fallbackView);
+      return current.slice(0, -1);
+    });
   };
 
   return (
     <div className={view === 'home' ? 'app landing-mode' : 'app'}>
       <header className="topbar">
-        <button className="logo-button" onClick={() => setView('home')}>
+        <button className="logo-button" onClick={() => navigate('home')}>
           <span className="brand-logo">
             <span>TEA</span><span>M</span><span>ERGENCY</span>
           </span>
@@ -4271,20 +4480,20 @@ export default function App() {
         <div className="top-actions">
           {view === 'home' ? (
             <>
-              <button className="ghost" onClick={() => setView('discover')}>Discovery</button>
+              <button className="ghost" onClick={() => navigate('discover')}>Discovery</button>
               <button className="ghost" onClick={findMatches}>Find Teammates</button>
-              <button className="ghost nav-outline" onClick={() => setView('my-profile')}>Log In</button>
-              <button className="ghost" onClick={() => setView('profile')}>Sign Up</button>
+              <button className="ghost nav-outline" onClick={() => navigate('my-profile')}>Log In</button>
+              <button className="ghost" onClick={() => navigate('profile')}>Sign Up</button>
             </>
           ) : (
             <>
-              <button className="ghost" onClick={() => setView('discover')}>Discover</button>
+              <button className="ghost" onClick={() => navigate('discover')}>Discover</button>
               {requestId && <button className="ghost" onClick={findMatches}>Find Teammates</button>}
-              {profileId && <button className="ghost" onClick={() => setView('current-request')}>My Request</button>}
-              <button className="ghost" onClick={() => setView('connections')}>Connections{notificationCounts.connections > 0 && <span className="nav-badge">{notificationCounts.connections}</span>}</button>
-              <button className="ghost" onClick={() => setView('friends')}>Friends</button>
-              <button className="ghost" onClick={() => setView('messages')}>Messages{notificationCounts.messages > 0 && <span className="nav-badge">{notificationCounts.messages}</span>}</button>
-              <button className="ghost" onClick={() => setView('my-profile')}>My Profile</button>
+              {profileId && <button className="ghost" onClick={() => navigate('current-request')}>My Request</button>}
+              <button className="ghost" onClick={() => navigate('connections')}>Connections{notificationCounts.connections > 0 && <span className="nav-badge">{notificationCounts.connections}</span>}</button>
+              <button className="ghost" onClick={() => navigate('friends')}>Friends</button>
+              <button className="ghost" onClick={() => navigate('messages')}>Messages{notificationCounts.messages > 0 && <span className="nav-badge">{notificationCounts.messages}</span>}</button>
+              <button className="ghost" onClick={() => navigate('my-profile')}>My Profile</button>
             </>
           )}
         </div>
@@ -4297,7 +4506,7 @@ export default function App() {
         <Home
           profileId={profileId}
           requestId={requestId}
-          onStartProfile={() => setView('profile')}
+          onStartProfile={() => navigate('profile')}
           onStartRequest={startRequest}
           onFindMatches={findMatches}
         />
@@ -4308,22 +4517,22 @@ export default function App() {
           onSaved={(savedProfile) => {
             setProfile(savedProfile);
             setProfileId(savedProfile.id);
-            setView('profile-saved');
+            navigate('profile-saved');
           }}
         />
       )}
 
       {view === 'profile-saved' && (
-        <ProfileSaved profile={profile} onContinue={() => setView('request')} />
+        <ProfileSaved profile={profile} onContinue={() => navigate('request')} />
       )}
 
       {view === 'request' && profile && (
         <RequestForm
           profile={profile}
-          onBack={() => setView('home')}
+          onBack={() => goBack('home')}
           onCreated={(request) => {
             setRequestId(request.id);
-            setView('matches');
+            navigate('matches');
           }}
         />
       )}
@@ -4334,11 +4543,11 @@ export default function App() {
           currentProfileId={profileId}
           onCreateNew={startRequest}
           onSelectRequest={selectCurrentRequest}
-          onViewCurrent={() => setView('current-request')}
+          onViewCurrent={() => navigate('current-request')}
           onViewProfile={(id, score) => {
             setSelectedRequestId(id);
             setSelectedMatchScore(score);
-            setView('profile-detail');
+            navigate('profile-detail');
           }}
         />
       )}
@@ -4349,9 +4558,9 @@ export default function App() {
           currentRequestId={requestId}
           matchScore={selectedMatchScore}
           requestId={selectedRequestId}
-          onBack={() => setView('matches')}
+          onBack={() => goBack('matches')}
           onOpenChat={openChat}
-          onOpenConnections={() => setView('connections')}
+          onOpenConnections={() => navigate('connections')}
         />
       )}
 
@@ -4360,12 +4569,12 @@ export default function App() {
           requestId={requestId}
           currentProfileId={profileId}
           profile={profile}
-          onBack={() => setView(requestId ? 'matches' : 'home')}
+          onBack={() => goBack(requestId ? 'matches' : 'home')}
           onOpenChat={openChat}
           onViewProfile={(id) => {
             setSelectedRequestId(id);
             setSelectedMatchScore(null);
-            setView('profile-detail');
+            navigate('profile-detail');
           }}
           onSelectRequest={selectCurrentRequest}
           onCreateNew={startRequest}
@@ -4375,7 +4584,7 @@ export default function App() {
       {view === 'found' && (
         <FoundConfirmation
           onCreateAnother={startRequest}
-          onHome={() => setView('home')}
+          onHome={() => navigate('home')}
         />
       )}
 
@@ -4386,7 +4595,7 @@ export default function App() {
           onOpenChat={openChat}
           onViewProfile={(id) => {
             setSelectedDiscoverProfileId(id);
-            setView('discover-profile');
+            navigate('discover-profile');
           }}
           onNotificationsChanged={refreshNotificationCounts}
         />
@@ -4397,7 +4606,7 @@ export default function App() {
           currentProfileId={profileId}
           onOpenProfile={(id) => {
             setSelectedDiscoverProfileId(id);
-            setView('discover-profile');
+            navigate('discover-profile');
           }}
         />
       )}
@@ -4408,7 +4617,7 @@ export default function App() {
           onOpenChat={openChat}
           onViewProfile={(id) => {
             setSelectedDiscoverProfileId(id);
-            setView('discover-profile');
+            navigate('discover-profile');
           }}
         />
       )}
@@ -4417,9 +4626,9 @@ export default function App() {
         <DiscoverProfileDetail
           profileId={selectedDiscoverProfileId}
           currentProfileId={profileId}
-          onBack={() => setView('discover')}
+          onBack={() => goBack('discover')}
           onOpenChat={openChat}
-          onOpenConnections={() => setView('connections')}
+          onOpenConnections={() => navigate('connections')}
         />
       )}
 
@@ -4429,7 +4638,7 @@ export default function App() {
           onOpenChat={openChat}
           onViewProfile={(id) => {
             setSelectedDiscoverProfileId(id);
-            setView('discover-profile');
+            navigate('discover-profile');
           }}
           onNotificationsChanged={refreshNotificationCounts}
         />
@@ -4440,10 +4649,10 @@ export default function App() {
           connectionId={selectedConnectionId}
           currentProfileId={profileId}
           currentRequestId={requestId}
-          onBack={() => setView('messages')}
+          onBack={() => goBack('messages')}
           onViewProfile={(id) => {
             setSelectedDiscoverProfileId(id);
-            setView('discover-profile');
+            navigate('discover-profile');
           }}
           onNotificationsChanged={refreshNotificationCounts}
         />
@@ -4452,7 +4661,7 @@ export default function App() {
       {view === 'my-profile' && (
         <MyProfile
           profile={profile}
-          onCreateProfile={() => setView('profile')}
+          onCreateProfile={() => navigate('profile')}
           onCreateSearch={startRequest}
           onProfileUpdated={(updatedProfile) => setProfile(updatedProfile)}
         />
