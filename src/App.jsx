@@ -274,8 +274,25 @@ const getReviewSummary = (profile = {}) => {
   };
 };
 
-const reviewSummaryLabel = (profile = {}) => {
-  const summary = getReviewSummary(profile);
+const getReviewSummaryFromReviews = (reviews = []) => {
+  const validReviews = reviews.filter((review) => Number(review.rating) > 0);
+
+  if (validReviews.length === 0) {
+    return { average: 0, count: 0 };
+  }
+
+  const total = validReviews.reduce((sum, review) => sum + Number(review.rating), 0);
+  return {
+    average: total / validReviews.length,
+    count: validReviews.length,
+  };
+};
+
+const reviewSummaryLabel = (profile = {}, reviews = null) => {
+  const summary = Array.isArray(reviews) && reviews.length > 0
+    ? getReviewSummaryFromReviews(reviews)
+    : getReviewSummary(profile);
+
   return summary.count > 0
     ? `${summary.average.toFixed(1)} ★ · Based on ${summary.count} ${summary.count === 1 ? 'review' : 'reviews'}`
     : 'No reviews yet.';
@@ -2148,7 +2165,7 @@ function ReviewsSection({ reviews = [], profile, title = 'Existing Reviews' }) {
   return (
     <section className="request-summary-box">
       <p className="eyebrow">{title}</p>
-      <h3>{reviewSummaryLabel(profile)}</h3>
+      <h3>{reviewSummaryLabel(profile, reviews)}</h3>
       {reviews.length === 0 ? (
         <p className="note">No teammate reviews yet.</p>
       ) : (
@@ -4090,7 +4107,10 @@ function MyProfile({ profile, onCreateProfile, onCreateSearch, onProfileUpdated 
               <div><dt>School</dt><dd>{schoolLabel(profile.school)}</dd></div>
               <div><dt>Major</dt><dd>{profile.major}</dd></div>
               <div><dt>Availability</dt><dd>{profile.is_available === false ? 'Unavailable' : 'Available for collaboration'}</dd></div>
-              <div><dt>Reviews</dt><dd>{reviewSummaryLabel(profile)}</dd></div>
+              <div>
+                <dt>Reviews</dt>
+                <dd>{reviewsState.loading ? 'Loading reviews...' : reviewSummaryLabel(profile, reviewsState.reviews)}</dd>
+              </div>
               <div><dt>Contact</dt><dd>{contactLabel(profile.contact_type)}: {profile.contact_value}</dd></div>
               <div><dt>Bio</dt><dd>{profile.short_bio || 'Not specified'}</dd></div>
             </dl>
