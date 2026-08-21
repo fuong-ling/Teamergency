@@ -235,6 +235,16 @@ export const classSessionsByCourseCode = {
   COSC2818: ['Monday 13:30', 'Friday 13:30'],
 };
 
+export const classDayOptions = [
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday',
+];
+
 export const skillOptions = [
   'UI/UX',
   'Graphic Design',
