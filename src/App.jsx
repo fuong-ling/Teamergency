@@ -236,6 +236,9 @@ const getFriendlyError = (error, fallback) => {
   }
 
   if (error?.message?.includes('Review is not available yet')) {
+    if (REVIEW_WAIT_DAYS === 0) {
+      return 'Supabase is still using the old review wait setting. Run supabase/review_wait_now_testing.sql, then try again.';
+    }
     return `Review not available yet. You’ll be able to review this teammate after at least ${REVIEW_WAIT_DAYS} days.`;
   }
 
@@ -3099,7 +3102,7 @@ function FoundConfirmation({ onCreateAnother, onHome }) {
   );
 }
 
-function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onNotificationsChanged }) {
+function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onViewProfile, onNotificationsChanged }) {
   const [tab, setTab] = useState('received');
   const [state, setState] = useState({
     loading: true,
@@ -3360,6 +3363,9 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onNot
                     Message
                   </button>
                 )}
+                <button className="secondary" onClick={() => onViewProfile(request.teammate_profile_id)}>
+                  View Profile
+                </button>
                 {tab === 'connected' && (
                   <button
                     className="secondary quiet-action"
@@ -3512,7 +3518,7 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
   );
 }
 
-function MessagesList({ currentProfileId, onOpenChat, onNotificationsChanged }) {
+function MessagesList({ currentProfileId, onOpenChat, onViewProfile, onNotificationsChanged }) {
   const [state, setState] = useState({ loading: true, error: '', threads: [] });
 
   useEffect(() => {
@@ -3573,17 +3579,22 @@ function MessagesList({ currentProfileId, onOpenChat, onNotificationsChanged }) 
       {currentProfileId && !state.loading && state.threads.length > 0 && (
         <div className="thread-list">
           {state.threads.map((thread) => (
-            <button
-              className="thread-row"
-              key={thread.connection_id}
-              onClick={() => onOpenChat(thread.connection_id)}
-            >
+            <article className="thread-row" key={thread.connection_id}>
               <div>
                 <strong>{displayName(thread.teammate_full_name)}</strong>
                 <span>{thread.last_message || 'No messages yet. Say hello!'}</span>
               </div>
-              <time>{formatThreadTime(thread.last_message_at || thread.updated_at)}</time>
-            </button>
+              <div className="thread-actions">
+                <time>{formatThreadTime(thread.last_message_at || thread.updated_at)}</time>
+                <button className="secondary" onClick={() => onOpenChat(thread.connection_id)}>
+                  <MessageCircle size={18} />
+                  Message
+                </button>
+                <button className="secondary" onClick={() => onViewProfile(thread.teammate_profile_id)}>
+                  View Profile
+                </button>
+              </div>
+            </article>
           ))}
         </div>
       )}
@@ -3591,7 +3602,7 @@ function MessagesList({ currentProfileId, onOpenChat, onNotificationsChanged }) 
   );
 }
 
-function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, onNotificationsChanged }) {
+function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, onViewProfile, onNotificationsChanged }) {
   const [state, setState] = useState({
     loading: true,
     error: '',
@@ -3753,11 +3764,18 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
                     : 'Connection required'}
             </p>
           </div>
-          {state.detail?.status === 'accepted' && (
-            <button className="secondary quiet-action" onClick={() => setState((current) => ({ ...current, unmatchOpen: true, actionError: '' }))}>
-              Unmatch
-            </button>
-          )}
+          <div className="chat-header-actions">
+            {state.detail?.teammate_profile_id && (
+              <button className="secondary" onClick={() => onViewProfile(state.detail.teammate_profile_id)}>
+                View Profile
+              </button>
+            )}
+            {state.detail?.status === 'accepted' && (
+              <button className="secondary quiet-action" onClick={() => setState((current) => ({ ...current, unmatchOpen: true, actionError: '' }))}>
+                Unmatch
+              </button>
+            )}
+          </div>
         </div>
 
         {chatEnded && <p className="note">This connection has ended.</p>}
@@ -4260,6 +4278,10 @@ export default function App() {
           currentProfileId={profileId}
           currentRequestId={requestId}
           onOpenChat={openChat}
+          onViewProfile={(id) => {
+            setSelectedDiscoverProfileId(id);
+            setView('discover-profile');
+          }}
           onNotificationsChanged={refreshNotificationCounts}
         />
       )}
@@ -4299,6 +4321,10 @@ export default function App() {
         <MessagesList
           currentProfileId={profileId}
           onOpenChat={openChat}
+          onViewProfile={(id) => {
+            setSelectedDiscoverProfileId(id);
+            setView('discover-profile');
+          }}
           onNotificationsChanged={refreshNotificationCounts}
         />
       )}
@@ -4309,6 +4335,10 @@ export default function App() {
           currentProfileId={profileId}
           currentRequestId={requestId}
           onBack={() => setView('messages')}
+          onViewProfile={(id) => {
+            setSelectedDiscoverProfileId(id);
+            setView('discover-profile');
+          }}
           onNotificationsChanged={refreshNotificationCounts}
         />
       )}

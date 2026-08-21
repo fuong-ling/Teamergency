@@ -3121,3 +3121,42 @@ select {
 .match-card .hero-actions {
   margin-top: 18px;
 }
+
+.thread-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  text-align: left;
+}
+
+.thread-actions,
+.chat-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.thread-actions .secondary,
+.chat-header-actions .secondary {
+  min-height: 42px;
+  padding: 9px 12px;
+  font-size: 0.9rem;
+}
+
+.connection-actions .secondary {
+  min-width: 132px;
+}
+
+@media (max-width: 720px) {
+  .thread-row {
+    grid-template-columns: 1fr;
+  }
+
+  .thread-actions,
+  .chat-header-actions {
+    justify-content: flex-start;
+  }
+}
