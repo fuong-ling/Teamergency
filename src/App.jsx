@@ -1647,7 +1647,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
           ? await Promise.all(
             visibleProfiles.map(async (profile) => {
               try {
-                return [profile.id, await getConnectionBetween(currentProfileId, profile.id, 'discover')];
+                return [profile.id, await getConnectionBetween(currentProfileId, profile.id)];
               } catch {
                 return [profile.id, null];
               }
@@ -1841,7 +1841,10 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
                       Connect
                     </button>
                   ) : connectionState === 'accepted' ? (
-                    <button className="secondary" onClick={() => onOpenProfile(profile.id)}>View Match</button>
+                    <button className="connected-button" disabled>
+                      <CheckCircle2 size={18} />
+                      Connected
+                    </button>
                   ) : connectionState === 'sent_pending' ? (
                     <button className="secondary" onClick={() => onOpenProfile(profile.id)}>Request Sent</button>
                   ) : connectionState === 'received_pending' ? (
