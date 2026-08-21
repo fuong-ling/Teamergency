@@ -239,7 +239,7 @@ const getFriendlyError = (error, fallback) => {
     if (REVIEW_WAIT_DAYS === 0) {
       return 'Supabase is still using the old review wait setting. Run supabase/review_wait_now_testing.sql, then try again.';
     }
-    return `Review not available yet. You’ll be able to review this teammate after at least ${REVIEW_WAIT_DAYS} days.`;
+    return 'Review is not available yet.';
   }
 
   if (error?.code === '23505' || error?.message?.includes('duplicate key')) {
@@ -2143,7 +2143,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
 function ReviewsSection({ reviews = [], profile }) {
   return (
     <section className="request-summary-box">
-      <p className="eyebrow">Teammate Reviews</p>
+      <p className="eyebrow">Existing Reviews</p>
       <h3>{reviewSummaryLabel(profile)}</h3>
       {reviews.length === 0 ? (
         <p className="note">No teammate reviews yet.</p>
@@ -2176,8 +2176,6 @@ function TeammateFeedbackPanel({ connection, currentProfileId, reviewedProfileId
     return null;
   }
 
-  const eligibility = getReviewEligibility(connection);
-
   const submitReview = async (event) => {
     event.preventDefault();
     setSaving('review');
@@ -2203,35 +2201,27 @@ function TeammateFeedbackPanel({ connection, currentProfileId, reviewedProfileId
 
   return (
     <section className="request-summary-box">
-      <p className="eyebrow">Teammate Review</p>
-      {!eligibility.eligible ? (
-        <div className="locked-box">
-          <h3>Review not available yet</h3>
-          <p>You’ll be able to review this teammate after you’ve worked together for at least {REVIEW_WAIT_DAYS} days.</p>
-          <p className="note">Available in {eligibility.remainingDays} {eligibility.remainingDays === 1 ? 'day' : 'days'}.</p>
-        </div>
-      ) : (
-        <form className="feedback-form" onSubmit={submitReview}>
-          <h3>How was it working with this teammate?</h3>
-          <label>
-            Teammate rating
-            <select value={reviewRating} onChange={(event) => setReviewRating(event.target.value)}>
-              {[5, 4, 3, 2, 1].map((rating) => (
-                <option value={rating} key={rating}>{rating} star{rating === 1 ? '' : 's'}</option>
-              ))}
-            </select>
-          </label>
-          <textarea
-            value={reviewText}
-            onChange={(event) => setReviewText(event.target.value)}
-            rows="3"
-            placeholder="Reliable and communicates clearly."
-          />
-          <button className="secondary" type="submit" disabled={saving === 'review'}>
-            {saving === 'review' ? 'Saving...' : 'Submit Teammate Review'}
-          </button>
-        </form>
-      )}
+      <p className="eyebrow">Write a Teammate Review</p>
+      <form className="feedback-form" onSubmit={submitReview}>
+        <h3>How was it working with this teammate?</h3>
+        <label>
+          Teammate rating
+          <select value={reviewRating} onChange={(event) => setReviewRating(event.target.value)}>
+            {[5, 4, 3, 2, 1].map((rating) => (
+              <option value={rating} key={rating}>{rating} star{rating === 1 ? '' : 's'}</option>
+            ))}
+          </select>
+        </label>
+        <textarea
+          value={reviewText}
+          onChange={(event) => setReviewText(event.target.value)}
+          rows="4"
+          placeholder="e.g. Reliable, communicates clearly, and completed tasks on time."
+        />
+        <button className="secondary" type="submit" disabled={saving === 'review'}>
+          {saving === 'review' ? 'Saving...' : 'Submit Teammate Review'}
+        </button>
+      </form>
       {message && <p className="success">{message}</p>}
       {error && <p className="error">{error}</p>}
     </section>
