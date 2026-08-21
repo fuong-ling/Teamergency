@@ -301,6 +301,10 @@ const calculateSkillGap = (request, profile, teammates = []) => {
 };
 
 const getReviewEligibility = (connection) => {
+  if (REVIEW_WAIT_DAYS <= 0) {
+    return { eligible: true, remainingDays: 0, eligibleAt: new Date() };
+  }
+
   const acceptedAt = connection?.accepted_at || connection?.updated_at || connection?.created_at;
   const acceptedDate = acceptedAt ? new Date(acceptedAt) : null;
 
