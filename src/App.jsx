@@ -59,7 +59,6 @@ import {
 import { hasSupabaseConfig } from './lib/supabase';
 import { REVIEW_WAIT_DAYS } from './lib/config';
 import {
-  classDayOptions,
   connectMessageSuggestions,
   contactTypes,
   demoReplyPool,
@@ -85,6 +84,8 @@ import {
   storeProfileId,
 } from './lib/storage';
 import { calculateMatchScore } from './lib/matching';
+
+const classDayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 const mergeMessagesById = (left = [], right = []) => {
   const seen = new Set();
