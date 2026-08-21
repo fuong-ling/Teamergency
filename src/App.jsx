@@ -1933,6 +1933,9 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
   const profile = state.profile;
   const isOwnProfile = profile.id === currentProfileId;
   const connectionState = getConnectionState(state.connection, currentProfileId);
+  const reviewTeamRequestId = state.connection?.connection_context === 'team_request'
+    ? state.connection.sender_team_request_id || state.connection.receiver_team_request_id || state.activeRequest?.id
+    : null;
   const disabledReason = isOwnProfile
       ? 'This is your profile.'
       : !currentProfileId
@@ -2063,6 +2066,12 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
             </dl>
           </div>
         )}
+        <TeammateFeedbackPanel
+          connection={state.connection}
+          currentProfileId={currentProfileId}
+          reviewedProfileId={profile.id}
+          teamRequestId={reviewTeamRequestId}
+        />
         {state.actionError && <p className="error">{state.actionError}</p>}
         {state.actionSuccess && <p className="success">{state.actionSuccess}</p>}
         {disabledReason ? (
