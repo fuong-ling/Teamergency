@@ -2,6 +2,14 @@ export const contactTypes = ['email', 'instagram', 'messenger', 'url'];
 
 export const universityOptions = [
   { value: 'RMIT University', label: 'RMIT University' },
+  {
+    value: 'University of Economics Ho Chi Minh City',
+    label: 'University of Economics Ho Chi Minh City',
+  },
+  {
+    value: 'University of Technology Ho Chi Minh City',
+    label: 'University of Technology Ho Chi Minh City',
+  },
 ];
 
 export const schoolOptions = [
@@ -222,17 +230,51 @@ export const skillsBySchool = {
 };
 
 export const classSessionsByCourseCode = {
-  COMM2784: ['Tuesday 09:30', 'Thursday 13:30', 'Friday 09:30'],
-  COMM2750: ['Tuesday 13:30', 'Thursday 09:30'],
-  COMM2778: ['Monday 13:30', 'Friday 13:30'],
-  COMM2762: ['Wednesday 09:30', 'Friday 13:30'],
-  COMM2825: ['Monday 09:30', 'Thursday 13:30'],
-  MKTG2301: ['Tuesday 09:30', 'Friday 09:30'],
-  MKTG2305: ['Wednesday 13:30', 'Saturday 09:30'],
-  BUSM2655: ['Monday 13:30', 'Wednesday 09:30'],
-  COSC2430: ['Tuesday 13:30', 'Saturday 09:30'],
-  ISYS2101: ['Thursday 09:30', 'Saturday 13:30'],
-  COSC2818: ['Monday 13:30', 'Friday 13:30'],
+  COMM2784: [
+    { id: 'COMM2784-S01', code: '01', lecturer: 'Dr. Linh Nguyen' },
+    { id: 'COMM2784-S02', code: '02', lecturer: 'Dr. Minh Tran' },
+    { id: 'COMM2784-S03', code: '03' },
+  ],
+  COMM2750: [
+    { id: 'COMM2750-S01', code: '01' },
+    { id: 'COMM2750-S02', code: '02', lecturer: 'Dr. An Vo' },
+  ],
+  COMM2778: [
+    { id: 'COMM2778-S01', code: '01' },
+    { id: 'COMM2778-S02', code: '02' },
+  ],
+  COMM2762: [
+    { id: 'COMM2762-S01', code: '01' },
+    { id: 'COMM2762-S02', code: '02' },
+  ],
+  COMM2825: [
+    { id: 'COMM2825-S01', code: '01' },
+    { id: 'COMM2825-S02', code: '02' },
+  ],
+  MKTG2301: [
+    { id: 'MKTG2301-S01', code: '01' },
+    { id: 'MKTG2301-S02', code: '02' },
+  ],
+  MKTG2305: [
+    { id: 'MKTG2305-S01', code: '01' },
+    { id: 'MKTG2305-S02', code: '02' },
+  ],
+  BUSM2655: [
+    { id: 'BUSM2655-S01', code: '01' },
+    { id: 'BUSM2655-S02', code: '02' },
+  ],
+  COSC2430: [
+    { id: 'COSC2430-S01', code: '01' },
+    { id: 'COSC2430-S02', code: '02' },
+  ],
+  ISYS2101: [
+    { id: 'ISYS2101-S01', code: '01' },
+    { id: 'ISYS2101-S02', code: '02' },
+  ],
+  COSC2818: [
+    { id: 'COSC2818-S01', code: '01' },
+    { id: 'COSC2818-S02', code: '02' },
+  ],
 };
 
 export const classDayOptions = [
@@ -347,6 +389,19 @@ export const getRequestSkillOptions = (profile = {}) => {
 export const getCoursesForSchool = (school) => coursesBySchool[school] || [];
 
 export const getAllCourses = () => Object.values(coursesBySchool).flat();
+
+export const formatSessionLabel = (session) =>
+  session?.code ? `Session ${session.code}` : 'Session';
+
+export const getSessionsForCourse = (courseCode) =>
+  (classSessionsByCourseCode[courseCode] || [
+    { id: `${courseCode || 'COURSE'}-S01`, code: '01' },
+    { id: `${courseCode || 'COURSE'}-S02`, code: '02' },
+  ]).map((session) => ({
+    semester: 'Semester 2',
+    academicYear: '2026',
+    ...session,
+  }));
 
 export const workStyleOptions = [
   'Likes to finish tasks early',

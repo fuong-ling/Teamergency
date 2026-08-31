@@ -15,18 +15,43 @@ const getAuthenticatedClient = async () => {
   return { client, session };
 };
 
+const isMissingSchemaFeature = (error) => {
+  const message = String(error?.message || '').toLowerCase();
+  return ['PGRST202', 'PGRST204', '42703'].includes(error?.code)
+    || message.includes('could not find the function')
+    || message.includes('could not find')
+    || message.includes('schema cache')
+    || message.includes('column');
+};
+
 export const createProfile = async (profileData) => {
   const { client, session } = await getAuthenticatedClient();
-  const { data, error } = await client
+  const payload = {
+    ...profileData,
+    role: profileData.role === 'lecturer' ? 'lecturer' : 'student',
+    lecturer_title: profileData.role === 'lecturer' ? profileData.lecturer_title || null : null,
+    is_demo: false,
+    owner_id: session.user.id,
+    consent_public_visibility: true,
+  };
+
+  let { data, error } = await client
     .from('profiles')
-    .insert({
-      ...profileData,
-      is_demo: false,
-      owner_id: session.user.id,
-      consent_public_visibility: true,
-    })
+    .insert(payload)
     .select()
     .single();
+
+  if (error && isMissingSchemaFeature(error)) {
+    const { role, lecturer_title, ...legacyPayload } = payload;
+    const fallback = await client
+      .from('profiles')
+      .insert(legacyPayload)
+      .select()
+      .single();
+
+    data = fallback.data ? { ...fallback.data, role, lecturer_title } : fallback.data;
+    error = fallback.error;
+  }
 
   if (error) throw error;
   return data;
@@ -74,7 +99,8 @@ export const updateProfile = async (profileId, profileData) => {
     // New profiles already have an owner; this only helps older local profiles.
   }
 
-  const { data, error } = await client.rpc('update_profile', {
+  const role = profileData.role === 'lecturer' ? 'lecturer' : 'student';
+  let { data, error } = await client.rpc('update_profile_with_role', {
     p_profile_id: profileId,
     p_university: profileData.university || 'RMIT University',
     p_school: profileData.school,
@@ -85,7 +111,33 @@ export const updateProfile = async (profileId, profileData) => {
     p_contact_value: profileData.contact_value,
     p_short_bio: profileData.short_bio,
     p_is_available: profileData.is_available ?? true,
+    p_role: role,
+    p_lecturer_title: profileData.lecturer_title || null,
   });
+
+  if (error && isMissingSchemaFeature(error)) {
+    const fallback = await client.rpc('update_profile', {
+      p_profile_id: profileId,
+      p_university: profileData.university || 'RMIT University',
+      p_school: profileData.school,
+      p_major: profileData.major,
+      p_full_name: profileData.full_name,
+      p_skills: profileData.skills,
+      p_contact_type: profileData.contact_type,
+      p_contact_value: profileData.contact_value,
+      p_short_bio: profileData.short_bio,
+      p_is_available: profileData.is_available ?? true,
+    });
+
+    data = fallback.data?.length
+      ? fallback.data.map((profile) => ({
+          ...profile,
+          role,
+          lecturer_title: role === 'lecturer' ? profileData.lecturer_title || null : null,
+        }))
+      : fallback.data;
+    error = fallback.error;
+  }
 
   if (error) throw error;
   if (!data?.length) {
@@ -93,6 +145,144 @@ export const updateProfile = async (profileId, profileData) => {
   }
 
   return data[0];
+};
+
+export const getLecturerDashboardByCode = async (classCode) => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc('get_lecturer_dashboard_by_code', {
+    class_code: classCode,
+  });
+
+  if (error) throw error;
+  return data?.[0] || null;
+};
+
+export const getDemoLecturerDashboards = async ({ university, lecturerId }) => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc('get_demo_lecturer_dashboards', {
+    p_university: university,
+    p_lecturer_id: lecturerId,
+  });
+
+  if (error) throw error;
+  return data || [];
+};
+
+export const getDemoClassForProfile = async (profileId, classCode) => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc('get_demo_class_for_profile', {
+    current_profile: profileId,
+    p_class_code: classCode,
+  });
+
+  if (error) throw error;
+  return data?.[0] || null;
+};
+
+export const joinDemoClassByCode = async ({ profileId, classCode, networkStatus }) => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc('join_demo_class_by_code', {
+    current_profile: profileId,
+    p_class_code: classCode,
+    preferred_teammate_status: networkStatus || null,
+  });
+
+  if (error) throw error;
+  if (!data?.length) {
+    throw new Error('Demo class could not be joined.');
+  }
+
+  return data[0];
+};
+
+export const createClassCohort = async (classData) => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc('create_class_cohort', {
+    p_university: classData.university || 'RMIT University',
+    p_school: classData.school || null,
+    p_major: classData.major,
+    p_course_name: classData.course_name || classData.course,
+    p_course_code: classData.course_code,
+    p_session_code: classData.session_code,
+    p_semester: classData.semester || 'Semester 2',
+    p_academic_year: Number(classData.academic_year || 2026),
+    p_lecturer_name: classData.lecturer_name || null,
+  });
+
+  if (error) throw error;
+  if (!data?.length) {
+    throw new Error('Class was not created.');
+  }
+
+  return data[0];
+};
+
+export const getClassByJoinCode = async (joinCode) => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc('get_class_by_join_code', {
+    class_code: joinCode,
+  });
+
+  if (error) throw error;
+  return data?.[0] || null;
+};
+
+export const joinClassByCode = async ({ profileId, joinCode, networkStatus }) => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc('join_class_by_code', {
+    current_profile: profileId,
+    class_code: joinCode,
+    preferred_teammate_status: networkStatus || null,
+  });
+
+  if (error) throw error;
+  if (!data?.length) {
+    throw new Error('Class could not be joined.');
+  }
+
+  return data[0];
+};
+
+export const listMyClasses = async (profileId) => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc('list_my_classes', {
+    current_profile: profileId,
+  });
+
+  if (error) throw error;
+  return data || [];
+};
+
+export const listMyClassesWithStatus = async (profileId) => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc('list_my_classes_with_status', {
+    current_profile: profileId,
+  });
+
+  if (error && isMissingSchemaFeature(error)) {
+    return listMyClasses(profileId);
+  }
+
+  if (error) throw error;
+  return data || [];
+};
+
+export const listLecturerClasses = async () => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc('list_lecturer_classes');
+
+  if (error) throw error;
+  return data || [];
+};
+
+export const getClassDashboard = async (classId) => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc('get_class_dashboard', {
+    target_class: classId,
+  });
+
+  if (error) throw error;
+  return data?.[0] || null;
 };
 
 const fallbackAssessment = (match) => ({
@@ -188,7 +378,8 @@ export const createTeamRequest = async (profileId, requestData) => {
     // New profiles already have an owner; this only helps older local profiles.
   }
 
-  const { data, error } = await client.rpc('create_team_request', {
+  const rpcName = requestData.class_id ? 'create_team_request_with_class' : 'create_team_request';
+  const args = {
     p_profile_id: profileId,
     p_school: requestData.school,
     p_major: requestData.major,
@@ -206,7 +397,10 @@ export const createTeamRequest = async (profileId, requestData) => {
     p_portfolio_reference_path: requestData.portfolio_reference_path,
     p_portfolio_reference_name: requestData.portfolio_reference_name,
     p_requirements: requestData.requirements,
-  });
+  };
+  if (requestData.class_id) args.p_class_id = requestData.class_id;
+
+  const { data, error } = await client.rpc(rpcName, args);
 
   if (error) throw error;
   if (!data?.length) {
@@ -228,7 +422,8 @@ export const listMyTeamRequests = async (profileId) => {
 
 export const updateTeamRequest = async (requestId, profileId, requestData) => {
   const { client } = await getAuthenticatedClient();
-  const { data, error } = await client.rpc('update_team_request', {
+  const rpcName = requestData.class_id ? 'update_team_request_with_class' : 'update_team_request';
+  const args = {
     p_request_id: requestId,
     p_profile_id: profileId,
     p_school: requestData.school,
@@ -247,7 +442,10 @@ export const updateTeamRequest = async (requestId, profileId, requestData) => {
     p_portfolio_reference_path: requestData.portfolio_reference_path,
     p_portfolio_reference_name: requestData.portfolio_reference_name,
     p_requirements: requestData.requirements,
-  });
+  };
+  if (requestData.class_id) args.p_class_id = requestData.class_id;
+
+  const { data, error } = await client.rpc(rpcName, args);
 
   if (error) throw error;
   if (!data?.length) {
@@ -354,18 +552,34 @@ const parseSession = (session = '') => {
   return { day: normalizeValue(day), startTime: normalizeValue(startTime) };
 };
 
+const sessionCodeFromValue = (value = '') => {
+  const normalized = String(value || '').trim();
+  const match = normalized.match(/^session\s*0?(\d{1,2})$/i) || normalized.match(/^0?(\d{1,2})$/);
+  return match ? match[1].padStart(2, '0') : '';
+};
+
 const requestSessionKey = (request = {}) => {
+  const sessionCode = sessionCodeFromValue(request.session_code || request.class_session);
+  if (sessionCode) return `session-${sessionCode}`;
+
   const parsed = parseSession(request.class_session);
   const day = normalizeValue(request.class_day || parsed.day);
   const startTime = normalizeValue(request.class_start_time || parsed.startTime);
+  if (!day || !startTime) return normalizeValue(request.class_session);
+
   return `${day}|${startTime}`;
 };
 
-const requestsShareCourseAndSession = (left, right) =>
-  requestCourseKey(left) &&
-  requestCourseKey(left) === requestCourseKey(right) &&
-  requestSessionKey(left) !== '|' &&
-  requestSessionKey(left) === requestSessionKey(right);
+const requestsShareCourseAndSession = (left, right) => {
+  if (left?.class_id || right?.class_id) {
+    return Boolean(left?.class_id && left.class_id === right?.class_id);
+  }
+
+  return requestCourseKey(left) &&
+    requestCourseKey(left) === requestCourseKey(right) &&
+    requestSessionKey(left) &&
+    requestSessionKey(left) === requestSessionKey(right);
+};
 
 export const getTeamRequestById = async (requestId) => {
   const { client } = await getAuthenticatedClient();
@@ -396,6 +610,12 @@ export const getMatchesForRequest = async (requestId) => {
     if (error) throw error;
     activeRequests = data || [];
   } catch {
+    activeRequests = (await getActiveTeamRequests()).filter((request) =>
+      requestsShareCourseAndSession(currentRequest, request),
+    );
+  }
+
+  if (activeRequests.length === 0) {
     activeRequests = (await getActiveTeamRequests()).filter((request) =>
       requestsShareCourseAndSession(currentRequest, request),
     );
