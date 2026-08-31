@@ -533,6 +533,7 @@ as $$
   limit 1;
 $$;
 
+drop function if exists public.send_connection_request(uuid, uuid, uuid, text);
 create or replace function public.send_connection_request(
   sender_profile uuid,
   receiver_profile uuid,
@@ -612,6 +613,7 @@ begin
 end;
 $$;
 
+drop function if exists public.respond_connection_request(uuid, uuid, text);
 create or replace function public.respond_connection_request(
   connection_request uuid,
   receiver_profile uuid,
