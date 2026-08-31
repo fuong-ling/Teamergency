@@ -447,6 +447,49 @@ legend {
   gap: 8px;
 }
 
+.role-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.role-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  min-height: 92px;
+  padding: 14px;
+  border: 1px solid rgba(29, 36, 51, 0.12);
+  border-radius: 8px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.role-card input {
+  width: 16px;
+  min-height: 16px;
+  margin-top: 3px;
+  accent-color: #175b56;
+}
+
+.role-card span {
+  display: grid;
+  gap: 4px;
+}
+
+.role-card small {
+  color: #66747d;
+  font-size: 0.9rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.role-card.selected {
+  border-color: rgba(23, 91, 86, 0.42);
+  background: #edf7f3;
+}
+
 .check-option {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -1444,6 +1487,10 @@ dd {
 
   .top-actions {
     flex-direction: column;
+  }
+
+  .role-grid {
+    grid-template-columns: 1fr;
   }
 
   .home-grid,
@@ -3178,6 +3225,24 @@ select {
   border-color: rgba(255, 215, 85, 0.62);
   color: #ffd95c;
   background: rgba(255, 215, 85, 0.12);
+}
+
+.status-badge.looking {
+  border-color: #6d8dff;
+  color: #dbe4ff;
+  background: rgba(77, 124, 255, 0.16);
+}
+
+.status-badge.complete {
+  border-color: #48d58a;
+  color: #c8ffd9;
+  background: rgba(46, 204, 113, 0.15);
+}
+
+.status-badge.idle {
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #d5dae1;
+  background: rgba(255, 255, 255, 0.08);
 }
 
 @media (max-width: 720px) {

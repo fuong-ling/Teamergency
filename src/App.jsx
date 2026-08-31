@@ -26,9 +26,12 @@ import {
   createMatchFeedback,
   createReview,
   createTeamRequest,
+  getClassByJoinCode,
   getConnectionBetween,
   getConnectionDetail,
   getConnectionRequests,
+  getDemoClassForProfile,
+  getDemoLecturerDashboards,
   getDiscoverProfiles,
   getNotificationCounts,
   getMatchesForRequest,
@@ -37,6 +40,10 @@ import {
   getActiveTeamRequests,
   getProfileById,
   listMyTeamRequests,
+  joinDemoClassByCode,
+  joinClassByCode,
+  listMyClasses,
+  listMyClassesWithStatus,
   getTeamRequestProgress,
   getTeamRequestById,
   getPortfolioReferenceUrl,
@@ -66,6 +73,7 @@ import {
   getAllSkills,
   getCoursesForSchool,
   getRequestSkillOptions,
+  getSessionsForCourse,
   getSchoolsForUniversity,
   getSkillsForSchool,
   majorsBySchool,
@@ -79,13 +87,74 @@ import {
   getStoredProfileId,
   getStoredRequestEditToken,
   getStoredRequestId,
+  getStoredClassId,
+  getStoredActiveRole,
+  getStoredLecturerSession,
   clearCurrentRequest,
+  clearLecturerSession,
   storeCurrentRequest,
+  storeActiveRole,
+  storeClassId,
+  storeLecturerSession,
   storeProfileId,
 } from './lib/storage';
 import { calculateMatchScore } from './lib/matching';
 
 const classDayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+const networkStatusOptions = [
+  {
+    value: 'already_have_team',
+    label: 'Yes, I already know who I want to work with.',
+  },
+  {
+    value: 'need_some_teammates',
+    label: 'I know some people, but I still need teammates.',
+  },
+  {
+    value: 'no_preferred_teammates',
+    label: 'No, I do not currently have preferred teammates.',
+  },
+];
+
+const profileRoleOptions = [
+  {
+    value: 'student',
+    label: 'Student',
+    description: 'Find teammates, create requests, connect, chat, and use the student MVP flow.',
+  },
+  {
+    value: 'lecturer',
+    label: 'Lecturer',
+    description: 'View class progress with a simple demo class code dashboard.',
+  },
+];
+
+const demoClassCodes = ['200206', '676767', '88889999'];
+
+const demoLecturerAccounts = [
+  {
+    university: 'RMIT University',
+    lecturerId: 'v123456',
+    lecturerName: 'Tom Anderson',
+  },
+  {
+    university: 'University of Economics Ho Chi Minh City',
+    lecturerId: 'v654321',
+    lecturerName: 'Minh Nguyen',
+  },
+  {
+    university: 'University of Technology Ho Chi Minh City',
+    lecturerId: 'v888888',
+    lecturerName: 'Sarah Tran',
+  },
+];
+
+const findDemoLecturerAccount = (university, lecturerId) =>
+  demoLecturerAccounts.find((account) =>
+    account.university === university &&
+    account.lecturerId.toLowerCase() === String(lecturerId || '').trim().toLowerCase(),
+  );
 
 const mergeMessagesById = (left = [], right = []) => {
   const seen = new Set();
@@ -114,6 +183,7 @@ const unmatchReasons = [
 ];
 
 const emptyProfile = {
+  role: 'student',
   full_name: '',
   university: 'RMIT University',
   school: '',
@@ -123,6 +193,7 @@ const emptyProfile = {
   contact_type: 'email',
   contact_value: '',
   short_bio: '',
+  lecturer_title: '',
   is_available: true,
   consent_public_visibility: false,
 };
@@ -138,18 +209,33 @@ const parseClassSession = (session = '') => {
   };
 };
 
-const formatClassSession = ({ class_day, class_start_time, class_end_time }) => {
-  if (!class_day || !class_start_time) return '';
-  return class_end_time
-    ? `${class_day} ${class_start_time} ${class_end_time}`
-    : `${class_day} ${class_start_time}`;
+const getSessionCodeFromValue = (value = '') => {
+  const normalized = String(value || '').trim();
+  const match = normalized.match(/^session\s*0?(\d{1,2})$/i) || normalized.match(/^0?(\d{1,2})$/);
+  if (!match) return '';
+  return match[1].padStart(2, '0');
 };
 
+const formatSessionCode = (code = '') => {
+  const normalized = getSessionCodeFromValue(code);
+  return normalized ? `Session ${normalized}` : '';
+};
+
+const isTimetableSession = (session = '') => {
+  const parsed = parseClassSession(session);
+  return Boolean(parsed.day && parsed.startTime);
+};
+
+const formatClassSession = ({ session_code, class_session }) =>
+  formatSessionCode(session_code) || formatSessionCode(class_session) || '';
+
 const emptyRequest = {
+  class_id: '',
   school: '',
   major: '',
   course_name: '',
   course_code: '',
+  session_code: '',
   class_session: '',
   class_day: '',
   class_start_time: '',
@@ -172,15 +258,18 @@ const emptyRequest = {
   requirements: '',
 };
 
-const buildRequestFormState = (profile, request = null) => {
+const buildRequestFormState = (profile, request = null, classContext = null) => {
   const parsedSession = parseClassSession(request?.class_session);
+  const sessionCode = getSessionCodeFromValue(request?.session_code || request?.class_session);
 
   if (!request) {
-    return {
+    const baseState = {
       ...emptyRequest,
       school: schoolOptions.some((school) => school.value === profile.school) ? profile.school : '',
       major: profile.major || '',
     };
+
+    return classContext ? applyClassToRequestState(baseState, classContext) : baseState;
   }
 
   const requirementsData = request.requirements_data || {};
@@ -188,8 +277,10 @@ const buildRequestFormState = (profile, request = null) => {
     ...emptyRequest,
     school: request.school || profile.school || '',
     major: request.major || profile.major || '',
+    class_id: request.class_id || '',
     course_name: request.course_name || request.course || '',
     course_code: request.course_code || '',
+    session_code: sessionCode,
     class_session: request.class_session || '',
     class_day: request.class_day || parsedSession.day,
     class_start_time: request.class_start_time || parsedSession.startTime,
@@ -208,6 +299,25 @@ const buildRequestFormState = (profile, request = null) => {
     required_tools: requirementsData.required_tools || [],
     requirements: request.requirements || '',
   };
+};
+
+const applyClassToRequestState = (current, classItem) => ({
+  ...current,
+  class_id: classItem.id,
+  school: classItem.school || current.school,
+  major: classItem.major || current.major,
+  course_name: classItem.course_name || classItem.course || current.course_name,
+  course_code: classItem.course_code || current.course_code,
+  session_code: classItem.session_code || getSessionCodeFromValue(classItem.class_session),
+  class_session: classItem.class_session || formatSessionCode(classItem.session_code),
+  class_day: '',
+  class_start_time: '',
+  class_end_time: '',
+});
+
+const getStoredInviteCode = () => {
+  if (typeof window === 'undefined') return '';
+  return new URLSearchParams(window.location.search).get('classCode') || '';
 };
 
 const splitList = (value) =>
@@ -245,7 +355,7 @@ const getFriendlyError = (error, fallback) => {
   }
 
   if (error?.message?.includes('p_total_team_size') || error?.message?.includes("Could not find the 'total_team_size' column")) {
-    return 'The team size migration has not been applied yet. Run supabase/bidirectional_match_team_size.sql in Supabase.';
+    return 'The team size/class request database fix has not been applied yet. Run supabase/fix_current_request_team_size_and_class_rpc.sql in Supabase.';
   }
 
   if (
@@ -262,6 +372,10 @@ const getFriendlyError = (error, fallback) => {
 
   if (error?.message?.includes('Profile was not updated')) {
     return 'This profile is not linked to the current browser session, so it cannot be edited from here. Refresh first; if it still happens, create a new profile on this browser.';
+  }
+
+  if (error?.message?.includes('class_id') && error?.message?.includes('ambiguous')) {
+    return 'The demo class join database fix has not been applied yet. Run supabase/fix_join_demo_class_ambiguous.sql in Supabase, then refresh this app.';
   }
 
   if (error?.message?.includes('Review is not available yet')) {
@@ -384,15 +498,20 @@ const getCourseDisplay = (request) => {
 };
 
 const getSessionDisplay = (request = {}) => {
-  const parsed = parseClassSession(request.class_session);
-  const day = request.class_day || parsed.day;
-  const start = request.class_start_time || parsed.startTime;
-  const end = request.class_end_time || parsed.endTime;
-
-  if (day && start && end) return `${day} · ${start}-${end}`;
-  if (day && start) return `${day} · ${start}`;
-  return request.class_session || 'Not specified';
+  const sessionLabel = formatSessionCode(request.session_code || request.class_session);
+  if (sessionLabel) return sessionLabel;
+  if (request.class_session && !isTimetableSession(request.class_session)) return request.class_session;
+  return request.class_session ? 'Legacy session' : 'Not specified';
 };
+
+const getClassDisplay = (classItem = {}) => {
+  const course = classItem.course_name || classItem.course || 'Course';
+  const code = classItem.course_code ? ` (${classItem.course_code})` : '';
+  return `${course}${code} · ${getSessionDisplay(classItem)}`;
+};
+
+const getAcademicPeriodDisplay = (item = {}) =>
+  [item.semester, item.academic_year].filter(Boolean).join(', ') || 'Academic period not specified';
 
 const getCourseFilterValue = (request) =>
   request?.course_code || request?.course_name || request?.course || '';
@@ -457,8 +576,73 @@ const progressSummary = (metrics) => `${metrics.found} / ${metrics.total} found`
 
 const remainingSummary = (metrics) =>
   metrics.complete
-    ? 'Team complete 🎉'
+    ? 'Team complete'
     : `${metrics.remaining} ${metrics.remaining === 1 ? 'spot' : 'spots'} remaining`;
+
+const teammateCountSummary = (metrics) => `${metrics.found} / ${metrics.total} members`;
+
+const classNetworkStatusLabel = (status) => {
+  if (status === 'already_have_team') return 'Already has a preferred team';
+  if (status === 'need_some_teammates') return 'Has some teammates';
+  if (status === 'no_preferred_teammates') return 'No preferred teammates yet';
+  return 'Not answered yet';
+};
+
+const classTeamStatus = (classItem, request, metrics = null) => {
+  if (!request) {
+    if (classItem?.network_status === 'already_have_team') {
+      return {
+        label: 'You already have a complete team',
+        detail: 'Team complete',
+        tone: 'complete',
+        complete: true,
+      };
+    }
+
+    return {
+      label: 'No request / not looking',
+      detail: 'Create a class request when you want Teamergency to help you find teammates.',
+      tone: 'idle',
+      complete: false,
+    };
+  }
+
+  if (request.status === 'found' || metrics?.complete) {
+    return {
+      label: 'Team complete',
+      detail: metrics ? teammateCountSummary(metrics) : 'Required team size reached',
+      tone: 'complete',
+      complete: true,
+    };
+  }
+
+  if (!metrics || metrics.found <= 1) {
+    return {
+      label: 'Looking for teammates',
+      detail: metrics ? teammateCountSummary(metrics) : 'No teammates found yet',
+      tone: 'looking',
+      complete: false,
+    };
+  }
+
+  return {
+    label: `Still looking for ${metrics.remaining} teammate${metrics.remaining === 1 ? '' : 's'}`,
+    detail: teammateCountSummary(metrics),
+    tone: 'looking',
+    complete: false,
+  };
+};
+
+const pickClassRequest = (requests = [], classId = '') => {
+  const classRequests = requests
+    .filter((request) => request.class_id === classId)
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+  return classRequests.find((request) => request.status === 'looking')
+    || classRequests.find((request) => request.status === 'found')
+    || classRequests[0]
+    || null;
+};
 
 const getProfileSkillsFromForm = (form) => [
   ...form.skills.filter((skill) => skill !== 'Other'),
@@ -546,6 +730,12 @@ const DemoBadge = () => <span className="demo-badge">DEMO</span>;
 const displayName = (name) => String(name || '').replace(/\s*\(Demo\)\s*$/i, '').trim();
 
 const displayInitial = (name) => displayName(name).slice(0, 1) || '?';
+
+const getProfileRole = (profile) => (profile?.role === 'lecturer' ? 'lecturer' : 'student');
+
+const isLecturerProfile = (profile) => getProfileRole(profile) === 'lecturer';
+
+const lecturerDepartmentLabel = (school) => schoolLabel(school).replace(/\s*\([^)]*\)\s*$/, '');
 
 const getConnectionState = (connection, currentProfileId) => {
   if (!connection || ['declined', 'cancelled', 'unmatched'].includes(connection.status)) return 'none';
@@ -822,15 +1012,666 @@ function Home({ profileId, requestId, onStartProfile, onStartRequest, onFindMatc
   );
 }
 
-function ProfileForm({ onSaved }) {
-  const [form, setForm] = useState(emptyProfile);
+function JoinClassPage({ profile, profileId, onCreateProfile, onJoined }) {
+  const [joinCode, setJoinCode] = useState(() => getStoredInviteCode());
+  const [networkStatus, setNetworkStatus] = useState('');
+  const [preview, setPreview] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [joining, setJoining] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  const previewClass = async (event) => {
+    event.preventDefault();
+    setError('');
+    setMessage('');
+    setPreview(null);
+
+    if (!joinCode.trim()) {
+      setError('Enter a class code first.');
+      return;
+    }
+
+    const normalizedCode = joinCode.trim();
+    setLoading(true);
+    try {
+      const foundClass = demoClassCodes.includes(normalizedCode)
+        ? await getDemoClassForProfile(profileId, normalizedCode)
+        : await getClassByJoinCode(normalizedCode);
+      if (!foundClass) {
+        setError('Class code not found for your profile. Try demo codes: 200206, 676767, or 88889999.');
+        return;
+      }
+      setPreview(foundClass);
+    } catch (err) {
+      setError(getFriendlyError(err, "We couldn't preview this class. Please try again."));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const confirmJoin = async () => {
+    if (!profileId || !preview) return;
+
+    setJoining(true);
+    setError('');
+    setMessage('');
+
+    try {
+      const membership = preview.is_demo
+        ? await joinDemoClassByCode({
+            profileId,
+            classCode: preview.class_code || preview.demo_class_code || joinCode.trim(),
+            networkStatus,
+          })
+        : await joinClassByCode({
+            profileId,
+            joinCode: preview.join_code,
+            networkStatus,
+          });
+      storeClassId(membership.class_id);
+      setMessage(`Joined ${getClassDisplay(membership.class_data || preview)}.`);
+      onJoined?.(membership.class_id);
+    } catch (err) {
+      setError(getFriendlyError(err, "We couldn't join this class. Please try again."));
+    } finally {
+      setJoining(false);
+    }
+  };
+
+  if (!profileId) {
+    return (
+      <main className="screen compact">
+        <section className="empty-state">
+          <p>Create your student profile before joining a class.</p>
+          <button className="primary" onClick={onCreateProfile}>Create Profile</button>
+        </section>
+      </main>
+    );
+  }
+
+  return (
+    <main className="screen">
+      <section className="form-shell">
+        <div className="form-heading">
+          <UsersRound size={28} />
+          <div>
+            <p className="eyebrow">Join Class</p>
+            <h2>Enter your lecturer's class code</h2>
+          </div>
+        </div>
+
+        <form className="form-grid" onSubmit={previewClass}>
+          <label className="wide">
+            Class Code
+            <input
+              value={joinCode}
+              onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
+              placeholder="200206"
+            />
+            <span className="field-helper">Demo codes: 200206 • 676767 • 88889999</span>
+          </label>
+          <button className="secondary wide" type="submit" disabled={loading}>
+            {loading ? 'Checking...' : 'Preview Class'}
+          </button>
+        </form>
+
+        {preview && (
+          <section className="request-summary-box">
+            <p className="eyebrow">Class Preview</p>
+            <h3>{getClassDisplay(preview)}</h3>
+            <p>{preview.university} · {getAcademicPeriodDisplay(preview)}</p>
+            <p>{schoolLabel(preview.school)} · {preview.major}</p>
+            {preview.lecturer_name && <p>Lecturer: {preview.lecturer_name}</p>}
+            <label>
+              Do you already have preferred teammates for this class?
+              <select value={networkStatus} onChange={(event) => setNetworkStatus(event.target.value)}>
+                <option value="">Prefer not to answer yet</option>
+                {networkStatusOptions.map((option) => (
+                  <option value={option.value} key={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+            <button className="primary" onClick={confirmJoin} disabled={joining}>
+              {joining ? 'Joining...' : 'Join Class'}
+            </button>
+          </section>
+        )}
+
+        {message && <p className="success">{message}</p>}
+        {error && <p className="error">{error}</p>}
+      </section>
+    </main>
+  );
+}
+
+function MyClassesPage({ profileId, onCreateProfile, onJoinClass, onOpenClass }) {
+  const [state, setState] = useState({
+    loading: true,
+    error: '',
+    classes: [],
+    requests: [],
+    progressByRequest: {},
+  });
+
+  useEffect(() => {
+    let alive = true;
+
+    if (!profileId) {
+      setState({ loading: false, error: '', classes: [], requests: [], progressByRequest: {} });
+      return () => {
+        alive = false;
+      };
+    }
+
+    setState((current) => ({ ...current, loading: true, error: '' }));
+
+    Promise.all([listMyClassesWithStatus(profileId), listMyTeamRequests(profileId)])
+      .then(async ([classes, requests]) => {
+        const classRequests = requests.filter((request) => request.class_id);
+        const progressEntries = await Promise.all(
+          classRequests.map(async (request) => {
+            try {
+              return [request.id, await getTeamRequestProgress(request.id, profileId)];
+            } catch {
+              return [request.id, { found_count: 0, teammates: [] }];
+            }
+          }),
+        );
+
+        if (alive) {
+          setState({
+            loading: false,
+            error: '',
+            classes: classes.filter((classItem) => classItem.status === 'active'),
+            requests,
+            progressByRequest: Object.fromEntries(progressEntries),
+          });
+        }
+      })
+      .catch((err) => {
+        if (alive) {
+          setState({
+            loading: false,
+            error: getFriendlyError(err, "We couldn't load your classes right now. Please try again."),
+            classes: [],
+            requests: [],
+            progressByRequest: {},
+          });
+        }
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [profileId]);
+
+  if (!profileId) {
+    return (
+      <main className="screen compact">
+        <section className="empty-state">
+          <p>Create your student profile before joining a class.</p>
+          <button className="primary" onClick={onCreateProfile}>Create Profile</button>
+        </section>
+      </main>
+    );
+  }
+
+  if (state.loading) {
+    return <main className="screen compact"><p className="loading">Loading classes...</p></main>;
+  }
+
+  return (
+    <main className="screen">
+      <div className="results-header">
+        <div>
+          <p className="eyebrow">Academic Team Formation</p>
+          <h2>My Classes</h2>
+          <p>Join a class first, then manage team formation from the class page.</p>
+        </div>
+        <button className="primary" onClick={onJoinClass}>
+          <UserPlus size={18} />
+          Join Class
+        </button>
+      </div>
+
+      {state.error && <p className="error">{state.error}</p>}
+
+      {state.classes.length === 0 ? (
+        <section className="empty-state">
+          <p>You have not joined any classes yet.</p>
+          <button className="primary" onClick={onJoinClass}>Join Class</button>
+        </section>
+      ) : (
+        <div className="match-grid">
+          {state.classes.map((classItem) => {
+            const request = pickClassRequest(state.requests, classItem.id);
+            const metrics = request ? getTeamProgress(request, state.progressByRequest[request.id]) : null;
+            const status = classTeamStatus(classItem, request, metrics);
+
+            return (
+              <article className="match-card" key={classItem.id}>
+                <span className={`status-badge ${status.tone}`}>{status.label}</span>
+                <h3>{getClassDisplay(classItem)}</h3>
+                <p>{classItem.university} | {schoolLabel(classItem.school)} | {classItem.major}</p>
+                <p>{getAcademicPeriodDisplay(classItem)} | Lecturer: {classItem.lecturer_name || 'Not specified'}</p>
+                <div className="mini-detail">
+                  <strong>Class code</strong>
+                  <span>{classItem.class_code || classItem.demo_class_code || classItem.join_code}</span>
+                </div>
+                <div className="mini-detail">
+                  <strong>Team status</strong>
+                  <span>{metrics ? `${teammateCountSummary(metrics)} | ${status.detail}` : status.detail}</span>
+                </div>
+                <button className="secondary" onClick={() => onOpenClass(classItem.id)}>
+                  Open Class
+                </button>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </main>
+  );
+}
+
+function ClassDetailPage({
+  classId,
+  profile,
+  profileId,
+  onBack,
+  onJoinClass,
+  onFindTeammates,
+  onViewMatches,
+  onOpenChat,
+}) {
+  const [state, setState] = useState({
+    loading: true,
+    error: '',
+    classItem: null,
+    requests: [],
+    progressByRequest: {},
+  });
+
+  useEffect(() => {
+    let alive = true;
+
+    if (!profileId || !classId) {
+      setState({ loading: false, error: '', classItem: null, requests: [], progressByRequest: {} });
+      return () => {
+        alive = false;
+      };
+    }
+
+    setState((current) => ({ ...current, loading: true, error: '' }));
+
+    Promise.all([listMyClassesWithStatus(profileId), listMyTeamRequests(profileId)])
+      .then(async ([classes, requests]) => {
+        const classItem = classes.find((item) => item.id === classId) || null;
+        const classRequests = requests.filter((request) => request.class_id === classId);
+        const progressEntries = await Promise.all(
+          classRequests.map(async (request) => {
+            try {
+              return [request.id, await getTeamRequestProgress(request.id, profileId)];
+            } catch {
+              return [request.id, { found_count: 0, teammates: [] }];
+            }
+          }),
+        );
+
+        if (alive) {
+          setState({
+            loading: false,
+            error: '',
+            classItem,
+            requests: classRequests,
+            progressByRequest: Object.fromEntries(progressEntries),
+          });
+        }
+      })
+      .catch((err) => {
+        if (alive) {
+          setState({
+            loading: false,
+            error: getFriendlyError(err, "We couldn't load this class right now. Please try again."),
+            classItem: null,
+            requests: [],
+            progressByRequest: {},
+          });
+        }
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [profileId, classId]);
+
+  if (!profileId) {
+    return (
+      <main className="screen compact">
+        <section className="empty-state">
+          <p>Create your student profile before viewing classes.</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (state.loading) {
+    return <main className="screen compact"><p className="loading">Loading class...</p></main>;
+  }
+
+  if (state.error || !state.classItem) {
+    return (
+      <main className="screen compact">
+        <section className="empty-state">
+          <p>{state.error || 'This class is not available on this device.'}</p>
+          <button className="primary" onClick={onJoinClass}>Join Class</button>
+        </section>
+      </main>
+    );
+  }
+
+  const activeRequest = state.requests.find((request) => request.status === 'looking') || null;
+  const selectedRequest = activeRequest || pickClassRequest(state.requests, state.classItem.id);
+  const progress = selectedRequest ? state.progressByRequest[selectedRequest.id] || { found_count: 0, teammates: [] } : null;
+  const metrics = selectedRequest ? getTeamProgress(selectedRequest, progress) : null;
+  const status = classTeamStatus(state.classItem, selectedRequest, metrics);
+  const teammates = progress?.teammates || [];
+
+  return (
+    <main className="screen">
+      <button className="ghost" type="button" onClick={onBack}>
+        <ArrowLeft size={18} />
+        My Classes
+      </button>
+
+      <div className="results-header">
+        <div>
+          <p className="eyebrow">Class Detail</p>
+          <h2>{getClassDisplay(state.classItem)}</h2>
+          <p>{state.classItem.university} | {schoolLabel(state.classItem.school)} | {state.classItem.major}</p>
+        </div>
+      </div>
+
+      <div className="request-management-grid">
+        <section className="request-panel standalone">
+          <p className="eyebrow">Class Information</p>
+          <dl>
+            <div><dt>Course</dt><dd>{state.classItem.course_name || state.classItem.course}</dd></div>
+            <div><dt>Course Code</dt><dd>{state.classItem.course_code}</dd></div>
+            <div><dt>Class / Session</dt><dd>{getSessionDisplay(state.classItem)}</dd></div>
+            <div><dt>Lecturer</dt><dd>{state.classItem.lecturer_name || 'Not specified'}</dd></div>
+            <div><dt>Class Code</dt><dd>{state.classItem.class_code || state.classItem.demo_class_code || state.classItem.join_code}</dd></div>
+            <div><dt>Your Join Status</dt><dd>{classNetworkStatusLabel(state.classItem.network_status)}</dd></div>
+          </dl>
+        </section>
+
+        <section className="request-panel standalone">
+          <p className="eyebrow">Team Status</p>
+          <span className={`status-badge ${status.tone}`}>{status.label}</span>
+          {metrics ? (
+            <>
+              <div className="progress-header">
+                <strong>{teammateCountSummary(metrics)}</strong>
+                <span>{metrics.complete ? 'Complete' : `${metrics.remaining} missing`}</span>
+              </div>
+              <div className="progress-track" aria-label="Class team formation progress">
+                <div className="progress-fill" style={{ width: `${metrics.percent}%` }} />
+              </div>
+              <p className={metrics.complete ? 'success' : 'note'}>{status.detail}</p>
+            </>
+          ) : (
+            <p className="note">{status.detail}</p>
+          )}
+
+          <div className="hero-actions">
+            {activeRequest ? (
+              <button className="primary" onClick={() => onViewMatches(activeRequest.id)}>
+                View Matches
+              </button>
+            ) : !status.complete && (
+              <button className="primary" onClick={() => onFindTeammates(state.classItem)}>
+                Find Teammates
+              </button>
+            )}
+          </div>
+        </section>
+      </div>
+
+      {selectedRequest && (
+        <section className="request-panel standalone">
+          <div className="results-header compact-header">
+            <div>
+              <p className="eyebrow">Current Class Request</p>
+              <h2>{getCourseDisplay(selectedRequest)}</h2>
+            </div>
+            {activeRequest && (
+              <button className="secondary" onClick={() => onViewMatches(activeRequest.id)}>
+                Find Matches
+              </button>
+            )}
+          </div>
+          <dl>
+            <div><dt>Skills Needed</dt><dd>{joinList(selectedRequest.skills_needed)}</dd></div>
+            <div><dt>Total Team Size</dt><dd>{getTotalTeamSize(selectedRequest)}</dd></div>
+            <div><dt>Initially Looking For</dt><dd>{getInitialNeeded(selectedRequest)}</dd></div>
+            <div><dt>Work Style</dt><dd>{joinList(getWorkStyles(selectedRequest))}</dd></div>
+            <div><dt>Status</dt><dd>{titleCase(selectedRequest.status)}</dd></div>
+            <div><dt>Notes</dt><dd>{selectedRequest.requirements || 'Not specified'}</dd></div>
+          </dl>
+
+          <section className="matched-list">
+            <h3>Team Members Found ({metrics?.matchedCount || 0})</h3>
+            {teammates.length === 0 ? (
+              <p className="note">No teammates connected through this request yet.</p>
+            ) : (
+              teammates.map((teammate) => (
+                <article className="matched-row" key={teammate.profile_id}>
+                  <div>
+                    <strong>{displayName(teammate.full_name)} {teammate.is_demo && <DemoBadge />}</strong>
+                    <span>{teammate.major || 'Not specified'}</span>
+                  </div>
+                  <button className="secondary" onClick={() => onOpenChat(teammate.connection_id)}>
+                    <MessageCircle size={18} />
+                    Message
+                  </button>
+                </article>
+              ))
+            )}
+          </section>
+        </section>
+      )}
+
+      {!selectedRequest && status.complete && (
+        <section className="request-panel standalone">
+          <p className="success">You marked that you already have a complete team for this class.</p>
+        </section>
+      )}
+    </main>
+  );
+}
+
+function LecturerDashboard({ activeRole, lecturerSession, onOpenProfile }) {
+  const [classes, setClasses] = useState([]);
+  const [selectedClassId, setSelectedClassId] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+
+    if (activeRole !== 'lecturer' || !lecturerSession) {
+      setLoading(false);
+      setClasses([]);
+      setSelectedClassId('');
+      return () => {
+        alive = false;
+      };
+    }
+
+    setLoading(true);
+    setError('');
+
+    getDemoLecturerDashboards({
+      university: lecturerSession.university,
+      lecturerId: lecturerSession.lecturerId,
+    })
+      .then((rows) => {
+        if (!alive) return;
+        setClasses(rows);
+        setSelectedClassId((current) => current || rows[0]?.id || '');
+      })
+      .catch((err) => {
+        if (alive) {
+          setClasses([]);
+          setError(getFriendlyError(err, "We couldn't load lecturer dashboard data. Please run the Phase 2 demo migration and try again."));
+        }
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [activeRole, lecturerSession?.university, lecturerSession?.lecturerId]);
+
+  if (activeRole !== 'lecturer') {
+    return (
+      <main className="screen compact">
+        <section className="empty-state">
+          <p>Switch to Lecturer Mode in My Profile before opening the Lecturer Dashboard.</p>
+          <button className="primary" onClick={onOpenProfile}>Open My Profile</button>
+        </section>
+      </main>
+    );
+  }
+
+  if (!lecturerSession) {
+    return (
+      <main className="screen compact">
+        <section className="empty-state">
+          <p>Enter a demo Lecturer ID in My Profile to open the Lecturer Dashboard.</p>
+          <button className="primary" onClick={onOpenProfile}>Open My Profile</button>
+        </section>
+      </main>
+    );
+  }
+
+  const selectedClass = classes.find((classItem) => classItem.id === selectedClassId) || classes[0] || null;
+
+  return (
+    <main className="screen">
+      <div className="results-header">
+        <div>
+          <p className="eyebrow">Lecturer Dashboard</p>
+          <h2>{lecturerSession.lecturerName}'s demo classes</h2>
+          <p>{lecturerSession.university} · Demo lecturer ID {lecturerSession.lecturerId}</p>
+        </div>
+      </div>
+
+      <div className="request-management-grid">
+        <section className="request-panel standalone">
+          <p className="eyebrow">My Classes</p>
+          <div className="request-summary-box">
+            <p>These demo classes are fictional and for MVP testing only.</p>
+          </div>
+          {loading && <p className="loading">Loading classes...</p>}
+          {error && <p className="error">{error}</p>}
+          {!loading && !error && classes.length === 0 && <p className="note">No demo classes found for this lecturer.</p>}
+          <div className="request-list">
+            {classes.map((classItem) => (
+              <article className={selectedClassId === classItem.id ? 'request-list-row selected' : 'request-list-row'} key={classItem.id}>
+                <div>
+                  <h3>{getClassDisplay(classItem)}</h3>
+                  <p>{schoolLabel(classItem.school)} · {classItem.major}</p>
+                  <p className="note">Class code: {classItem.class_code}</p>
+                </div>
+                <button className="secondary" type="button" onClick={() => setSelectedClassId(classItem.id)}>
+                  Open Class
+                </button>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="request-panel standalone">
+          {!selectedClass ? (
+            <section className="empty-state inline-empty">
+              <p>Select a demo class to view team-formation progress.</p>
+            </section>
+          ) : (
+            <section className="progress-panel">
+              <div className="progress-header">
+                <strong>{getClassDisplay(selectedClass)}</strong>
+                <span>{selectedClass.formation_rate}% formed</span>
+              </div>
+              <div className="stats-grid">
+                <div><strong>{selectedClass.total_students}</strong><span>Total Students</span></div>
+                <div><strong>{selectedClass.students_looking}</strong><span>Looking</span></div>
+                <div><strong>{selectedClass.students_in_teams}</strong><span>In Team</span></div>
+                <div><strong>{selectedClass.students_without_team}</strong><span>Without Team</span></div>
+                <div><strong>{selectedClass.teams_formed}</strong><span>Teams Formed</span></div>
+                <div><strong>{selectedClass.average_match_usefulness} / 5</strong><span>Match Usefulness</span></div>
+              </div>
+              <div className="matched-list">
+                <h3>Student Status</h3>
+                {(selectedClass.students || []).map((student) => (
+                  <article className="matched-row" key={student.profile_id}>
+                    <div>
+                      <strong>{displayName(student.full_name)}</strong>
+                      <span>{student.major || 'Not specified'} · {student.status}</span>
+                      {Number(student.total_team_size) > 0 && (
+                        <span>
+                          {student.found_count || 0} / {student.total_team_size} members
+                          {Number(student.remaining_teammates) > 0 ? ` · missing ${student.remaining_teammates}` : ''}
+                        </span>
+                      )}
+                      <span>{student.network_status || 'No teammate preference recorded'}</span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
+        </section>
+      </div>
+    </main>
+  );
+}
+
+function ProfileForm({ initialRole = 'student', onSaved }) {
+  const [form, setForm] = useState(() => ({
+    ...emptyProfile,
+    role: initialRole === 'lecturer' ? 'lecturer' : 'student',
+    major: initialRole === 'lecturer' ? 'Lecturer' : '',
+  }));
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const isLecturer = form.role === 'lecturer';
   const profileSkillOptions = mergeOptionSets(getSkillsForSchool(form.school), form.skills);
   const profileSchoolOptions = getSchoolsForUniversity(form.university);
 
+  useEffect(() => {
+    setForm((current) => ({
+      ...current,
+      role: initialRole === 'lecturer' ? 'lecturer' : 'student',
+      major: initialRole === 'lecturer' ? 'Lecturer' : current.major,
+    }));
+  }, [initialRole]);
+
   const updateField = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const updateRole = (role) => {
+    setForm((current) => ({
+      ...current,
+      role,
+      major: role === 'lecturer' ? 'Lecturer' : '',
+      skills: role === 'lecturer' ? [] : current.skills,
+      lecturer_title: role === 'student' ? '' : current.lecturer_title,
+    }));
   };
 
   const updateSchool = (value) => {
@@ -856,7 +1697,12 @@ function ProfileForm({ onSaved }) {
 
     const skills = getProfileSkillsFromForm(form);
 
-    if (!form.full_name || !form.school || !form.major || skills.length === 0 || !form.contact_value || !form.short_bio) {
+    if (isLecturer) {
+      if (!form.full_name || !form.school || !form.contact_value) {
+        setError("Please fill in your lecturer profile's required fields.");
+        return;
+      }
+    } else if (!form.full_name || !form.school || !form.major || skills.length === 0 || !form.contact_value || !form.short_bio) {
       setError("Please fill in your profile's required fields.");
       return;
     }
@@ -869,17 +1715,22 @@ function ProfileForm({ onSaved }) {
     setSaving(true);
 
     try {
+      const role = isLecturer ? 'lecturer' : 'student';
       const profile = await createProfile({
         full_name: form.full_name.trim(),
         university: form.university || 'RMIT University',
         school: form.school.trim(),
-        major: form.major.trim(),
-        skills,
+        major: isLecturer ? 'Lecturer' : form.major.trim(),
+        skills: isLecturer ? ['Teaching'] : skills,
         contact_type: form.contact_type,
         contact_value: form.contact_value.trim() || null,
-        short_bio: form.short_bio.trim(),
-        is_available: true,
+        short_bio: isLecturer
+          ? form.short_bio.trim() || 'Lecturer profile for class team-formation monitoring.'
+          : form.short_bio.trim(),
+        is_available: !isLecturer,
         consent_public_visibility: true,
+        role,
+        lecturer_title: isLecturer ? form.lecturer_title.trim() || null : null,
       });
       storeProfileId(profile.id);
       onSaved(profile);
@@ -902,6 +1753,26 @@ function ProfileForm({ onSaved }) {
           </div>
         </div>
 
+        <fieldset className="wide">
+          <legend>Choose your role</legend>
+          <div className="role-grid">
+            {profileRoleOptions.map((option) => (
+              <label className={form.role === option.value ? 'role-card selected' : 'role-card'} key={option.value}>
+                <input
+                  type="radio"
+                  name="profile-role"
+                  checked={form.role === option.value}
+                  onChange={() => updateRole(option.value)}
+                />
+                <span>
+                  <strong>{option.label}</strong>
+                  <small>{option.description}</small>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
         <div className="form-grid">
           <label>
             Full Name
@@ -916,39 +1787,52 @@ function ProfileForm({ onSaved }) {
             </select>
           </label>
           <label>
-            School
+            {isLecturer ? 'School / Department' : 'School'}
             <select value={form.school} onChange={(event) => updateSchool(event.target.value)} required>
-              <option value="">Select school</option>
+              <option value="">{isLecturer ? 'Select department' : 'Select school'}</option>
               {profileSchoolOptions.map((school) => (
                 <option value={school.value} key={school.value}>{school.label}</option>
               ))}
             </select>
           </label>
-          <label>
-            Major
-            <select value={form.major} onChange={(event) => updateField('major', event.target.value)} required>
-              <option value="">Select major</option>
-              {(majorsBySchool[form.school] || []).map((major) => (
-                <option value={major} key={major}>{major}</option>
-              ))}
-            </select>
-          </label>
-          <fieldset className="wide">
-            <legend>Skills & Technologies</legend>
-            <p className="field-helper">Suggested skills update based on your school. You can still add a custom skill.</p>
-            <CheckboxGrid
-              options={profileSkillOptions}
-              selected={form.skills}
-              onToggle={toggleProfileSkill}
-            />
-            {form.skills.includes('Other') && (
+          {isLecturer ? (
+            <label>
+              Lecturer Role / Title
               <input
-                value={form.other_skill}
-                onChange={(event) => updateField('other_skill', event.target.value)}
-                placeholder="Add another skill"
+                value={form.lecturer_title}
+                onChange={(event) => updateField('lecturer_title', event.target.value)}
+                placeholder="Course coordinator, lecturer, tutor..."
               />
-            )}
-          </fieldset>
+            </label>
+          ) : (
+            <>
+              <label>
+                Major
+                <select value={form.major} onChange={(event) => updateField('major', event.target.value)} required>
+                  <option value="">Select major</option>
+                  {(majorsBySchool[form.school] || []).map((major) => (
+                    <option value={major} key={major}>{major}</option>
+                  ))}
+                </select>
+              </label>
+              <fieldset className="wide">
+                <legend>Skills & Technologies</legend>
+                <p className="field-helper">Suggested skills update based on your school. You can still add a custom skill.</p>
+                <CheckboxGrid
+                  options={profileSkillOptions}
+                  selected={form.skills}
+                  onToggle={toggleProfileSkill}
+                />
+                {form.skills.includes('Other') && (
+                  <input
+                    value={form.other_skill}
+                    onChange={(event) => updateField('other_skill', event.target.value)}
+                    placeholder="Add another skill"
+                  />
+                )}
+              </fieldset>
+            </>
+          )}
           <label>
             Contact Method
             <select value={form.contact_type} onChange={(event) => updateField('contact_type', event.target.value)}>
@@ -967,12 +1851,12 @@ function ProfileForm({ onSaved }) {
             />
           </label>
           <label className="wide">
-            Short Bio
+            {isLecturer ? 'Short Bio / Note' : 'Short Bio'}
             <textarea
               value={form.short_bio}
               onChange={(event) => updateField('short_bio', event.target.value)}
               rows="4"
-              required
+              required={!isLecturer}
             />
           </label>
         </div>
@@ -985,7 +1869,7 @@ function ProfileForm({ onSaved }) {
             required
           />
           <span>
-            I understand that the information I provide will be visible to other Teamergency users for teammate-finding and networking purposes.
+            I understand that the information I provide will be visible to relevant Teamergency users for MVP testing.
           </span>
         </label>
         <p className="field-helper">Teamergency is an MVP being developed and tested as part of a university project.</p>
@@ -1000,6 +1884,8 @@ function ProfileForm({ onSaved }) {
 }
 
 function ProfileSaved({ profile, onContinue }) {
+  const isLecturer = isLecturerProfile(profile);
+
   return (
     <main className="screen compact">
       <StepRail step={1} />
@@ -1007,23 +1893,70 @@ function ProfileSaved({ profile, onContinue }) {
         <CheckCircle2 size={42} />
         <p className="eyebrow">Profile Saved</p>
         <h2>{displayName(profile?.full_name) || 'Your profile'} is ready.</h2>
-        <p>Your profile ID is saved on this device and will be used for new teammate searches.</p>
-        <button className="primary" onClick={onContinue}>Create Teammate Search Request</button>
+        <p>
+          {isLecturer
+            ? 'Your lecturer profile is saved on this device.'
+            : 'Your profile ID is saved on this device and will be used for new teammate searches.'}
+        </p>
+        <button className="primary" onClick={onContinue}>
+          {isLecturer ? 'Open Lecturer Dashboard' : 'Create Teammate Search Request'}
+        </button>
       </section>
     </main>
   );
 }
 
-function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mode = 'create' }) {
-  const [form, setForm] = useState(() => buildRequestFormState(profile, request));
+function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mode = 'create', classContext = null }) {
+  const [form, setForm] = useState(() => buildRequestFormState(profile, request, classContext));
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [joinedClasses, setJoinedClasses] = useState([]);
+  const [classesError, setClassesError] = useState('');
   const courseOptions = getCoursesForSchool(form.school);
+  const sessionOptions = getSessionsForCourse(form.course_code);
+  const selectedSession = sessionOptions.find((session) => session.code === form.session_code);
+  const selectedClass = classContext || joinedClasses.find((classItem) => classItem.id === form.class_id);
+  const isClassLocked = Boolean(classContext?.id);
   const requestSkillOptions = mergeOptionSets(getRequestSkillOptions(profile), form.skills_needed);
 
   useEffect(() => {
-    setForm(buildRequestFormState(profile, request));
-  }, [profile.id, request?.id]);
+    setForm(buildRequestFormState(profile, request, classContext));
+  }, [profile.id, request?.id, classContext?.id]);
+
+  useEffect(() => {
+    let alive = true;
+    setClassesError('');
+
+    listMyClasses(profile.id)
+      .then((classes) => {
+        if (!alive) return;
+
+        const activeClasses = classes.filter((classItem) => classItem.status === 'active');
+        const nextClasses = classContext?.id && !activeClasses.some((classItem) => classItem.id === classContext.id)
+          ? [classContext, ...activeClasses]
+          : activeClasses;
+        setJoinedClasses(nextClasses);
+
+        if (mode === 'create' && classContext) {
+          const preferredClass = classContext;
+          if (preferredClass) {
+            setForm((current) => (
+              current.class_id ? current : applyClassToRequestState(current, preferredClass)
+            ));
+          }
+        }
+      })
+      .catch(() => {
+        if (alive) {
+          setJoinedClasses([]);
+          setClassesError('Class selection is not available until the Phase 2 database migration is run.');
+        }
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [profile.id, classContext?.id]);
 
   const updateField = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -1035,7 +1968,33 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
       ...current,
       course_name: selectedCourse?.name || '',
       course_code: selectedCourse?.code || '',
+      session_code: '',
       class_session: '',
+      class_day: '',
+      class_start_time: '',
+      class_end_time: '',
+    }));
+  };
+
+  const updateClass = (classId) => {
+    const classItem = joinedClasses.find((item) => item.id === classId);
+
+    if (!classItem) {
+      setForm((current) => ({
+        ...current,
+        class_id: '',
+      }));
+      return;
+    }
+
+    setForm((current) => applyClassToRequestState(current, classItem));
+  };
+
+  const updateSession = (sessionCode) => {
+    setForm((current) => ({
+      ...current,
+      session_code: sessionCode,
+      class_session: formatSessionCode(sessionCode),
       class_day: '',
       class_start_time: '',
       class_end_time: '',
@@ -1127,8 +2086,10 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
     const totalTeamSize = Number(form.total_team_size);
     const teammatesNeededInitial = Number(form.teammates_needed_initial);
 
-    if (!form.school || !form.major || !form.course_name || !form.course_code || !form.class_day || !form.class_start_time || skillsNeeded.length === 0 || totalTeamSize < 2 || teammatesNeededInitial < 1) {
-      setError('Please fill in course, class day, start time, skills needed, total team size, and spots remaining.');
+    const classSession = formatClassSession(form);
+
+    if (!form.school || !form.major || !form.course_name || !form.course_code || !classSession || skillsNeeded.length === 0 || totalTeamSize < 2 || teammatesNeededInitial < 1) {
+      setError('Please fill in course, session, skills needed, total team size, and spots remaining.');
       return;
     }
 
@@ -1149,7 +2110,6 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
         ? await uploadPortfolioReference(form.portfolio_file, profile.id)
         : null;
       const requiresPortfolio = form.requirements_selected.includes('Has a portfolio');
-      const classSession = formatClassSession(form);
       const portfolioReferencePath = requiresPortfolio
         ? portfolioUpload?.path || form.portfolio_reference_path || null
         : null;
@@ -1160,13 +2120,14 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
       const payload = {
         school: form.school,
         major: form.major,
+        class_id: form.class_id || null,
         course: form.course_name.trim(),
         course_name: form.course_name.trim(),
         course_code: form.course_code.trim(),
         class_session: classSession,
-        class_day: form.class_day,
-        class_start_time: form.class_start_time,
-        class_end_time: form.class_end_time || null,
+        class_day: null,
+        class_start_time: null,
+        class_end_time: null,
         skills_needed: skillsNeeded,
         members_needed: teammatesNeededInitial,
         total_team_size: totalTeamSize,
@@ -1216,8 +2177,16 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
         <div className="form-heading">
           <Search size={28} />
           <div>
-            <p className="eyebrow">{mode === 'edit' ? 'Edit Team Request' : 'Create Teammate Search Request'}</p>
-            <h2>{mode === 'edit' ? 'Update this teammate search' : 'What team do you need right now?'}</h2>
+            <p className="eyebrow">
+              {mode === 'edit'
+                ? 'Edit Team Request'
+                : isClassLocked ? 'Class Team Request' : 'Open Opportunity'}
+            </p>
+            <h2>
+              {mode === 'edit'
+                ? 'Update this teammate search'
+                : isClassLocked ? 'Find teammates inside this class' : 'Find teammates outside class'}
+            </h2>
           </div>
         </div>
 
@@ -1228,49 +2197,54 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
         </div>
 
         <div className="form-grid">
-          <div className="course-session-row wide">
-            <label>
-              Course
-              <select value={form.course_code} onChange={(event) => updateCourse(event.target.value)} required>
-                <option value="">Select course</option>
-                {courseOptions.map((course) => (
-                  <option value={course.code} key={course.code}>{formatCourseOption(course)}</option>
-                ))}
-              </select>
-              <span className="field-helper">Courses are filtered by your profile school.</span>
-            </label>
-            <label>
-              Day
-              <select value={form.class_day} onChange={(event) => updateField('class_day', event.target.value)} required>
-                <option value="">Select day</option>
-                {classDayOptions.map((day) => (
-                  <option value={day} key={day}>{day}</option>
-                ))}
-              </select>
-              <span className="field-helper invisible-helper">Select the class day.</span>
-            </label>
-          </div>
-          <div className="course-session-row wide">
-            <label>
-              Start Time
-              <input
-                type="time"
-                value={form.class_start_time}
-                onChange={(event) => updateField('class_start_time', event.target.value)}
-                required
-              />
-              <span className="field-helper">Use your actual class start time.</span>
-            </label>
-            <label>
-              End Time
-              <input
-                type="time"
-                value={form.class_end_time}
-                onChange={(event) => updateField('class_end_time', event.target.value)}
-              />
-              <span className="field-helper">Optional.</span>
-            </label>
-          </div>
+          {selectedClass && (
+            <div className="request-summary-box wide">
+              <p className="eyebrow">{isClassLocked ? 'This Request Belongs To' : 'Selected Class'}</p>
+              <h3>{getClassDisplay(selectedClass)}</h3>
+              <p>{selectedClass.university} · {schoolLabel(selectedClass.school)} · {selectedClass.major}</p>
+              <p>{getAcademicPeriodDisplay(selectedClass)} · Class code {selectedClass.class_code || selectedClass.demo_class_code || selectedClass.join_code}</p>
+              {selectedClass.lecturer_name && <p>Lecturer: {selectedClass.lecturer_name}</p>}
+            </div>
+          )}
+          {!isClassLocked && (
+            <>
+              {classesError && <p className="field-helper wide">{classesError}</p>}
+              <div className="request-summary-box wide">
+                <p className="eyebrow">Outside Class</p>
+                <p>Use this for competitions, hackathons, club projects, student events, personal projects, or interdisciplinary opportunities.</p>
+              </div>
+              <div className="course-session-row wide">
+                <label>
+                  Course / Opportunity Area
+                  <select value={form.course_code} onChange={(event) => updateCourse(event.target.value)} required>
+                    <option value="">Select course or opportunity area</option>
+                    {courseOptions.map((course) => (
+                      <option value={course.code} key={course.code}>{formatCourseOption(course)}</option>
+                    ))}
+                  </select>
+                  <span className="field-helper">Standalone requests do not need a class code or class membership.</span>
+                </label>
+                <label>
+                  Session / Group
+                  <select value={form.session_code} onChange={(event) => updateSession(event.target.value)} required>
+                    <option value="">Select group</option>
+                    {sessionOptions.map((session) => (
+                      <option value={session.code} key={session.id}>{formatSessionCode(session.code)}</option>
+                    ))}
+                  </select>
+                  <span className="field-helper">For open opportunities, use the closest available group for matching.</span>
+                </label>
+              </div>
+            </>
+          )}
+          {selectedSession?.lecturer && (
+            <div className="request-summary-box wide">
+              <p className="eyebrow">Session Metadata</p>
+              <h3>{formatSessionCode(selectedSession.code)}</h3>
+              <p>{selectedSession.semester}, {selectedSession.academicYear}</p>
+              <p>Lecturer: {selectedSession.lecturer}</p>
+            </div>
+          )}
           <fieldset className="wide">
             <legend>What skills are you looking for?</legend>
             <p className="field-helper">Starts with skills related to your school, plus cross-disciplinary options for mixed teams.</p>
@@ -1740,7 +2714,8 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
 
     Promise.all([getDiscoverProfiles(), getActiveTeamRequests()])
       .then(async ([profiles, activeRequests]) => {
-        const visibleProfiles = profiles.filter((profile) => profile.id !== currentProfileId);
+        const studentProfiles = profiles.filter((profile) => getProfileRole(profile) === 'student');
+        const visibleProfiles = studentProfiles.filter((profile) => profile.id !== currentProfileId);
         const connectionEntries = currentProfileId
           ? await Promise.all(
             visibleProfiles.map(async (profile) => {
@@ -1757,7 +2732,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
             ...current,
             loading: false,
             error: '',
-            profiles,
+            profiles: studentProfiles,
             activeRequests,
             connectionsByProfile: Object.fromEntries(connectionEntries),
           }));
@@ -2780,8 +3755,9 @@ function CurrentRequest({
 
     listMyTeamRequests(currentProfileId)
       .then(async (requests) => {
+        const standaloneRequests = requests.filter((request) => !request.class_id);
         const progressEntries = await Promise.all(
-          requests.map(async (request) => {
+          standaloneRequests.map(async (request) => {
             try {
               return [request.id, await getTeamRequestProgress(request.id, currentProfileId)];
             } catch {
@@ -2791,18 +3767,18 @@ function CurrentRequest({
         );
 
         if (alive) {
-          const stillSelected = requests.some((request) => request.id === (requestId || state.selectedId));
-          const currentMatchRequest = requests.find((request) => request.id === requestId && request.status === 'looking');
-          const nextMatchRequest = currentMatchRequest || requests.find((request) => request.status === 'looking') || null;
+          const stillSelected = standaloneRequests.some((request) => request.id === (requestId || state.selectedId));
+          const currentMatchRequest = standaloneRequests.find((request) => request.id === requestId && request.status === 'looking');
+          const nextMatchRequest = currentMatchRequest || standaloneRequests.find((request) => request.status === 'looking') || null;
           const nextSelectedId = stillSelected
             ? requestId || state.selectedId
-            : nextMatchRequest?.id || requests[0]?.id || '';
+            : nextMatchRequest?.id || standaloneRequests[0]?.id || '';
 
           setState((current) => ({
             ...current,
             loading: false,
             error: '',
-            requests,
+            requests: standaloneRequests,
             progressById: Object.fromEntries(progressEntries),
             selectedId: nextSelectedId,
             saving: false,
@@ -3025,10 +4001,10 @@ function CurrentRequest({
     return (
       <main className="screen compact">
         <section className="empty-state">
-          <p>No team requests yet.</p>
+          <p>No open opportunities yet.</p>
           <button className="primary" onClick={onCreateNew}>
             <Plus size={18} />
-            New Request
+            New Open Opportunity
           </button>
         </section>
       </main>
@@ -3045,12 +4021,12 @@ function CurrentRequest({
       </button>
       <div className="results-header">
         <div>
-          <p className="eyebrow">My Request</p>
-          <h2>Your team searches</h2>
+          <p className="eyebrow">Open Opportunities</p>
+          <h2>Your outside-class team searches</h2>
         </div>
         <button className="primary" onClick={onCreateNew}>
           <Plus size={18} />
-          New Request
+          New Open Opportunity
         </button>
       </div>
 
@@ -3645,9 +4621,6 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
         friend_request_id: null,
         course_name: request.course_name || request.course,
         course_code: request.course_code,
-        class_day: request.class_day || parseClassSession(request.class_session).day,
-        class_start_time: request.class_start_time || parseClassSession(request.class_session).startTime,
-        class_end_time: request.class_end_time || parseClassSession(request.class_session).endTime,
         class_session: request.class_session,
         is_suitable: friendLooksSuitableForRequest(friend, request),
       });
@@ -3684,9 +4657,6 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
         friend_request_id: null,
         course_name: request.course_name || request.course,
         course_code: request.course_code,
-        class_day: request.class_day || parseClassSession(request.class_session).day,
-        class_start_time: request.class_start_time || parseClassSession(request.class_session).startTime,
-        class_end_time: request.class_end_time || parseClassSession(request.class_session).endTime,
         class_session: request.class_session,
         is_suitable: friendLooksSuitableForRequest(friend, request),
       }));
@@ -3801,7 +4771,7 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
                 >
                   {state.matchTarget.match_options.map((option, index) => (
                     <option value={index} key={`${option.current_request_id}-${option.friend_request_id || 'friend-optional'}`}>
-                      {option.course_name || 'Course'} {option.course_code ? `(${option.course_code})` : ''} | {option.class_day} {option.class_start_time}{option.is_suitable ? ' · Suitable' : ''}
+                      {option.course_name || 'Course'} {option.course_code ? `(${option.course_code})` : ''} | {getSessionDisplay(option)}{option.is_suitable ? ' · Suitable' : ''}
                     </option>
                   ))}
                 </select>
@@ -3820,7 +4790,7 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
                 <div className="request-summary-box">
                   <p className="eyebrow">{option.is_suitable ? 'Suitable for this request' : 'Your selected request'}</p>
                   <h3>{option.course_name || 'Selected course'} {option.course_code ? `(${option.course_code})` : ''}</h3>
-                  <p>{option.class_day} · {option.class_start_time}{option.class_end_time ? `-${option.class_end_time}` : ''}</p>
+                  <p>{getSessionDisplay(option)}</p>
                   {!option.is_suitable && <p className="note">Teamergency does not see a strong automatic signal yet. You can still choose this friend if they fit your team.</p>}
                 </div>
               ) : null;
@@ -4191,13 +5161,30 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
   );
 }
 
-function MyProfile({ profile, onCreateProfile, onCreateSearch, onProfileUpdated }) {
+function MyProfile({
+  profile,
+  activeRole,
+  lecturerSession,
+  onCreateProfile,
+  onCreateSearch,
+  onOpenLecturer,
+  onRoleChange,
+  onLecturerLogin,
+  onLecturerLogout,
+  onProfileUpdated,
+}) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(emptyProfile);
+  const [lecturerForm, setLecturerForm] = useState({
+    university: lecturerSession?.university || 'RMIT University',
+    lecturerId: lecturerSession?.lecturerId || '',
+  });
   const [reviewsState, setReviewsState] = useState({ loading: false, error: '', reviews: [] });
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const currentRole = activeRole === 'lecturer' ? 'lecturer' : 'student';
+  const editingAsLecturer = form.role === 'lecturer';
   const profileSkillOptions = mergeOptionSets(getSkillsForSchool(form.school), form.skills);
   const profileSchoolOptions = getSchoolsForUniversity(form.university);
 
@@ -4234,18 +5221,30 @@ function MyProfile({ profile, onCreateProfile, onCreateSearch, onProfileUpdated 
     };
   }, [profile?.id]);
 
+  useEffect(() => {
+    setLecturerForm({
+      university: lecturerSession?.university || 'RMIT University',
+      lecturerId: lecturerSession?.lecturerId || '',
+    });
+  }, [lecturerSession?.university, lecturerSession?.lecturerId]);
+
   const startEdit = () => {
     const school = schoolOptions.some((option) => option.value === profile.school) ? profile.school : '';
+    const roleForEdit = currentRole;
     setForm({
+      role: roleForEdit,
       full_name: profile.full_name || '',
       university: profile.university || 'RMIT University',
       school,
-      major: school && majorsBySchool[school]?.includes(profile.major) ? profile.major : '',
+      major: roleForEdit === 'lecturer'
+        ? 'Lecturer'
+        : school && majorsBySchool[school]?.includes(profile.major) ? profile.major : '',
       skills: profile.skills || [],
       other_skill: '',
       contact_type: profile.contact_type || 'email',
       contact_value: profile.contact_value || '',
       short_bio: profile.short_bio || '',
+      lecturer_title: profile.lecturer_title || '',
       is_available: profile.is_available ?? true,
       consent_public_visibility: profile.consent_public_visibility ?? true,
     });
@@ -4280,6 +5279,29 @@ function MyProfile({ profile, onCreateProfile, onCreateSearch, onProfileUpdated 
     setError('');
   };
 
+  const switchRole = (role) => {
+    setEditing(false);
+    setError('');
+    setMessage('');
+    onRoleChange(role);
+  };
+
+  const submitLecturerLogin = (event) => {
+    event.preventDefault();
+    setError('');
+    setMessage('');
+
+    const account = findDemoLecturerAccount(lecturerForm.university, lecturerForm.lecturerId);
+    if (!account) {
+      setError('Lecturer ID not found. Try demo lecturer ID: v123456.');
+      return;
+    }
+
+    onLecturerLogin(account);
+    setMessage(`Lecturer Mode opened for ${account.lecturerName}.`);
+    onOpenLecturer();
+  };
+
   const saveChanges = async (event) => {
     event.preventDefault();
     setError('');
@@ -4287,7 +5309,12 @@ function MyProfile({ profile, onCreateProfile, onCreateSearch, onProfileUpdated 
 
     const skills = getProfileSkillsFromForm(form);
 
-    if (!form.full_name || !form.school || !form.major || skills.length === 0 || !form.contact_value || !form.short_bio) {
+    if (editingAsLecturer) {
+      if (!form.full_name || !form.school || !form.contact_value) {
+        setError("Please fill in your lecturer profile's required fields.");
+        return;
+      }
+    } else if (!form.full_name || !form.school || !form.major || skills.length === 0 || !form.contact_value || !form.short_bio) {
       setError("Please fill in your profile's required fields.");
       return;
     }
@@ -4299,12 +5326,16 @@ function MyProfile({ profile, onCreateProfile, onCreateSearch, onProfileUpdated 
         full_name: form.full_name.trim(),
         university: form.university || 'RMIT University',
         school: form.school.trim(),
-        major: form.major.trim(),
-        skills,
+        major: editingAsLecturer ? 'Lecturer' : form.major.trim(),
+        skills: editingAsLecturer ? ['Teaching'] : skills,
         contact_type: form.contact_type,
         contact_value: form.contact_value.trim(),
-        short_bio: form.short_bio.trim(),
-        is_available: form.is_available,
+        short_bio: editingAsLecturer
+          ? form.short_bio.trim() || 'Lecturer profile for class team-formation monitoring.'
+          : form.short_bio.trim(),
+        is_available: editingAsLecturer ? false : form.is_available,
+        role: editingAsLecturer ? 'lecturer' : 'student',
+        lecturer_title: editingAsLecturer ? form.lecturer_title.trim() || null : null,
       });
       onProfileUpdated(updated);
       setEditing(false);
@@ -4326,129 +5357,214 @@ function MyProfile({ profile, onCreateProfile, onCreateSearch, onProfileUpdated 
             <p>Create a profile before searching, connecting, or chatting.</p>
             <button className="primary" onClick={onCreateProfile}>Create Profile</button>
           </>
-        ) : editing ? (
-          <form className="edit-profile-form" onSubmit={saveChanges}>
-            <h2>Edit Profile</h2>
-            <div className="form-grid single">
-              <label>
-                Full Name
-                <input value={form.full_name} onChange={(event) => updateField('full_name', event.target.value)} required />
-              </label>
-              <label>
-                University
-                <select value={form.university} onChange={(event) => updateField('university', event.target.value)} required>
-                  {universityOptions.map((university) => (
-                    <option value={university.value} key={university.value}>{university.label}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                School
-                <select value={form.school} onChange={(event) => updateSchool(event.target.value)} required>
-                  <option value="">Select school</option>
-                  {profileSchoolOptions.map((school) => (
-                    <option value={school.value} key={school.value}>{school.label}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Major
-                <select value={form.major} onChange={(event) => updateField('major', event.target.value)} required>
-                  <option value="">Select major</option>
-                  {(majorsBySchool[form.school] || []).map((major) => (
-                    <option value={major} key={major}>{major}</option>
-                  ))}
-                </select>
-              </label>
-              <fieldset className="wide">
-                <legend>Skills & Technologies</legend>
-                <p className="field-helper">Suggested skills update based on your school. You can still add a custom skill.</p>
-                <CheckboxGrid
-                  options={profileSkillOptions}
-                  selected={form.skills}
-                  onToggle={toggleProfileSkill}
-                />
-                {form.skills.includes('Other') && (
-                  <input
-                    value={form.other_skill}
-                    onChange={(event) => updateField('other_skill', event.target.value)}
-                    placeholder="Add another skill"
-                  />
-                )}
-              </fieldset>
-              <label>
-                Contact Method
-                <select value={form.contact_type} onChange={(event) => updateField('contact_type', event.target.value)}>
-                  {contactTypes.map((type) => (
-                    <option value={type} key={type}>{contactLabel(type)}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Contact Information
-                <input
-                  value={form.contact_value}
-                  onChange={(event) => updateField('contact_value', event.target.value)}
-                  required
-                />
-              </label>
-              <label>
-                Short Bio
-                <textarea
-                  value={form.short_bio}
-                  onChange={(event) => updateField('short_bio', event.target.value)}
-                  rows="4"
-                  required
-                />
-              </label>
-              <label className={form.is_available ? 'consent-box selected wide' : 'consent-box wide'}>
-                <input
-                  type="checkbox"
-                  checked={form.is_available}
-                  onChange={() => updateField('is_available', !form.is_available)}
-                />
-                <span>Available for collaboration</span>
-              </label>
-            </div>
-            {error && <p className="error">{error}</p>}
-            <div className="hero-actions">
-              <button className="primary" type="submit" disabled={saving}>
-                {saving ? 'Saving...' : 'Save Changes'}
-              </button>
-              <button className="secondary" type="button" onClick={cancelEdit}>Cancel</button>
-            </div>
-          </form>
         ) : (
           <>
-            <div className="avatar">{displayInitial(profile.full_name)}</div>
-            <h2>{displayName(profile.full_name)}</h2>
-            <dl>
-              <div><dt>University</dt><dd>{universityLabel(profile.university)}</dd></div>
-              <div><dt>School</dt><dd>{schoolLabel(profile.school)}</dd></div>
-              <div><dt>Major</dt><dd>{profile.major}</dd></div>
-              <div><dt>Availability</dt><dd>{profile.is_available === false ? 'Unavailable' : 'Available for collaboration'}</dd></div>
-              <div>
-                <dt>Reviews</dt>
-                <dd>{reviewsState.loading ? 'Loading reviews...' : reviewSummaryLabel(profile, reviewsState.reviews)}</dd>
+            <fieldset className="wide">
+              <legend>Mode</legend>
+              <div className="role-grid">
+                {profileRoleOptions.map((option) => (
+                  <label className={currentRole === option.value ? 'role-card selected' : 'role-card'} key={option.value}>
+                    <input
+                      type="radio"
+                      name="active-role"
+                      checked={currentRole === option.value}
+                      onChange={() => switchRole(option.value)}
+                    />
+                    <span>
+                      <strong>{option.value === 'student' ? 'Student Mode' : 'Lecturer Mode'}</strong>
+                      <small>{option.description}</small>
+                    </span>
+                  </label>
+                ))}
               </div>
-              <div><dt>Contact</dt><dd>{contactLabel(profile.contact_type)}: {profile.contact_value}</dd></div>
-              <div><dt>Bio</dt><dd>{profile.short_bio || 'Not specified'}</dd></div>
-            </dl>
-            <PillList items={profile.skills} />
-            {reviewsState.loading && <p className="loading">Loading reviews...</p>}
-            {reviewsState.error && <p className="error">{reviewsState.error}</p>}
-            {!reviewsState.loading && !reviewsState.error && (
-              <ReviewsSection
-                profile={profile}
-                reviews={reviewsState.reviews}
-                title="Reviews About You"
-              />
+            </fieldset>
+
+            {currentRole === 'lecturer' && (
+              <section className="request-summary-box">
+                <p className="eyebrow">Lecturer Demo Login</p>
+                {lecturerSession ? (
+                  <>
+                    <h3>{lecturerSession.lecturerName}</h3>
+                    <p>{lecturerSession.university} · Demo lecturer ID {lecturerSession.lecturerId}</p>
+                    <div className="hero-actions">
+                      <button className="primary" type="button" onClick={onOpenLecturer}>Open Lecturer Dashboard</button>
+                      <button className="secondary" type="button" onClick={onLecturerLogout}>Clear Demo Login</button>
+                    </div>
+                  </>
+                ) : (
+                  <form className="form-grid single" onSubmit={submitLecturerLogin}>
+                    <label>
+                      University
+                      <select
+                        value={lecturerForm.university}
+                        onChange={(event) => setLecturerForm((current) => ({ ...current, university: event.target.value }))}
+                      >
+                        {universityOptions.map((university) => (
+                          <option value={university.value} key={university.value}>{university.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Lecturer ID
+                      <input
+                        value={lecturerForm.lecturerId}
+                        onChange={(event) => setLecturerForm((current) => ({ ...current, lecturerId: event.target.value }))}
+                        placeholder="Demo lecturer ID: v123456"
+                      />
+                      <span className="field-helper">Demo lecturer ID: v123456</span>
+                    </label>
+                    <button className="primary" type="submit">Open Lecturer Dashboard</button>
+                  </form>
+                )}
+              </section>
             )}
-            {message && <p className="success">{message}</p>}
-            <div className="stacked-actions">
-              <button className="primary link-button" onClick={startEdit}>Edit Profile</button>
-              <button className="secondary link-button" onClick={onCreateSearch}>Create New Search</button>
-            </div>
+
+            {editing ? (
+              <form className="edit-profile-form" onSubmit={saveChanges}>
+                <h2>Edit Profile</h2>
+                <div className="form-grid single">
+                  <label>
+                    Full Name
+                    <input value={form.full_name} onChange={(event) => updateField('full_name', event.target.value)} required />
+                  </label>
+                  <label>
+                    University
+                    <select value={form.university} onChange={(event) => updateField('university', event.target.value)} required>
+                      {universityOptions.map((university) => (
+                        <option value={university.value} key={university.value}>{university.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    {editingAsLecturer ? 'School / Department' : 'School'}
+                    <select value={form.school} onChange={(event) => updateSchool(event.target.value)} required>
+                      <option value="">{editingAsLecturer ? 'Select department' : 'Select school'}</option>
+                      {profileSchoolOptions.map((school) => (
+                        <option value={school.value} key={school.value}>{school.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  {editingAsLecturer ? (
+                    <label>
+                      Lecturer Role / Title
+                      <input
+                        value={form.lecturer_title}
+                        onChange={(event) => updateField('lecturer_title', event.target.value)}
+                        placeholder="Course coordinator, lecturer, tutor..."
+                      />
+                    </label>
+                  ) : (
+                    <>
+                      <label>
+                        Major
+                        <select value={form.major} onChange={(event) => updateField('major', event.target.value)} required>
+                          <option value="">Select major</option>
+                          {(majorsBySchool[form.school] || []).map((major) => (
+                            <option value={major} key={major}>{major}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <fieldset className="wide">
+                        <legend>Skills & Technologies</legend>
+                        <p className="field-helper">Suggested skills update based on your school. You can still add a custom skill.</p>
+                        <CheckboxGrid
+                          options={profileSkillOptions}
+                          selected={form.skills}
+                          onToggle={toggleProfileSkill}
+                        />
+                        {form.skills.includes('Other') && (
+                          <input
+                            value={form.other_skill}
+                            onChange={(event) => updateField('other_skill', event.target.value)}
+                            placeholder="Add another skill"
+                          />
+                        )}
+                      </fieldset>
+                    </>
+                  )}
+                  <label>
+                    Contact Method
+                    <select value={form.contact_type} onChange={(event) => updateField('contact_type', event.target.value)}>
+                      {contactTypes.map((type) => (
+                        <option value={type} key={type}>{contactLabel(type)}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Contact Information
+                    <input
+                      value={form.contact_value}
+                      onChange={(event) => updateField('contact_value', event.target.value)}
+                      required
+                    />
+                  </label>
+                  <label>
+                    {editingAsLecturer ? 'Short Bio / Note' : 'Short Bio'}
+                    <textarea
+                      value={form.short_bio}
+                      onChange={(event) => updateField('short_bio', event.target.value)}
+                      rows="4"
+                      required={!editingAsLecturer}
+                    />
+                  </label>
+                  {!editingAsLecturer && (
+                    <label className={form.is_available ? 'consent-box selected wide' : 'consent-box wide'}>
+                      <input
+                        type="checkbox"
+                        checked={form.is_available}
+                        onChange={() => updateField('is_available', !form.is_available)}
+                      />
+                      <span>Available for collaboration</span>
+                    </label>
+                  )}
+                </div>
+                {error && <p className="error">{error}</p>}
+                <div className="hero-actions">
+                  <button className="primary" type="submit" disabled={saving}>
+                    {saving ? 'Saving...' : 'Save Changes'}
+                  </button>
+                  <button className="secondary" type="button" onClick={cancelEdit}>Cancel</button>
+                </div>
+              </form>
+            ) : currentRole === 'student' ? (
+              <>
+                <div className="avatar">{displayInitial(profile.full_name)}</div>
+                <h2>{displayName(profile.full_name)}</h2>
+                <dl>
+                  <div><dt>Role</dt><dd>Student Mode</dd></div>
+                  <div><dt>University</dt><dd>{universityLabel(profile.university)}</dd></div>
+                  <div><dt>School</dt><dd>{schoolLabel(profile.school)}</dd></div>
+                  <div><dt>Major</dt><dd>{profile.major}</dd></div>
+                  <div><dt>Availability</dt><dd>{profile.is_available === false ? 'Unavailable' : 'Available for collaboration'}</dd></div>
+                  <div>
+                    <dt>Reviews</dt>
+                    <dd>{reviewsState.loading ? 'Loading reviews...' : reviewSummaryLabel(profile, reviewsState.reviews)}</dd>
+                  </div>
+                  <div><dt>Contact</dt><dd>{contactLabel(profile.contact_type)}: {profile.contact_value}</dd></div>
+                  <div><dt>Bio</dt><dd>{profile.short_bio || 'Not specified'}</dd></div>
+                </dl>
+                <PillList items={profile.skills} />
+                {reviewsState.loading && <p className="loading">Loading reviews...</p>}
+                {reviewsState.error && <p className="error">{reviewsState.error}</p>}
+                {!reviewsState.loading && !reviewsState.error && (
+                  <ReviewsSection
+                    profile={profile}
+                    reviews={reviewsState.reviews}
+                    title="Reviews About You"
+                  />
+                )}
+                {message && <p className="success">{message}</p>}
+                <div className="stacked-actions">
+                  <button className="primary link-button" onClick={startEdit}>Edit Profile</button>
+                  <button className="secondary link-button" onClick={onCreateSearch}>Create New Search</button>
+                </div>
+              </>
+            ) : (
+              <>
+                {message && <p className="success">{message}</p>}
+                {error && <p className="error">{error}</p>}
+              </>
+            )}
           </>
         )}
       </section>
@@ -4462,6 +5578,11 @@ export default function App() {
   const [profileId, setProfileId] = useState('');
   const [requestId, setRequestId] = useState('');
   const [profile, setProfile] = useState(null);
+  const [profileFormRole, setProfileFormRole] = useState('student');
+  const [activeRole, setActiveRole] = useState('student');
+  const [lecturerSession, setLecturerSession] = useState(null);
+  const [selectedClassId, setSelectedClassId] = useState('');
+  const [requestClassContext, setRequestClassContext] = useState(null);
   const [selectedRequestId, setSelectedRequestId] = useState('');
   const [selectedMatchScore, setSelectedMatchScore] = useState(null);
   const [selectedConnectionId, setSelectedConnectionId] = useState('');
@@ -4472,9 +5593,19 @@ export default function App() {
   useEffect(() => {
     const storedProfileId = getStoredProfileId();
     const storedRequestId = getStoredRequestId();
+    const inviteCode = getStoredInviteCode();
+    const storedActiveRole = getStoredActiveRole();
+    const storedLecturerSession = getStoredLecturerSession();
 
     setProfileId(storedProfileId || '');
     setRequestId(storedRequestId || '');
+    setSelectedClassId(getStoredClassId() || '');
+    setActiveRole(storedActiveRole);
+    setLecturerSession(storedLecturerSession);
+
+    if (inviteCode) {
+      setView('join-class');
+    }
 
     if (storedProfileId && hasSupabaseConfig) {
       getProfileById(storedProfileId, { claimLegacy: true })
@@ -4508,11 +5639,44 @@ export default function App() {
     return 'Supabase is not configured yet. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to run the MVP.';
   }, []);
 
+  const hasProfile = Boolean(profileId);
+  const currentRole = activeRole === 'lecturer' ? 'lecturer' : 'student';
+  const showStudentNavigation = !hasProfile || currentRole === 'student';
+  const showLecturerNavigation = !hasProfile || currentRole === 'lecturer';
+
+  const openProfileForm = (role = 'student') => {
+    setProfileFormRole(role === 'lecturer' ? 'lecturer' : 'student');
+    navigate('profile');
+  };
+
+  const changeActiveRole = (role) => {
+    const nextRole = role === 'lecturer' ? 'lecturer' : 'student';
+    setActiveRole(nextRole);
+    storeActiveRole(nextRole);
+  };
+
+  const handleLecturerLogin = (account) => {
+    setLecturerSession(account);
+    storeLecturerSession(account);
+    changeActiveRole('lecturer');
+  };
+
+  const handleLecturerLogout = () => {
+    setLecturerSession(null);
+    clearLecturerSession();
+  };
+
   const startRequest = async () => {
     setBootError('');
+    setRequestClassContext(null);
 
     if (!profileId) {
-      navigate('profile');
+      openProfileForm('student');
+      return;
+    }
+
+    if (currentRole === 'lecturer') {
+      navigate(lecturerSession ? 'lecturer' : 'my-profile');
       return;
     }
 
@@ -4524,10 +5688,10 @@ export default function App() {
     try {
       const loadedProfile = await getProfileById(profileId, { claimLegacy: true });
       setProfile(loadedProfile);
-      navigate('request');
+      navigate(currentRole === 'lecturer' ? (lecturerSession ? 'lecturer' : 'my-profile') : 'request');
     } catch {
       setBootError("We couldn't load your saved profile. Please create a profile again on this device.");
-      navigate('profile');
+      openProfileForm('student');
     }
   };
 
@@ -4551,6 +5715,30 @@ export default function App() {
   const openChat = (connectionId) => {
     setSelectedConnectionId(connectionId);
     navigate('chat');
+  };
+
+  const openClass = (classId) => {
+    if (classId) {
+      setSelectedClassId(classId);
+      storeClassId(classId);
+    }
+    navigate('class-detail');
+  };
+
+  const openClassRequest = (classItem) => {
+    setRequestClassContext(classItem);
+    setSelectedClassId(classItem.id);
+    storeClassId(classItem.id);
+    navigate('request');
+  };
+
+  const openMatchesForRequest = (nextRequestId) => {
+    selectCurrentRequest(nextRequestId);
+    navigate('matches');
+  };
+
+  const handleClassJoined = (classId) => {
+    openClass(classId);
   };
 
   const navigate = (nextView) => {
@@ -4579,19 +5767,23 @@ export default function App() {
         <div className="top-actions">
           {view === 'home' ? (
             <>
-              <button className="ghost" onClick={() => navigate('discover')}>Discovery</button>
-              <button className="ghost" onClick={findMatches}>Find Teammates</button>
+              {showStudentNavigation && <button className="ghost" onClick={() => navigate('discover')}>Discovery</button>}
+              {showStudentNavigation && <button className="ghost" onClick={() => navigate('my-classes')}>My Classes</button>}
+              {showLecturerNavigation && <button className="ghost" onClick={() => navigate('lecturer')}>Lecturer</button>}
+              {showStudentNavigation && <button className="ghost" onClick={startRequest}>Open Opportunities</button>}
               <button className="ghost nav-outline" onClick={() => navigate('my-profile')}>Log In</button>
-              <button className="ghost" onClick={() => navigate('profile')}>Sign Up</button>
+              {!hasProfile && <button className="ghost" onClick={() => openProfileForm('student')}>Sign Up</button>}
             </>
           ) : (
             <>
-              <button className="ghost" onClick={() => navigate('discover')}>Discover</button>
-              {requestId && <button className="ghost" onClick={findMatches}>Find Teammates</button>}
-              {profileId && <button className="ghost" onClick={() => navigate('current-request')}>My Request</button>}
-              <button className="ghost" onClick={() => navigate('connections')}>Connections{notificationCounts.connections > 0 && <span className="nav-badge">{notificationCounts.connections}</span>}</button>
-              <button className="ghost" onClick={() => navigate('friends')}>Friends</button>
-              <button className="ghost" onClick={() => navigate('messages')}>Messages{notificationCounts.messages > 0 && <span className="nav-badge">{notificationCounts.messages}</span>}</button>
+              {showStudentNavigation && <button className="ghost" onClick={() => navigate('discover')}>Discover</button>}
+              {showStudentNavigation && <button className="ghost" onClick={() => navigate('my-classes')}>My Classes</button>}
+              {showLecturerNavigation && <button className="ghost" onClick={() => navigate('lecturer')}>Lecturer</button>}
+              {showStudentNavigation && requestId && <button className="ghost" onClick={findMatches}>Find Teammates</button>}
+              {showStudentNavigation && profileId && <button className="ghost" onClick={() => navigate('current-request')}>Open Opportunities</button>}
+              {showStudentNavigation && <button className="ghost" onClick={() => navigate('connections')}>Connections{notificationCounts.connections > 0 && <span className="nav-badge">{notificationCounts.connections}</span>}</button>}
+              {showStudentNavigation && <button className="ghost" onClick={() => navigate('friends')}>Friends</button>}
+              {showStudentNavigation && <button className="ghost" onClick={() => navigate('messages')}>Messages{notificationCounts.messages > 0 && <span className="nav-badge">{notificationCounts.messages}</span>}</button>}
               <button className="ghost" onClick={() => navigate('my-profile')}>My Profile</button>
             </>
           )}
@@ -4605,7 +5797,7 @@ export default function App() {
         <Home
           profileId={profileId}
           requestId={requestId}
-          onStartProfile={() => navigate('profile')}
+          onStartProfile={() => openProfileForm('student')}
           onStartRequest={startRequest}
           onFindMatches={findMatches}
         />
@@ -4613,25 +5805,77 @@ export default function App() {
 
       {view === 'profile' && (
         <ProfileForm
+          initialRole={profileFormRole}
           onSaved={(savedProfile) => {
+            const savedRole = getProfileRole(savedProfile);
             setProfile(savedProfile);
             setProfileId(savedProfile.id);
-            navigate('profile-saved');
+            setProfileFormRole(savedRole);
+            changeActiveRole(savedRole);
+            navigate(getStoredInviteCode() ? 'join-class' : 'profile-saved');
           }}
         />
       )}
 
       {view === 'profile-saved' && (
-        <ProfileSaved profile={profile} onContinue={() => navigate('request')} />
+        <ProfileSaved profile={profile} onContinue={() => navigate(currentRole === 'lecturer' ? 'my-profile' : 'request')} />
+      )}
+
+      {view === 'join-class' && (
+        <JoinClassPage
+          profile={profile}
+          profileId={profileId}
+          onCreateProfile={() => openProfileForm('student')}
+          onJoined={handleClassJoined}
+        />
+      )}
+
+      {view === 'my-classes' && (
+        <MyClassesPage
+          profileId={profileId}
+          onCreateProfile={() => openProfileForm('student')}
+          onJoinClass={() => navigate('join-class')}
+          onOpenClass={openClass}
+        />
+      )}
+
+      {view === 'class-detail' && (
+        <ClassDetailPage
+          classId={selectedClassId}
+          profile={profile}
+          profileId={profileId}
+          onBack={() => navigate('my-classes')}
+          onJoinClass={() => navigate('join-class')}
+          onFindTeammates={openClassRequest}
+          onViewMatches={openMatchesForRequest}
+          onOpenChat={openChat}
+        />
+      )}
+
+      {view === 'lecturer' && (
+        <LecturerDashboard
+          activeRole={currentRole}
+          lecturerSession={lecturerSession}
+          onOpenProfile={() => navigate('my-profile')}
+        />
       )}
 
       {view === 'request' && profile && (
         <RequestForm
           profile={profile}
-          onBack={() => goBack('home')}
+          onBack={() => (requestClassContext ? navigate('class-detail') : goBack('home'))}
+          classContext={requestClassContext}
           onCreated={(request) => {
             setRequestId(request.id);
-            navigate('matches');
+            if (request.class_id || requestClassContext?.id) {
+              const nextClassId = request.class_id || requestClassContext.id;
+              setSelectedClassId(nextClassId);
+              storeClassId(nextClassId);
+              setRequestClassContext(null);
+              navigate('class-detail');
+            } else {
+              navigate('matches');
+            }
           }}
         />
       )}
@@ -4760,8 +6004,14 @@ export default function App() {
       {view === 'my-profile' && (
         <MyProfile
           profile={profile}
-          onCreateProfile={() => navigate('profile')}
+          activeRole={currentRole}
+          lecturerSession={lecturerSession}
+          onCreateProfile={() => openProfileForm('student')}
           onCreateSearch={startRequest}
+          onOpenLecturer={() => navigate('lecturer')}
+          onRoleChange={changeActiveRole}
+          onLecturerLogin={handleLecturerLogin}
+          onLecturerLogout={handleLecturerLogout}
           onProfileUpdated={(updatedProfile) => setProfile(updatedProfile)}
         />
       )}
