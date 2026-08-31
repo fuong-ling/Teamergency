@@ -9,7 +9,7 @@ TEAMERGENCY is an MVP for students who need to find teammates for a group assign
 ## MVP Flow
 
 1. Homepage
-2. Create User Profile
+2. Choose role and create User Profile
 3. Profile Saved
 4. Create Teammate Search Request
 5. Match Results
@@ -31,10 +31,20 @@ Find Matches
 
 There is no SSO, login UI, personal GPA profile field, hobbies, push notification, voice call, or video call in this MVP. Public testing uses Supabase Anonymous Auth silently in the browser for basic ownership checks.
 
+## MVP Roles
+
+Profile creation starts with a role choice:
+
+- `student`: keeps the existing Teamergency student experience for profiles, team requests, matching, Discover, Connect, chat, reviews, and marking a team as found.
+- `lecturer`: opens a minimal Lecturer Dashboard experience for checking class/team-formation progress.
+
+This is not production university authentication. It is an MVP role-based experience on top of the existing anonymous Supabase ownership system. Existing profiles without a role safely behave as `student`.
+
 ## Why Profiles and Requests Are Separate
 
 `profiles` stores long-term student information:
 
+- Role: `student` or `lecturer`
 - Full name
 - University
 - School: `SCD`, `TBS`, or `SSET`
@@ -47,10 +57,11 @@ There is no SSO, login UI, personal GPA profile field, hobbies, push notificatio
 
 `team_requests` stores one current teammate search:
 
+- Optional class/cohort link from a lecturer-created class
 - Course name and course code
 - School
 - Major
-- Class / session
+- Class / session code, for example `Session 01`
 - Skills needed
 - Number of teammates needed
 - Work style
@@ -63,6 +74,14 @@ One profile can have many team requests over time. A student should not need to 
 ## Database Relationship
 
 `team_requests.profile_id` references `profiles.id`.
+
+Phase 2 adds optional class/cohort tables:
+
+- `classes` stores a lecturer-created course cohort with university, course, session code, semester/year, lecturer name, and a join code.
+- `class_members` stores which student profiles joined which class and their preferred-teammate status.
+- `team_requests.class_id` optionally references `classes.id`.
+
+When a request has `class_id`, matching is restricted to the same class. Older requests without `class_id` still match by course code/name plus session code.
 
 Example:
 
@@ -123,6 +142,13 @@ Do not put a `service_role` key in the frontend.
 - `supabase/digital_media_demo_boost.sql` refreshes demo Digital Media Studio 4 coverage.
 - `supabase/a3_iteration_features.sql` adds University, Available mode, Friends context, Reviews, Match Quality Feedback, Skill Gap support data, and AI match metadata.
 - `supabase/reviews_feedback_iteration.sql` separates Teammate Reviews from Match Usefulness Rating, adds 30-day review eligibility, accepted timestamps, and seeded demo reviews.
+- `supabase/session_code_matching_update.sql` updates matching to compare stable session codes such as `Session 01` instead of timetable-style day/start time values.
+- `supabase/class_cohort_phase2.sql` adds Class/Cohort support, lecturer-created join codes, class membership, class-aware request creation, and a light lecturer dashboard.
+- `supabase/role_lecturer_access_phase2.sql` adds profile role selection, lecturer title, demo lecturer class codes, demo class memberships, and code-based Lecturer Dashboard access.
+- `supabase/my_profile_role_switch_demo.sql` adds the latest My Profile mode switch, demo lecturer IDs, school/major-aware demo class lookup, and My Classes lecturer dashboard data.
+- `supabase/class_based_team_status.sql` adds class-based student team status helpers for Class Detail and the Lecturer Dashboard.
+- `supabase/fix_join_demo_class_ambiguous.sql` replaces the demo join function if Supabase reports `column reference "class_id" is ambiguous`.
+- `supabase/fix_current_request_team_size_and_class_rpc.sql` applies the current team-size request RPCs without rerunning older connection migrations.
 - `supabase/seed.sql` creates 15 fictional demo profiles and 15 active demo team requests.
 
 Demo profiles use:
@@ -225,7 +251,7 @@ supabase/reviews_feedback_iteration.sql
 Teammate Reviews answer: "Was this person a good teammate?"
 
 - only for accepted team-request connections
-- locked until `REVIEW_WAIT_DAYS = 30`
+- prototype testing uses `REVIEW_WAIT_DAYS = 0` so reviews can be tested immediately after an accepted match; for official release, set it to `15` and rerun `supabase/review_wait_now_testing.sql` with `select 15`
 - appears on the reviewed teammate's profile
 - demo profile reviews are seeded and labeled as Demo Review
 
@@ -287,6 +313,7 @@ The browser stores:
 - `currentProfileId`
 - `currentTeamRequestId`
 - `currentTeamRequestEditToken`
+- `currentClassId`, when the student joins a lecturer-created class
 - Supabase anonymous auth session
 
 These values live in `localStorage` on the current device/browser.
@@ -309,7 +336,7 @@ Match score starts with rule-based scoring and can be enhanced by AI when the Ed
 Weights:
 
 - Same course: 30%
-- Same class / session: 20%
+- Same class / session code: 20%
 - Same major: 10%
 - Same school: 5%
 - Skill compatibility: 25%
@@ -329,6 +356,14 @@ The UI displays scores like:
 This is a compatibility score, not a probability.
 
 Availability is no longer used in the request form, match cards, teammate profile view, or match score. Existing `availability` and `preferred_active_time` columns are left in place to avoid damaging current data.
+
+New team requests use compact session codes such as `Session 01`, `Session 02`, and `Session 03`. Older timetable-style values are kept in the database for backward compatibility, but the current UI should not ask students to enter class day, start time, or end time.
+
+Phase 2 class-aware matching:
+
+- If either request has `class_id`, both requests must share the same `class_id`.
+- If neither request has `class_id`, the app falls back to same course plus same session code.
+- This keeps existing real requests working while allowing lecturer class-code cohorts to become the primary matching context.
 
 Request Results and Discover are separate:
 
@@ -357,7 +392,7 @@ Request Results and Discover are separate:
 
 `team_requests.course_name` and `team_requests.course_code` store the selected predefined course. The legacy `course` column is still populated with the course name so older data keeps working.
 
-`team_requests.school`, `team_requests.major`, and `team_requests.class_session` store request context. School uses the same `SCD/TBS/SSET` codes as profiles.
+`team_requests.school`, `team_requests.major`, and `team_requests.class_session` store request context. `class_session` now stores compact session-code text such as `Session 01` for new requests. School uses the same `SCD/TBS/SSET` codes as profiles.
 
 Portfolio/reference uploads use Supabase Storage bucket `request-portfolios`. The database stores only:
 
@@ -463,6 +498,90 @@ supabase/real_public_testing.sql
 ```
 
 This migration keeps demo data, adds `owner_id` and consent fields, tightens RLS for real ownership, and changes connection/chat functions to check `auth.uid()`.
+
+## Adding Class / Cohort Phase 2
+
+Run this only after the current MVP migrations are already in place:
+
+```text
+supabase/class_cohort_phase2.sql
+supabase/my_profile_role_switch_demo.sql
+supabase/fix_join_demo_class_ambiguous.sql
+supabase/fix_current_request_team_size_and_class_rpc.sql
+supabase/class_based_team_status.sql
+```
+
+This migration is additive. It does not drop existing tables, reset data, or delete real users. It adds:
+
+- lecturer-created classes with shareable join codes
+- student class membership
+- optional `team_requests.class_id`
+- class-aware matching
+- request create/update functions that can attach a request to a joined class
+- a light lecturer dashboard function
+
+The latest role-switch migration adds:
+
+- `profiles.role`, defaulting existing users to `student`
+- `profiles.lecturer_title`
+- demo classes and demo class membership
+- My Profile mode switching between Student and Lecturer
+- demo Lecturer ID access for the Lecturer Dashboard
+- school/major-aware demo class lookup for student Join Class testing
+
+The class status migration adds:
+
+- class-based status labels such as `No request / not looking`, `Looking for teammates`, `Missing 1 teammate`, and `Team complete`
+- `list_my_classes_with_status(current_profile)` for the student My Classes screen
+- updated lecturer dashboard student status data based on partial team progress
+
+Student flow:
+
+```text
+Create Profile
+  -> My Classes
+  -> Join Class with lecturer code
+  -> Class Detail
+  -> See team status
+  -> Create Team Request for that class
+  -> Return to Class Detail
+  -> Find Matches inside that class
+```
+
+Standalone / outside-class flow:
+
+```text
+Open Opportunities
+  -> Create Teammate Request
+  -> Find teammates outside a specific enrolled class
+```
+
+Lecturer flow:
+
+```text
+My Profile
+  -> Switch to Lecturer Mode
+  -> Select University
+  -> Enter demo Lecturer ID
+  -> Open Lecturer Dashboard
+  -> View My Classes and team-formation progress
+```
+
+Security limitation: there is still no real university login, SSO, or staff verification. Lecturer Mode is an MVP-only local mode plus demo Lecturer ID lookup, so it is suitable for testing the experience and dashboard evidence only. Production should use real Supabase Auth roles and university identity checks before handling real class administration.
+
+Demo lecturer accounts:
+
+- `RMIT University` · Lecturer ID `v123456` · Tom Anderson
+- `University of Economics Ho Chi Minh City` · Lecturer ID `v654321` · Minh Nguyen
+- `University of Technology Ho Chi Minh City` · Lecturer ID `v888888` · Sarah Tran
+
+Student demo class codes:
+
+- `200206`
+- `676767`
+- `88889999`
+
+The app shows `Demo lecturer ID: v123456` under the Lecturer ID field and `Demo codes: 200206 • 676767 • 88889999` under the Join Class field so testers do not need to search the README. Demo class lookup chooses a class that matches the student's saved school/major where possible, so a Business or IT student is not shown the Digital Media class by default.
 
 ## Deploy
 
