@@ -125,6 +125,45 @@ export const getMyProfile = async () => {
   return data || null;
 };
 
+export const getProfileByContactEmail = async (email) => {
+  const normalizedEmail = String(email || '').trim();
+  if (!normalizedEmail) return null;
+
+  const { client } = await getAuthenticatedClient();
+  const byStudentContact = await client
+    .from('profiles')
+    .select('*')
+    .eq('contact_type', 'email')
+    .ilike('contact_value', normalizedEmail)
+    .eq('is_demo', false)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!byStudentContact.error && byStudentContact.data) {
+    return byStudentContact.data;
+  }
+
+  if (byStudentContact.error && !isMissingSchemaFeature(byStudentContact.error)) {
+    throw byStudentContact.error;
+  }
+
+  const byLecturerContact = await client
+    .from('profiles')
+    .select('*')
+    .ilike('lecturer_contact_detail', normalizedEmail)
+    .eq('is_demo', false)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (byLecturerContact.error && !isMissingSchemaFeature(byLecturerContact.error)) {
+    throw byLecturerContact.error;
+  }
+
+  return byLecturerContact.data || null;
+};
+
 export const updateProfile = async (profileId, profileData) => {
   const { client } = await getAuthenticatedClient();
   try {
