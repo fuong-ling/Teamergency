@@ -42,6 +42,18 @@ const courseAliases = (request = {}) =>
     request.course,
   ].map(normalize).filter(Boolean))];
 
+const sessionCodeFromValue = (value = '') => {
+  const normalized = String(value || '').trim();
+  const match = normalized.match(/^session\s*0?(\d{1,2})$/i) || normalized.match(/^0?(\d{1,2})$/);
+  return match ? match[1].padStart(2, '0') : '';
+};
+
+const sessionKey = (request = {}) => {
+  const sessionCode = sessionCodeFromValue(request.session_code || request.class_session);
+  if (sessionCode) return `session-${sessionCode}`;
+  return normalize(request.class_session || '');
+};
+
 const coursesMatch = (left, right) => {
   const leftAliases = courseAliases(left);
   const rightAliases = new Set(courseAliases(right));
@@ -51,7 +63,7 @@ const coursesMatch = (left, right) => {
 export const calculateMatchScore = (currentProfile, currentRequest, candidate) => {
   const sameCourse = coursesMatch(currentRequest, candidate);
   const sameClass =
-    normalize(currentRequest?.class_session || '') === normalize(candidate?.class_session || '');
+    sessionKey(currentRequest) && sessionKey(currentRequest) === sessionKey(candidate);
   const sameMajor =
     normalize(currentRequest?.major || currentProfile?.major || '') ===
     normalize(candidate?.major || candidate?.profile?.major || '');
@@ -63,8 +75,8 @@ export const calculateMatchScore = (currentProfile, currentRequest, candidate) =
   const classScore = sameClass ? 20 : 0;
   const majorScore = sameMajor ? 10 : 0;
   const schoolScore = sameSchool ? 5 : 0;
-  const skillScore = complementarySkillScore(currentProfile, currentRequest, candidate) * 25;
-  const workStyleScore = ratioOverlap(currentRequest?.work_styles, candidate?.work_styles) * 10;
+  const skillScore = complementarySkillScore(currentProfile, currentRequest, candidate) * 30;
+  const workStyleScore = ratioOverlap(currentRequest?.work_styles, candidate?.work_styles) * 5;
 
   return Math.round(Math.min(100, courseScore + classScore + majorScore + schoolScore + skillScore + workStyleScore));
 };
