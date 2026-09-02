@@ -3,7 +3,10 @@ const REQUEST_ID_KEY = 'currentTeamRequestId';
 const REQUEST_EDIT_TOKEN_KEY = 'currentTeamRequestEditToken';
 const CLASS_ID_KEY = 'currentClassId';
 const ACTIVE_ROLE_KEY = 'teamergencyActiveRole';
+const PENDING_ROLE_KEY = 'teamergencyPendingRole';
+const LOGGED_OUT_KEY = 'teamergencyLoggedOut';
 const LECTURER_SESSION_KEY = 'teamergencyDemoLecturerSession';
+const LANGUAGE_KEY = 'teamergencyLanguage';
 
 export const getStoredProfileId = () => localStorage.getItem(PROFILE_ID_KEY);
 
@@ -43,6 +46,34 @@ export const storeActiveRole = (role) => {
   localStorage.setItem(ACTIVE_ROLE_KEY, role === 'lecturer' ? 'lecturer' : 'student');
 };
 
+export const clearActiveRole = () => {
+  localStorage.removeItem(ACTIVE_ROLE_KEY);
+};
+
+export const getStoredPendingRole = () => {
+  const role = localStorage.getItem(PENDING_ROLE_KEY);
+  return role === 'lecturer' || role === 'student' ? role : '';
+};
+
+export const storePendingRole = (role) => {
+  localStorage.setItem(PENDING_ROLE_KEY, role === 'lecturer' ? 'lecturer' : 'student');
+};
+
+export const clearPendingRole = () => {
+  localStorage.removeItem(PENDING_ROLE_KEY);
+};
+
+export const getStoredLoggedOut = () =>
+  localStorage.getItem(LOGGED_OUT_KEY) === 'true';
+
+export const storeLoggedOut = () => {
+  localStorage.setItem(LOGGED_OUT_KEY, 'true');
+};
+
+export const clearLoggedOut = () => {
+  localStorage.removeItem(LOGGED_OUT_KEY);
+};
+
 export const getStoredLecturerSession = () => {
   try {
     return JSON.parse(localStorage.getItem(LECTURER_SESSION_KEY) || 'null');
@@ -59,6 +90,13 @@ export const storeLecturerSession = (session) => {
 
 export const clearLecturerSession = () => {
   localStorage.removeItem(LECTURER_SESSION_KEY);
+};
+
+export const getStoredLanguage = () =>
+  localStorage.getItem(LANGUAGE_KEY) === 'vi' ? 'vi' : 'en';
+
+export const storeLanguage = (language) => {
+  localStorage.setItem(LANGUAGE_KEY, language === 'vi' ? 'vi' : 'en');
 };
 
 export const createEditToken = () => {
