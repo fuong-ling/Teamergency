@@ -483,6 +483,17 @@ const schoolLabel = (value) =>
 const universityLabel = (value) =>
   universityOptions.find((university) => university.value === value)?.label || value || 'RMIT University';
 
+const isProfileOwnershipError = (error) =>
+  String(error?.message || '').includes('Profile ownership required');
+
+const classMatchesProfile = (classItem = {}, profile = {}) => {
+  if (!classItem || !profile) return false;
+  const sameUniversity = normalizeFilterValue(classItem.university || 'RMIT University') === normalizeFilterValue(profile.university || 'RMIT University');
+  const sameSchool = normalizeFilterValue(classItem.school) === normalizeFilterValue(profile.school);
+  const sameMajor = normalizeFilterValue(classItem.major) === normalizeFilterValue(profile.major);
+  return sameUniversity && sameSchool && sameMajor;
+};
+
 const getReviewSummary = (profile = {}) => {
   const summary = profile.review_summary || {};
   return {
@@ -822,6 +833,12 @@ const getGoogleProfileSeed = (authSession, role = 'student') => {
     lecturer_contact_detail: email,
   };
 };
+
+const getAuthSessionEmail = (session) =>
+  session?.user?.email || session?.user?.user_metadata?.email || '';
+
+const hasGoogleAuthSession = (session) =>
+  Boolean(getAuthSessionEmail(session) && !session?.user?.is_anonymous);
 
 const profileRequiredLabels = {
   full_name: 'profile.fullName',
@@ -1233,7 +1250,7 @@ function Home({
       icon: UsersRound,
     },
   ];
-  const email = authSession?.user?.email || authSession?.user?.user_metadata?.email || '';
+  const email = getAuthSessionEmail(authSession);
 
   return (
     <main className="home-grid">
@@ -1319,25 +1336,48 @@ function JoinClassPage({ profile, profileId, onCreateProfile, onJoined, t = tran
       return;
     }
 
-    const normalizedCode = joinCode.trim();
-    setLoading(true);
-    try {
-      const foundClass = demoClassCodes.includes(normalizedCode)
-        ? await getDemoClassForProfile(profileId, normalizedCode)
-        : await getClassByJoinCode(normalizedCode);
-      if (!foundClass) {
-	        setError(t('join.invalidCode'));
-        return;
-      }
-      setPreview(foundClass);
-    } catch (err) {
-      console.error('Class preview failed', err);
-      setError(t(err?.message?.includes('does not match your current academic profile')
-        ? 'join.profileMismatch'
-        : 'join.invalidCode'));
-    } finally {
-      setLoading(false);
-    }
+	    const normalizedCode = joinCode.trim();
+	    setLoading(true);
+	    try {
+	      let foundClass = null;
+	      if (demoClassCodes.includes(normalizedCode)) {
+	        try {
+	          foundClass = await getDemoClassForProfile(profileId, normalizedCode);
+	        } catch (demoError) {
+	          if (
+	            isProfileOwnershipError(demoError)
+	            || demoError?.message?.includes('does not match your current academic profile')
+	          ) {
+	            throw demoError;
+	          }
+	          console.error('Demo class preview lookup failed, trying generic lookup fallback', demoError);
+	        }
+	      }
+
+	      if (!foundClass) {
+	        foundClass = await getClassByJoinCode(normalizedCode);
+	        if (foundClass && demoClassCodes.includes(normalizedCode) && !classMatchesProfile(foundClass, profile)) {
+	          throw new Error('This class does not match your current academic profile.');
+	        }
+	      }
+
+	      if (!foundClass) {
+		        setError(t('join.invalidCode'));
+	        return;
+	      }
+	      setPreview(foundClass);
+	    } catch (err) {
+	      console.error('Class preview failed', err);
+	      if (isProfileOwnershipError(err)) {
+	        setError(t('join.profileOwnership'));
+	      } else {
+	        setError(t(err?.message?.includes('does not match your current academic profile')
+	          ? 'join.profileMismatch'
+	          : 'join.invalidCode'));
+	      }
+	    } finally {
+	      setLoading(false);
+	    }
   };
 
   const confirmJoin = async () => {
@@ -5275,7 +5315,7 @@ function FoundConfirmation({ onCreateAnother, onHome, t = translate.bind(null, '
   );
 }
 
-function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onViewProfile, onNotificationsChanged, t = translate.bind(null, 'en') }) {
+function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onViewProfile, onOpenDiscover, onNotificationsChanged, t = translate.bind(null, 'en') }) {
   const [tab, setTab] = useState('received');
   const [state, setState] = useState({
     loading: true,
@@ -5493,12 +5533,18 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
           <p className="eyebrow">{t('nav.connections')}</p>
           <h2>{t('connections.requests')}</h2>
         </div>
-        <div className="segmented">
-          {tabs.map((item) => (
-            <button className={tab === item.id ? 'selected' : ''} onClick={() => setTab(item.id)} key={item.id}>
-              {item.label}{item.rows.length ? ` (${item.rows.length})` : ''}
-            </button>
-          ))}
+        <div className="header-actions">
+          <button className="secondary" type="button" onClick={onOpenDiscover}>
+            <Search size={18} />
+            {t('discover.title')}
+          </button>
+          <div className="segmented">
+            {tabs.map((item) => (
+              <button className={tab === item.id ? 'selected' : ''} onClick={() => setTab(item.id)} key={item.id}>
+                {item.label}{item.rows.length ? ` (${item.rows.length})` : ''}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -6453,8 +6499,8 @@ function MyProfile({
   const [error, setError] = useState('');
   const currentRole = activeRole === 'lecturer' ? 'lecturer' : 'student';
   const editingAsLecturer = form.role === 'lecturer';
-  const authEmail = authSession?.user?.email || authSession?.user?.user_metadata?.email || '';
-  const signedInWithGoogle = Boolean(authEmail && !authSession?.user?.is_anonymous);
+  const authEmail = getAuthSessionEmail(authSession);
+  const signedInWithGoogle = hasGoogleAuthSession(authSession);
   const profileSkillOptions = mergeOptionSets(getSkillsForSchool(form.school), form.skills);
   const profileSchoolOptions = getSchoolsForUniversity(form.university);
 
@@ -6891,7 +6937,7 @@ export default function App() {
   const t = useMemo(() => (key, values) => translate(language, key, values), [language]);
   const googleProfileSeed = useMemo(
     () => getGoogleProfileSeed(authSession, profileFormRole),
-    [authSession?.user?.id, authSession?.user?.email, profileFormRole],
+    [authSession?.user?.id, getAuthSessionEmail(authSession), profileFormRole],
   );
 
   useEffect(() => {
@@ -6944,7 +6990,7 @@ export default function App() {
 	      const pendingRole = getStoredPendingRole();
 
       if (storedProfileId) {
-        if (session.user.email && pendingRole) {
+        if (hasGoogleAuthSession(session) && pendingRole) {
           const nextRole = pendingRole === 'lecturer' ? 'lecturer' : 'student';
           setSelectedLandingRole(nextRole);
           setProfileFormRole(nextRole);
@@ -6978,7 +7024,7 @@ export default function App() {
         const ownedProfile = await getMyProfile();
         if (!alive) return;
         if (!ownedProfile?.id) {
-	          if (session.user.email) {
+	          if (hasGoogleAuthSession(session)) {
 	            const pendingRole = getStoredPendingRole() || getStoredActiveRole();
 	            setSelectedLandingRole(pendingRole);
 	            setProfileFormRole(pendingRole);
@@ -6997,14 +7043,14 @@ export default function App() {
 	          setLecturerSession(profileLecturerSession);
 	          storeLecturerSession(profileLecturerSession);
 	        }
-	        if (navigateAfterSignIn && session.user.email) {
+	        if (navigateAfterSignIn && hasGoogleAuthSession(session)) {
 	          clearPendingRole();
 	          navigate(isProfileCompleteForRole({ ...ownedProfile, role: nextRole }, nextRole)
 	            ? (nextRole === 'lecturer' ? 'lecturer' : 'my-classes')
 	            : 'profile');
 	        }
 	      } catch {
-	        if (session.user.email) {
+	        if (hasGoogleAuthSession(session)) {
 	          const pendingRole = getStoredPendingRole() || getStoredActiveRole();
 	          setSelectedLandingRole(pendingRole);
 	          setProfileFormRole(pendingRole);
@@ -7104,15 +7150,21 @@ export default function App() {
 	    let ownedProfile = null;
 	    const storedProfileId = getStoredProfileId();
 
-	    if (storedProfileId) {
-	      ownedProfile = await getProfileById(storedProfileId, { claimLegacy: true }).catch(() => null);
-	    }
+	    try {
+	      if (storedProfileId) {
+	        ownedProfile = await getProfileById(storedProfileId, { claimLegacy: true }).catch(() => null);
+	      }
 
-	    if (!ownedProfile) {
-	      ownedProfile = await getMyProfile().catch(() => null);
+	      if (!ownedProfile) {
+	        ownedProfile = await getMyProfile().catch(() => null);
+	      }
+	    } catch (err) {
+	      console.error('Could not restore Google profile session', err);
 	    }
 
 	    if (!ownedProfile?.id) {
+	      setProfile(null);
+	      setProfileId('');
 	      navigate('profile');
 	      return;
 	    }
@@ -7135,6 +7187,18 @@ export default function App() {
 	    navigate('profile');
 	  };
 
+	  const routeExistingGoogleSession = async (session, nextRole) => {
+	    try {
+	      await continueWithExistingGoogleSession(session, nextRole);
+	    } catch (err) {
+	      console.error('Existing Google session could not be routed', err);
+	      setAuthSession(session);
+	      setProfile(null);
+	      setProfileId('');
+	      navigate('profile');
+	    }
+	  };
+
 	  const handleGoogleSignIn = async (roleOverride = selectedLandingRole || profileFormRole || activeRole) => {
 	    setBootError('');
 	    setGoogleSigningIn(true);
@@ -7146,9 +7210,14 @@ export default function App() {
       clearLoggedOut();
 
 	    try {
+	      if (hasGoogleAuthSession(authSession)) {
+	        await routeExistingGoogleSession(authSession, nextRole);
+	        return;
+	      }
+
 	      const existingSession = await getCurrentSession().catch(() => null);
-	      if (existingSession?.user?.email && !existingSession.user.is_anonymous) {
-	        await continueWithExistingGoogleSession(existingSession, nextRole);
+	      if (hasGoogleAuthSession(existingSession)) {
+	        await routeExistingGoogleSession(existingSession, nextRole);
 	        return;
 	      }
 
@@ -7318,8 +7387,8 @@ export default function App() {
 	            </>
 	          ) : (
 	            <>
-	              <button className="ghost" onClick={() => navigate('home')}>{t('nav.home')}</button>
 	              {showStudentNavigation && <button className="ghost" onClick={() => navigate('my-classes')}>{t('nav.myClasses')}</button>}
+	              {showStudentNavigation && <button className="ghost" onClick={() => navigate('discover')}>{t('nav.discover')}</button>}
 	              {showLecturerNavigation && <button className="ghost" onClick={() => navigate('lecturer')}>{t('nav.lecturer')}</button>}
 	              {showStudentNavigation && profileId && <button className="ghost" onClick={() => navigate('current-request')}>{t('nav.openOpportunities')}</button>}
 	              {showStudentNavigation && <button className="ghost" onClick={() => navigate('connections')}>{t('nav.connections')}{notificationCounts.connections > 0 && <span className="nav-badge">{notificationCounts.connections}</span>}</button>}
@@ -7498,6 +7567,7 @@ export default function App() {
           currentProfileId={profileId}
           currentRequestId={requestId}
           onOpenChat={openChat}
+          onOpenDiscover={() => navigate('discover')}
 	          onViewProfile={(id) => {
 	            setSelectedDiscoverProfileId(id);
 	            navigate('discover-profile');
