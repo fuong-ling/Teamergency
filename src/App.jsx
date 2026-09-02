@@ -16,12 +16,16 @@ import {
   UserPlus,
   UserRound,
   UsersRound,
+  Languages,
   XCircle,
 } from 'lucide-react';
 import {
   cancelConnectionRequest,
   cancelTeamRequest,
+  closeClassTeamFormation,
+  confirmClassTeamProposals,
   confirmFriendMatch,
+  createLecturerClass,
   createProfile,
   createMatchFeedback,
   createReview,
@@ -34,9 +38,12 @@ import {
   getDemoLecturerDashboards,
   getDiscoverProfiles,
   getNotificationCounts,
+  joinClassById,
   getMatchesForRequest,
-  getMessages,
-  getMessageThreads,
+  getMyProfile,
+		  getMessages,
+	  getMessageThreads,
+	  getMyClassTeamStatus,
   getActiveTeamRequests,
   getProfileById,
   listMyTeamRequests,
@@ -51,19 +58,29 @@ import {
   markTeamRequestFound,
   listFriends,
   listProfileReviews,
+  openLecturerStudentThread,
   respondConnectionRequest,
   resetDemoConnection,
   reopenTeamRequest,
   sendDemoReply,
   sendChatMessage,
   sendConnectionRequest,
+  sendLecturerReminder,
+  saveClassTeamStatus,
   simulateDemoAcceptance,
   unmatchConnectionRequest,
   updateProfile,
+  updatePendingConnectionMessage,
   updateTeamRequest,
   uploadPortfolioReference,
 } from './lib/database';
-import { hasSupabaseConfig } from './lib/supabase';
+import {
+  getCurrentSession,
+  hasSupabaseConfig,
+  signInWithGoogle,
+  signOut,
+  supabase,
+} from './lib/supabase';
 import { REVIEW_WAIT_DAYS } from './lib/config';
 import {
   connectMessageSuggestions,
@@ -77,6 +94,8 @@ import {
   getSchoolsForUniversity,
   getSkillsForSchool,
   majorsBySchool,
+  opportunityFields,
+  opportunityTypes,
   requirementOptions,
   schoolOptions,
   toolOptions,
@@ -89,46 +108,43 @@ import {
   getStoredRequestId,
   getStoredClassId,
   getStoredActiveRole,
+  getStoredLanguage,
   getStoredLecturerSession,
+  getStoredLoggedOut,
+  getStoredPendingRole,
+  clearActiveRole,
   clearCurrentRequest,
+  clearLoggedOut,
   clearLecturerSession,
+  clearPendingRole,
   storeCurrentRequest,
   storeActiveRole,
   storeClassId,
+  storeLanguage,
   storeLecturerSession,
+  storeLoggedOut,
+  storePendingRole,
   storeProfileId,
 } from './lib/storage';
 import { calculateMatchScore } from './lib/matching';
+import { languages, translate } from './lib/i18n';
 
 const classDayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 const networkStatusOptions = [
-  {
-    value: 'already_have_team',
-    label: 'Yes, I already know who I want to work with.',
-  },
-  {
-    value: 'need_some_teammates',
-    label: 'I know some people, but I still need teammates.',
-  },
-  {
-    value: 'no_preferred_teammates',
-    label: 'No, I do not currently have preferred teammates.',
-  },
-];
-
-const profileRoleOptions = [
-  {
-    value: 'student',
-    label: 'Student',
-    description: 'Find teammates, create requests, connect, chat, and use the student MVP flow.',
-  },
-  {
-    value: 'lecturer',
-    label: 'Lecturer',
-    description: 'View class progress with a simple demo class code dashboard.',
-  },
-];
+	  {
+	    value: 'already_have_team',
+	    labelKey: 'join.optionAlreadyHaveTeam',
+	  },
+	  {
+	    value: 'need_some_teammates',
+	    labelKey: 'join.optionNeedSome',
+	  },
+	  {
+	    value: 'no_preferred_teammates',
+	    labelKey: 'join.optionNoPreferred',
+	  },
+	];
 
 const demoClassCodes = ['200206', '676767', '88889999'];
 
@@ -140,21 +156,44 @@ const demoLecturerAccounts = [
   },
   {
     university: 'University of Economics Ho Chi Minh City',
-    lecturerId: 'v654321',
-    lecturerName: 'Minh Nguyen',
+    lecturerId: 'v234567',
+    lecturerName: 'Patrick Hartono',
   },
   {
     university: 'University of Technology Ho Chi Minh City',
-    lecturerId: 'v888888',
-    lecturerName: 'Sarah Tran',
+    lecturerId: 'v345678',
+    lecturerName: 'Sarah Nguyen',
   },
 ];
+
+const lecturerContactMethods = ['Email', 'Microsoft Teams', 'University Email', 'Other'];
 
 const findDemoLecturerAccount = (university, lecturerId) =>
   demoLecturerAccounts.find((account) =>
     account.university === university &&
     account.lecturerId.toLowerCase() === String(lecturerId || '').trim().toLowerCase(),
   );
+
+const lecturerSessionFromProfile = (profile) => {
+  if (!profile || getProfileRole(profile) !== 'lecturer') return null;
+  return {
+    university: profile.university || 'RMIT University',
+    lecturerId: profile.lecturer_id || '',
+    lecturerName: profile.full_name || 'Lecturer',
+  };
+};
+
+const demoLecturerHelperText = demoLecturerAccounts
+  .map((account) => `${account.lecturerId} - ${account.university}`)
+  .join(' | ');
+
+const selectOrOther = (value, options) => {
+  if (!value) return '';
+  return options.includes(value) ? value : 'Other';
+};
+
+const customOptionValue = (value, options) =>
+  value && !options.includes(value) ? value : '';
 
 const mergeMessagesById = (left = [], right = []) => {
   const seen = new Set();
@@ -192,9 +231,16 @@ const emptyProfile = {
   other_skill: '',
   contact_type: 'email',
   contact_value: '',
-  short_bio: '',
-  lecturer_title: '',
-  is_available: true,
+  avatar_url: '',
+  work_styles: [],
+	  short_bio: '',
+	  lecturer_title: '',
+	  lecturer_id: '',
+	  academic_field: '',
+	  lecturer_contact_method: 'Email',
+	  lecturer_contact_detail: '',
+	  student_id: '',
+	  is_available: true,
   consent_public_visibility: false,
 };
 
@@ -239,8 +285,15 @@ const emptyRequest = {
   class_session: '',
   class_day: '',
   class_start_time: '',
-  class_end_time: '',
-  skills_needed: [],
+	  class_end_time: '',
+		  request_scope: 'open_opportunity',
+		  opportunity_type: '',
+		  other_opportunity_type: '',
+		  opportunity_field: '',
+		  other_opportunity_field: '',
+		  opportunity_name: '',
+	  deadline: '',
+	  skills_needed: [],
   other_skill: '',
   members_needed: 1,
   total_team_size: 2,
@@ -263,11 +316,12 @@ const buildRequestFormState = (profile, request = null, classContext = null) => 
   const sessionCode = getSessionCodeFromValue(request?.session_code || request?.class_session);
 
   if (!request) {
-    const baseState = {
-      ...emptyRequest,
-      school: schoolOptions.some((school) => school.value === profile.school) ? profile.school : '',
-      major: profile.major || '',
-    };
+	    const baseState = {
+	      ...emptyRequest,
+	      request_scope: classContext ? 'class' : 'open_opportunity',
+	      school: schoolOptions.some((school) => school.value === profile.school) ? profile.school : '',
+	      major: profile.major || '',
+	    };
 
     return classContext ? applyClassToRequestState(baseState, classContext) : baseState;
   }
@@ -281,8 +335,15 @@ const buildRequestFormState = (profile, request = null, classContext = null) => 
     course_name: request.course_name || request.course || '',
     course_code: request.course_code || '',
     session_code: sessionCode,
-    class_session: request.class_session || '',
-    class_day: request.class_day || parsedSession.day,
+	    class_session: request.class_session || '',
+	    request_scope: request.request_scope || (request.class_id ? 'class' : 'open_opportunity'),
+		    opportunity_type: selectOrOther(request.opportunity_type || (!request.class_id ? request.course_code : ''), opportunityTypes),
+		    other_opportunity_type: customOptionValue(request.opportunity_type || (!request.class_id ? request.course_code : ''), opportunityTypes),
+		    opportunity_field: selectOrOther(request.opportunity_field || (!request.class_id ? request.major || profile.major : ''), opportunityFields),
+		    other_opportunity_field: customOptionValue(request.opportunity_field || (!request.class_id ? request.major || profile.major : ''), opportunityFields),
+	    opportunity_name: request.opportunity_name || (!request.class_id ? request.course_name || request.course || '' : ''),
+	    deadline: request.deadline || '',
+	    class_day: request.class_day || parsedSession.day,
     class_start_time: request.class_start_time || parsedSession.startTime,
     class_end_time: request.class_end_time || parsedSession.endTime,
     skills_needed: request.skills_needed || [],
@@ -301,19 +362,29 @@ const buildRequestFormState = (profile, request = null, classContext = null) => 
   };
 };
 
-const applyClassToRequestState = (current, classItem) => ({
-  ...current,
-  class_id: classItem.id,
-  school: classItem.school || current.school,
-  major: classItem.major || current.major,
-  course_name: classItem.course_name || classItem.course || current.course_name,
-  course_code: classItem.course_code || current.course_code,
-  session_code: classItem.session_code || getSessionCodeFromValue(classItem.class_session),
-  class_session: classItem.class_session || formatSessionCode(classItem.session_code),
-  class_day: '',
-  class_start_time: '',
-  class_end_time: '',
-});
+const applyClassToRequestState = (current, classItem) => {
+  const teamStatus = classItem.teamStatus || null;
+  const requiredMembers = Number(teamStatus?.required_members || classItem.required_members_per_team || current.total_team_size || 4);
+  const missingMembers = Math.max(1, Number(teamStatus?.remaining_members || requiredMembers - Number(teamStatus?.current_members || 1)));
+
+  return {
+    ...current,
+    class_id: classItem.id,
+    school: classItem.school || current.school,
+    major: classItem.major || current.major,
+    course_name: classItem.course_name || classItem.course || current.course_name,
+    course_code: classItem.course_code || current.course_code,
+    session_code: classItem.session_code || getSessionCodeFromValue(classItem.class_session),
+    class_session: classItem.class_session || formatSessionCode(classItem.session_code),
+    class_day: '',
+    class_start_time: '',
+    class_end_time: '',
+    total_team_size: requiredMembers,
+    teammates_needed_initial: missingMembers,
+    members_needed: missingMembers,
+    request_scope: 'class',
+  };
+};
 
 const getStoredInviteCode = () => {
   if (typeof window === 'undefined') return '';
@@ -374,6 +445,10 @@ const getFriendlyError = (error, fallback) => {
     return 'This profile is not linked to the current browser session, so it cannot be edited from here. Refresh first; if it still happens, create a new profile on this browser.';
   }
 
+  if (error?.message?.includes('does not match your current academic profile')) {
+    return 'This class does not match your current academic profile.';
+  }
+
   if (error?.message?.includes('class_id') && error?.message?.includes('ambiguous')) {
     return 'The demo class join database fix has not been applied yet. Run supabase/fix_join_demo_class_ambiguous.sql in Supabase, then refresh this app.';
   }
@@ -430,14 +505,18 @@ const getReviewSummaryFromReviews = (reviews = []) => {
   };
 };
 
-const reviewSummaryLabel = (profile = {}, reviews = null) => {
+const reviewSummaryLabel = (profile = {}, reviews = null, t = translate.bind(null, 'en')) => {
   const summary = Array.isArray(reviews) && reviews.length > 0
     ? getReviewSummaryFromReviews(reviews)
     : getReviewSummary(profile);
 
   return summary.count > 0
-    ? `${summary.average.toFixed(1)} ★ · Based on ${summary.count} ${summary.count === 1 ? 'review' : 'reviews'}`
-    : 'No reviews yet.';
+    ? t('profile.reviewSummary', {
+        average: summary.average.toFixed(1),
+        count: summary.count,
+        label: summary.count === 1 ? t('profile.review') : t('profile.reviewsLower'),
+      })
+    : t('profile.noReviews');
 };
 
 const normalizeSkill = (value) => String(value || '').trim().toLowerCase();
@@ -492,16 +571,46 @@ const findCourseByCode = (courseCode) =>
 
 const getCourseDisplay = (request) => {
   if (!request) return 'Not specified';
+  if (request.request_scope === 'open_opportunity' || request.opportunity_name) {
+    return request.opportunity_name || request.course_name || request.course || 'Collab';
+  }
   if (request.course_name && request.course_code) return `${request.course_name} (${request.course_code})`;
   if (request.course_name) return request.course_name;
   return request.course || 'Not specified';
 };
 
+const getOpportunityMeta = (request) =>
+  [request?.opportunity_type, request?.opportunity_field]
+    .filter(Boolean)
+    .join(' | ') || 'Collab';
+
 const getSessionDisplay = (request = {}) => {
+  if (request.request_scope === 'open_opportunity' || request.opportunity_name) {
+    return request.deadline ? `Deadline ${request.deadline}` : 'Outside class';
+  }
+
   const sessionLabel = formatSessionCode(request.session_code || request.class_session);
   if (sessionLabel) return sessionLabel;
   if (request.class_session && !isTimetableSession(request.class_session)) return request.class_session;
   return request.class_session ? 'Legacy session' : 'Not specified';
+};
+
+const getLocalizedSessionDisplay = (request = {}, t = translate.bind(null, 'en')) => {
+  if (request.request_scope === 'open_opportunity' || request.opportunity_name) {
+    return request.deadline ? `${t('request.deadline')} ${request.deadline}` : t('request.outsideClass');
+  }
+
+  const session = getSessionDisplay(request);
+  if (session === 'Not specified') return t('common.notSpecified');
+  if (session === 'Legacy session') return t('class.session');
+  return session;
+};
+
+const requestStatusLabel = (status, t = translate.bind(null, 'en')) => {
+  if (status === 'looking') return t('status.looking');
+  if (status === 'found') return t('common.completed');
+  if (status === 'cancelled') return t('common.cancelled');
+  return titleCase(status);
 };
 
 const getClassDisplay = (classItem = {}) => {
@@ -572,36 +681,38 @@ const getTeamProgress = (request, progress = {}) => {
   };
 };
 
-const progressSummary = (metrics) => `${metrics.found} / ${metrics.total} found`;
+const progressSummary = (metrics, t = translate.bind(null, 'en')) =>
+  `${metrics.found} / ${metrics.total} ${t('common.completed').toLowerCase()}`;
 
-const remainingSummary = (metrics) =>
+const remainingSummary = (metrics, t = translate.bind(null, 'en')) =>
   metrics.complete
-    ? 'Team complete'
-    : `${metrics.remaining} ${metrics.remaining === 1 ? 'spot' : 'spots'} remaining`;
+    ? t('status.teamComplete')
+    : t('status.stillLookingCount', { count: metrics.remaining });
 
-const teammateCountSummary = (metrics) => `${metrics.found} / ${metrics.total} members`;
+const teammateCountSummary = (metrics, t = translate.bind(null, 'en')) =>
+  `${metrics.found} / ${metrics.total} ${t('status.members')}`;
 
-const classNetworkStatusLabel = (status) => {
-  if (status === 'already_have_team') return 'Already has a preferred team';
-  if (status === 'need_some_teammates') return 'Has some teammates';
-  if (status === 'no_preferred_teammates') return 'No preferred teammates yet';
-  return 'Not answered yet';
+const classNetworkStatusLabel = (status, t = translate.bind(null, 'en')) => {
+  if (status === 'already_have_team') return t('join.alreadyHaveTeam');
+  if (status === 'need_some_teammates') return t('join.needSomeTeammates');
+  if (status === 'no_preferred_teammates') return t('join.noPreferredTeammates');
+  return t('join.notAnswered');
 };
 
-const classTeamStatus = (classItem, request, metrics = null) => {
+const classTeamStatus = (classItem, request, metrics = null, t = translate.bind(null, 'en')) => {
   if (!request) {
     if (classItem?.network_status === 'already_have_team') {
       return {
-        label: 'You already have a complete team',
-        detail: 'Team complete',
+        label: t('status.alreadyComplete'),
+        detail: t('status.teamComplete'),
         tone: 'complete',
         complete: true,
       };
     }
 
     return {
-      label: 'No request / not looking',
-      detail: 'Create a class request when you want Teamergency to help you find teammates.',
+      label: t('status.noRequest'),
+      detail: t('class.createRequestHelp'),
       tone: 'idle',
       complete: false,
     };
@@ -609,8 +720,8 @@ const classTeamStatus = (classItem, request, metrics = null) => {
 
   if (request.status === 'found' || metrics?.complete) {
     return {
-      label: 'Team complete',
-      detail: metrics ? teammateCountSummary(metrics) : 'Required team size reached',
+      label: t('status.teamComplete'),
+      detail: metrics ? teammateCountSummary(metrics, t) : t('status.requiredReached'),
       tone: 'complete',
       complete: true,
     };
@@ -618,20 +729,65 @@ const classTeamStatus = (classItem, request, metrics = null) => {
 
   if (!metrics || metrics.found <= 1) {
     return {
-      label: 'Looking for teammates',
-      detail: metrics ? teammateCountSummary(metrics) : 'No teammates found yet',
+      label: t('status.looking'),
+      detail: metrics ? teammateCountSummary(metrics, t) : t('status.noFound'),
       tone: 'looking',
       complete: false,
     };
   }
 
   return {
-    label: `Still looking for ${metrics.remaining} teammate${metrics.remaining === 1 ? '' : 's'}`,
-    detail: teammateCountSummary(metrics),
+    label: t('status.stillLookingCount', { count: metrics.remaining }),
+    detail: teammateCountSummary(metrics, t),
     tone: 'looking',
     complete: false,
   };
 };
+
+const translateStatusText = (text, t) => {
+  if (!text) return '';
+  if (text === 'Team complete') return t('status.teamComplete');
+  if (text === 'You already have a complete team') return t('status.alreadyComplete');
+  if (text === 'Looking for teammates') return t('status.looking');
+  if (text === 'No request / not looking') return t('status.noRequest');
+  if (text === 'Required team size reached') return t('status.requiredReached');
+  if (text === 'No teammates found yet') return t('status.noFound');
+  return text.replace('Still looking for', t('status.stillLooking'));
+};
+
+const getTeamStatusFromEditableTeam = (teamStatus, t = translate.bind(null, 'en')) => {
+  if (!teamStatus) return null;
+
+  const total = Math.max(2, Number(teamStatus.required_members || 2));
+  const found = Math.min(total, Math.max(1, Number(teamStatus.current_members || 1)));
+  const remaining = Math.max(0, total - found);
+
+  return {
+    label: remaining === 0
+      ? t('status.teamComplete')
+      : found <= 1 ? t('status.looking') : t('status.stillLookingCount', { count: remaining }),
+    detail: remaining === 0 ? t('status.requiredReached') : `${found} / ${total} ${t('status.members')}`,
+    tone: remaining === 0 ? 'complete' : 'looking',
+    complete: remaining === 0,
+    metrics: {
+      total,
+      found,
+      remaining,
+      complete: remaining === 0,
+      percent: total ? Math.min(100, (found / total) * 100) : 0,
+    },
+  };
+};
+
+const buildTeamStatusForm = (classItem, teamStatus = null) => ({
+  teamName: teamStatus?.team_name || '',
+  requiredMembers: teamStatus?.required_members || classItem?.required_members_per_team || 4,
+  currentMembers: teamStatus?.current_members || 1,
+  externalStudentIds: (teamStatus?.members || [])
+    .map((member) => member.student_identifier)
+    .filter(Boolean)
+    .join('\n'),
+});
 
 const pickClassRequest = (requests = [], classId = '') => {
   const classRequests = requests
@@ -648,6 +804,75 @@ const getProfileSkillsFromForm = (form) => [
   ...form.skills.filter((skill) => skill !== 'Other'),
   ...splitList(form.other_skill),
 ];
+
+const getGoogleProfileSeed = (authSession, role = 'student') => {
+  const user = authSession?.user;
+  if (!user || user.is_anonymous) return {};
+
+  const metadata = user.user_metadata || {};
+  const email = user.email || metadata.email || '';
+
+  return {
+    role: role === 'lecturer' ? 'lecturer' : 'student',
+    full_name: metadata.full_name || metadata.name || '',
+    avatar_url: metadata.avatar_url || metadata.picture || '',
+    contact_type: 'email',
+    contact_value: email,
+    lecturer_contact_method: 'Email',
+    lecturer_contact_detail: email,
+  };
+};
+
+const profileRequiredLabels = {
+  full_name: 'profile.fullName',
+  university: 'profile.university',
+  school: 'profile.department',
+  major: 'profile.major',
+  skills: 'profile.skills',
+  contact_value: 'profile.contactInfo',
+  short_bio: 'profile.shortBio',
+  work_styles: 'profile.workStyle',
+  academic_field: 'profile.academicField',
+  lecturer_id: 'profile.lecturerId',
+  lecturer_contact_detail: 'profile.contactDetail',
+};
+
+const getProfileRequiredFields = (role) =>
+  role === 'lecturer'
+    ? ['full_name', 'university', 'school', 'academic_field', 'lecturer_id', 'lecturer_contact_detail']
+    : ['full_name', 'university', 'school', 'major', 'student_id', 'skills', 'contact_value', 'short_bio'];
+
+const getProfileFieldErrors = (form, t = translate.bind(null, 'en')) => {
+  const role = form.role === 'lecturer' ? 'lecturer' : 'student';
+  const isFilled = (field) => {
+    const value = field === 'skills' ? getProfileSkillsFromForm(form) : form[field];
+    return Array.isArray(value) ? value.length > 0 : Boolean(String(value || '').trim());
+  };
+  return getProfileRequiredFields(role).reduce((errors, field) => {
+    if (!isFilled(field)) {
+      const specificKey = `validation.${field}`;
+      errors[field] = t(specificKey) === specificKey
+        ? t('validation.required', { field: t(profileRequiredLabels[field] || field) })
+        : t(specificKey);
+    }
+    return errors;
+  }, {});
+};
+
+const isProfileCompleteForRole = (profile, role) => {
+  if (!profile) return false;
+  const normalizedRole = role === 'lecturer' ? 'lecturer' : 'student';
+  const profileLikeForm = {
+    ...profile,
+    role: normalizedRole,
+    skills: Array.isArray(profile.skills) ? profile.skills : [],
+  };
+  const errors = getProfileFieldErrors(profileLikeForm, (key) => key);
+  return Object.keys(errors).length === 0;
+};
+
+const FieldError = ({ message }) =>
+  message ? <span className="validation-message">{message}</span> : null;
 
 const filterSkillsForSchool = (skills, school) => {
   const schoolSkills = new Set(getSkillsForSchool(school));
@@ -823,26 +1048,26 @@ const CheckboxGrid = ({ options, selected, onToggle, columns = 'auto' }) => (
   </div>
 );
 
-function ConnectModal({ receiverName, sending, error, onClose, onSend }) {
+function ConnectModal({ receiverName, sending, error, onClose, onSend, t = translate.bind(null, 'en') }) {
   const [introMessage, setIntroMessage] = useState('');
 
   return (
     <div className="modal-backdrop" role="presentation">
-      <section className="connect-modal" role="dialog" aria-modal="true" aria-label="Send a connection request">
+      <section className="connect-modal" role="dialog" aria-modal="true" aria-label={t('connect.title')}>
         <div className="modal-header">
           <div>
-            <p className="eyebrow">Connect</p>
-            <h2>Send a connection request</h2>
+            <p className="eyebrow">{t('matches.connect')}</p>
+            <h2>{t('connect.title')}</h2>
           </div>
-          <button className="ghost" onClick={onClose} type="button">Close</button>
+          <button className="ghost" onClick={onClose} type="button">{t('common.close')}</button>
         </div>
-        <p className="note">To: {receiverName}</p>
+        <p className="note">{t('connect.to')}: {receiverName}</p>
         <label>
-          Add a short message
+          {t('connect.addMessage')}
           <textarea
             value={introMessage}
             onChange={(event) => setIntroMessage(event.target.value)}
-            placeholder="Write a short intro..."
+            placeholder={t('connect.placeholder')}
             rows="4"
           />
         </label>
@@ -856,9 +1081,9 @@ function ConnectModal({ receiverName, sending, error, onClose, onSend }) {
         {error && <p className="error">{error}</p>}
         <div className="hero-actions">
           <button className="primary" onClick={() => onSend(introMessage)} disabled={sending}>
-            {sending ? 'Sending...' : 'Send Request'}
+            {sending ? t('matches.sending') : t('connect.send')}
           </button>
-          <button className="secondary" onClick={onClose} type="button">Cancel</button>
+          <button className="secondary" onClick={onClose} type="button">{t('common.cancel')}</button>
         </div>
       </section>
     </div>
@@ -984,35 +1209,97 @@ const StepRail = ({ step }) => {
   );
 };
 
-function Home({ profileId, requestId, onStartProfile, onStartRequest, onFindMatches }) {
+function Home({
+  selectedRole,
+  onSelectRole,
+  onStartProfile,
+  onGoogleSignIn,
+  googleSigningIn,
+  authSession,
+  t = translate.bind(null, 'en'),
+}) {
+  const activeRole = selectedRole === 'lecturer' ? 'lecturer' : selectedRole === 'student' ? 'student' : '';
+  const roleCards = [
+    {
+      value: 'student',
+      title: t('home.studentTitle'),
+      body: t('home.studentBody'),
+      icon: GraduationCap,
+    },
+    {
+      value: 'lecturer',
+      title: t('home.lecturerTitle'),
+      body: t('home.lecturerBody'),
+      icon: UsersRound,
+    },
+  ];
+  const email = authSession?.user?.email || authSession?.user?.user_metadata?.email || '';
+
   return (
     <main className="home-grid">
       <section className="intro">
+        <p className="eyebrow">{t('home.titleA')}</p>
         <h1>
-          <span className="hero-line">Find the right <span className="brand-blue">Teammate.</span></span>
-          <span className="hero-line">Build better projects <span className="brand-red">Emergency.</span></span>
+          <span className="hero-line">{t('home.titleB')}</span>
         </h1>
         <p className="lead">
-          Help students connect with the right teammates faster and build great projects together.
+          {t('home.lead')}
         </p>
-        <div className="hero-actions">
-          <button className="primary" onClick={requestId ? onFindMatches : (profileId ? onStartRequest : onStartProfile)}>
-            Find Teammates
-            <ArrowRight size={18} />
-          </button>
-          <button className="secondary" onClick={profileId ? onStartRequest : onStartProfile}>
-            Create a Request
-          </button>
+        <div className="landing-role-grid" aria-label={t('home.chooseRole')}>
+          {roleCards.map((role) => {
+            const Icon = role.icon;
+            return (
+              <button
+                className={activeRole === role.value ? 'landing-role-card selected' : 'landing-role-card'}
+                key={role.value}
+                type="button"
+                onClick={() => onSelectRole(role.value)}
+              >
+                <Icon size={24} />
+                <span>
+                  <strong>{role.title}</strong>
+                  <small>{role.body}</small>
+                  {activeRole === role.value && <em>{t('home.roleSelected')}</em>}
+                </span>
+              </button>
+            );
+          })}
         </div>
-        <button className="signup-inline" type="button" onClick={onStartProfile}>
-          Not have an Account? <span>Sign Up</span>
-        </button>
+        {activeRole && (
+          <section className="landing-auth-card">
+            <div>
+	              <p className="eyebrow">{t('home.googleFirst')}</p>
+	              <h2>{t('profile.googleContinue')}</h2>
+	              <p className="note">
+	                {email
+	                  ? `${t('profile.googleSignedIn')} · ${email}`
+	                  : `${t('home.selectedRole')}: ${activeRole === 'lecturer' ? t('profile.lecturer') : t('profile.student')}`}
+	              </p>
+            </div>
+            <div className="hero-actions">
+              <button
+                className="primary google-button"
+                type="button"
+                onClick={() => onGoogleSignIn(activeRole)}
+                disabled={!hasSupabaseConfig || googleSigningIn}
+              >
+                <UserRound size={18} />
+                {googleSigningIn ? t('profile.googleSaving') : t('profile.googleContinue')}
+              </button>
+              <button className="secondary" type="button" onClick={() => onStartProfile(activeRole)}>
+                {t('home.continueDemo')}
+                <ArrowRight size={18} />
+              </button>
+            </div>
+            {!hasSupabaseConfig && <p className="field-helper">{t('profile.googleUnavailable')}</p>}
+          </section>
+        )}
       </section>
     </main>
   );
 }
 
-function JoinClassPage({ profile, profileId, onCreateProfile, onJoined }) {
+function JoinClassPage({ profile, profileId, onCreateProfile, onJoined, t = translate.bind(null, 'en') }) {
   const [joinCode, setJoinCode] = useState(() => getStoredInviteCode());
   const [networkStatus, setNetworkStatus] = useState('');
   const [preview, setPreview] = useState(null);
@@ -1028,7 +1315,7 @@ function JoinClassPage({ profile, profileId, onCreateProfile, onJoined }) {
     setPreview(null);
 
     if (!joinCode.trim()) {
-      setError('Enter a class code first.');
+	      setError(t('join.enterCode'));
       return;
     }
 
@@ -1039,12 +1326,15 @@ function JoinClassPage({ profile, profileId, onCreateProfile, onJoined }) {
         ? await getDemoClassForProfile(profileId, normalizedCode)
         : await getClassByJoinCode(normalizedCode);
       if (!foundClass) {
-        setError('Class code not found for your profile. Try demo codes: 200206, 676767, or 88889999.');
+	        setError(t('join.invalidCode'));
         return;
       }
       setPreview(foundClass);
     } catch (err) {
-      setError(getFriendlyError(err, "We couldn't preview this class. Please try again."));
+      console.error('Class preview failed', err);
+      setError(t(err?.message?.includes('does not match your current academic profile')
+        ? 'join.profileMismatch'
+        : 'join.invalidCode'));
     } finally {
       setLoading(false);
     }
@@ -1058,22 +1348,38 @@ function JoinClassPage({ profile, profileId, onCreateProfile, onJoined }) {
     setMessage('');
 
     try {
-      const membership = preview.is_demo
-        ? await joinDemoClassByCode({
-            profileId,
-            classCode: preview.class_code || preview.demo_class_code || joinCode.trim(),
-            networkStatus,
-          })
-        : await joinClassByCode({
-            profileId,
-            joinCode: preview.join_code,
-            networkStatus,
-          });
-      storeClassId(membership.class_id);
-      setMessage(`Joined ${getClassDisplay(membership.class_data || preview)}.`);
-      onJoined?.(membership.class_id);
+      let membership;
+
+      try {
+        membership = await joinClassById({
+          profileId,
+          classItem: preview,
+          networkStatus,
+        });
+      } catch (directJoinError) {
+        console.error('Direct class join failed, trying code-based join fallback', directJoinError);
+        membership = preview.is_demo
+          ? await joinDemoClassByCode({
+              profileId,
+              classCode: preview.class_code || preview.demo_class_code || joinCode.trim(),
+              networkStatus,
+            })
+          : await joinClassByCode({
+              profileId,
+              joinCode: preview.join_code || preview.class_code || joinCode.trim(),
+              networkStatus,
+            });
+      }
+
+      const joinedClassId = membership.class_id || preview.id;
+      storeClassId(joinedClassId);
+      setMessage(t('join.joined', { className: getClassDisplay(membership.class_data || preview) }));
+      onJoined?.(joinedClassId);
     } catch (err) {
-      setError(getFriendlyError(err, "We couldn't join this class. Please try again."));
+      console.error('Join class failed', err);
+      setError(t(err?.message?.includes('does not match your current academic profile')
+        ? 'join.profileMismatch'
+        : 'join.joinFail'));
     } finally {
       setJoining(false);
     }
@@ -1083,8 +1389,8 @@ function JoinClassPage({ profile, profileId, onCreateProfile, onJoined }) {
     return (
       <main className="screen compact">
         <section className="empty-state">
-          <p>Create your student profile before joining a class.</p>
-          <button className="primary" onClick={onCreateProfile}>Create Profile</button>
+	          <p>{t('join.needProfile')}</p>
+	          <button className="primary" onClick={onCreateProfile}>{t('profile.createProfile')}</button>
         </section>
       </main>
     );
@@ -1096,44 +1402,44 @@ function JoinClassPage({ profile, profileId, onCreateProfile, onJoined }) {
         <div className="form-heading">
           <UsersRound size={28} />
           <div>
-            <p className="eyebrow">Join Class</p>
-            <h2>Enter your lecturer's class code</h2>
+	            <p className="eyebrow">{t('join.title')}</p>
+	            <h2>{t('join.subtitle')}</h2>
           </div>
         </div>
 
         <form className="form-grid" onSubmit={previewClass}>
           <label className="wide">
-            Class Code
+	            {t('join.classCode')}
             <input
               value={joinCode}
               onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
               placeholder="200206"
             />
-            <span className="field-helper">Demo codes: 200206 • 676767 • 88889999</span>
+	            <span className="field-helper">{t('join.demoCodes')}</span>
           </label>
           <button className="secondary wide" type="submit" disabled={loading}>
-            {loading ? 'Checking...' : 'Preview Class'}
+	            {loading ? t('join.checking') : t('join.preview')}
           </button>
         </form>
 
         {preview && (
           <section className="request-summary-box">
-            <p className="eyebrow">Class Preview</p>
+	            <p className="eyebrow">{t('join.classPreview')}</p>
             <h3>{getClassDisplay(preview)}</h3>
             <p>{preview.university} · {getAcademicPeriodDisplay(preview)}</p>
             <p>{schoolLabel(preview.school)} · {preview.major}</p>
-            {preview.lecturer_name && <p>Lecturer: {preview.lecturer_name}</p>}
+	            {preview.lecturer_name && <p>{t('join.lecturer')}: {preview.lecturer_name}</p>}
             <label>
-              Do you already have preferred teammates for this class?
+	              {t('join.question')}
               <select value={networkStatus} onChange={(event) => setNetworkStatus(event.target.value)}>
-                <option value="">Prefer not to answer yet</option>
-                {networkStatusOptions.map((option) => (
-                  <option value={option.value} key={option.value}>{option.label}</option>
-                ))}
+	                <option value="">{t('join.preferNoAnswer')}</option>
+	                {networkStatusOptions.map((option) => (
+	                  <option value={option.value} key={option.value}>{t(option.labelKey)}</option>
+	                ))}
               </select>
             </label>
             <button className="primary" onClick={confirmJoin} disabled={joining}>
-              {joining ? 'Joining...' : 'Join Class'}
+	              {joining ? t('join.joining') : t('join.joinClass')}
             </button>
           </section>
         )}
@@ -1145,20 +1451,21 @@ function JoinClassPage({ profile, profileId, onCreateProfile, onJoined }) {
   );
 }
 
-function MyClassesPage({ profileId, onCreateProfile, onJoinClass, onOpenClass }) {
+function MyClassesPage({ profileId, onCreateProfile, onJoinClass, onOpenClass, t = translate.bind(null, 'en') }) {
   const [state, setState] = useState({
     loading: true,
     error: '',
-    classes: [],
-    requests: [],
-    progressByRequest: {},
-  });
+	    classes: [],
+	    requests: [],
+	    progressByRequest: {},
+	    teamStatusByClass: {},
+	  });
 
   useEffect(() => {
     let alive = true;
 
     if (!profileId) {
-      setState({ loading: false, error: '', classes: [], requests: [], progressByRequest: {} });
+	      setState({ loading: false, error: '', classes: [], requests: [], progressByRequest: {}, teamStatusByClass: {} });
       return () => {
         alive = false;
       };
@@ -1179,25 +1486,37 @@ function MyClassesPage({ profileId, onCreateProfile, onJoinClass, onOpenClass })
           }),
         );
 
-        if (alive) {
-          setState({
-            loading: false,
-            error: '',
-            classes: classes.filter((classItem) => classItem.status === 'active'),
-            requests,
-            progressByRequest: Object.fromEntries(progressEntries),
-          });
-        }
+	        const teamStatusEntries = await Promise.all(
+	          classes.map(async (classItem) => {
+	            try {
+	              return [classItem.id, await getMyClassTeamStatus(profileId, classItem.id)];
+	            } catch {
+	              return [classItem.id, null];
+	            }
+	          }),
+	        );
+
+	        if (alive) {
+	          setState({
+	            loading: false,
+	            error: '',
+	            classes: classes.filter((classItem) => classItem.status === 'active'),
+	            requests,
+	            progressByRequest: Object.fromEntries(progressEntries),
+	            teamStatusByClass: Object.fromEntries(teamStatusEntries),
+	          });
+	        }
       })
       .catch((err) => {
         if (alive) {
           setState({
             loading: false,
             error: getFriendlyError(err, "We couldn't load your classes right now. Please try again."),
-            classes: [],
-            requests: [],
-            progressByRequest: {},
-          });
+	            classes: [],
+	            requests: [],
+	            progressByRequest: {},
+	            teamStatusByClass: {},
+	          });
         }
       });
 
@@ -1210,28 +1529,28 @@ function MyClassesPage({ profileId, onCreateProfile, onJoinClass, onOpenClass })
     return (
       <main className="screen compact">
         <section className="empty-state">
-          <p>Create your student profile before joining a class.</p>
-          <button className="primary" onClick={onCreateProfile}>Create Profile</button>
+	          <p>{t('join.needProfile')}</p>
+	          <button className="primary" onClick={onCreateProfile}>{t('profile.createProfile')}</button>
         </section>
       </main>
     );
   }
 
   if (state.loading) {
-    return <main className="screen compact"><p className="loading">Loading classes...</p></main>;
+	    return <main className="screen compact"><p className="loading">{t('classes.loading')}</p></main>;
   }
 
   return (
     <main className="screen">
       <div className="results-header">
         <div>
-          <p className="eyebrow">Academic Team Formation</p>
-          <h2>My Classes</h2>
-          <p>Join a class first, then manage team formation from the class page.</p>
+	          <p className="eyebrow">{t('classes.academic')}</p>
+	          <h2>{t('classes.title')}</h2>
+	          <p>{t('classes.subtitle')}</p>
         </div>
         <button className="primary" onClick={onJoinClass}>
           <UserPlus size={18} />
-          Join Class
+	          {t('join.joinClass')}
         </button>
       </div>
 
@@ -1239,32 +1558,34 @@ function MyClassesPage({ profileId, onCreateProfile, onJoinClass, onOpenClass })
 
       {state.classes.length === 0 ? (
         <section className="empty-state">
-          <p>You have not joined any classes yet.</p>
-          <button className="primary" onClick={onJoinClass}>Join Class</button>
+	          <p>{t('classes.none')}</p>
+	          <button className="primary" onClick={onJoinClass}>{t('join.joinClass')}</button>
         </section>
       ) : (
         <div className="match-grid">
           {state.classes.map((classItem) => {
             const request = pickClassRequest(state.requests, classItem.id);
-            const metrics = request ? getTeamProgress(request, state.progressByRequest[request.id]) : null;
-            const status = classTeamStatus(classItem, request, metrics);
+	            const requestMetrics = request ? getTeamProgress(request, state.progressByRequest[request.id]) : null;
+	            const editableStatus = getTeamStatusFromEditableTeam(state.teamStatusByClass[classItem.id], t);
+	            const metrics = editableStatus?.metrics || requestMetrics;
+	            const status = editableStatus || classTeamStatus(classItem, request, requestMetrics, t);
 
             return (
               <article className="match-card" key={classItem.id}>
-                <span className={`status-badge ${status.tone}`}>{status.label}</span>
+	                <span className={`status-badge ${status.tone}`}>{translateStatusText(status.label, t)}</span>
                 <h3>{getClassDisplay(classItem)}</h3>
                 <p>{classItem.university} | {schoolLabel(classItem.school)} | {classItem.major}</p>
-                <p>{getAcademicPeriodDisplay(classItem)} | Lecturer: {classItem.lecturer_name || 'Not specified'}</p>
+	                <p>{getAcademicPeriodDisplay(classItem)} | {t('join.lecturer')}: {classItem.lecturer_name || t('common.notSpecified')}</p>
                 <div className="mini-detail">
-                  <strong>Class code</strong>
+	                  <strong>{t('classes.classCode')}</strong>
                   <span>{classItem.class_code || classItem.demo_class_code || classItem.join_code}</span>
                 </div>
                 <div className="mini-detail">
-                  <strong>Team status</strong>
-                  <span>{metrics ? `${teammateCountSummary(metrics)} | ${status.detail}` : status.detail}</span>
+	                  <strong>{t('classes.teamStatus')}</strong>
+	                  <span>{metrics ? `${teammateCountSummary(metrics, t)} | ${translateStatusText(status.detail, t)}` : translateStatusText(status.detail, t)}</span>
                 </div>
                 <button className="secondary" onClick={() => onOpenClass(classItem.id)}>
-                  Open Class
+	                  {t('classes.open')}
                 </button>
               </article>
             );
@@ -1275,6 +1596,91 @@ function MyClassesPage({ profileId, onCreateProfile, onJoinClass, onOpenClass })
   );
 }
 
+function TeamStatusEditor({ classItem, teamStatus, saving, error, onSave, onCancel, t = translate.bind(null, 'en') }) {
+  const [form, setForm] = useState(() => buildTeamStatusForm(classItem, teamStatus));
+
+  useEffect(() => {
+    setForm(buildTeamStatusForm(classItem, teamStatus));
+  }, [classItem?.id, teamStatus?.id]);
+
+  const updateField = (field, value) => {
+    setForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const requiredMembers = Math.max(2, Number(form.requiredMembers || 2));
+  const currentMembers = Math.min(requiredMembers, Math.max(1, Number(form.currentMembers || 1)));
+  const remaining = Math.max(0, requiredMembers - currentMembers);
+
+  return (
+    <section className="request-panel standalone">
+	      <p className="eyebrow">{t('class.editStatus')}</p>
+      <div className="form-grid">
+        <label>
+	          {t('teamStatus.groupName')}
+          <input
+            value={form.teamName}
+            onChange={(event) => updateField('teamName', event.target.value)}
+            placeholder="Pixel Pioneers"
+          />
+        </label>
+        <label>
+	          {t('teamStatus.requiredMembers')}
+          <input
+            min="2"
+            type="number"
+            value={form.requiredMembers}
+            onChange={(event) => updateField('requiredMembers', event.target.value)}
+          />
+        </label>
+        <label>
+	          {t('teamStatus.currentMembers')}
+          <input
+            min="1"
+            max={requiredMembers}
+            type="number"
+            value={form.currentMembers}
+            onChange={(event) => updateField('currentMembers', event.target.value)}
+          />
+        </label>
+	        <label>
+	          {t('teamStatus.stillNeeded')}
+	          <input value={remaining === 0 ? t('class.complete') : t('status.stillLookingCount', { count: remaining })} readOnly />
+        </label>
+        <label className="wide">
+	          {t('teamStatus.studentIds')}
+          <textarea
+            value={form.externalStudentIds}
+            onChange={(event) => updateField('externalStudentIds', event.target.value)}
+            rows="4"
+            placeholder={'s1234567\ns2345678'}
+          />
+	          <span className="field-helper">{t('teamStatus.helper')}</span>
+        </label>
+      </div>
+      {error && <p className="error">{error}</p>}
+      <div className="hero-actions">
+        <button
+          className="primary"
+          type="button"
+          disabled={saving}
+          onClick={() => onSave({
+            teamName: form.teamName,
+            requiredMembers,
+            currentMembers,
+            externalStudentIds: form.externalStudentIds
+              .split(/\n|,/)
+              .map((item) => item.trim())
+              .filter(Boolean),
+          })}
+        >
+	          {saving ? t('request.saving') : t('teamStatus.save')}
+	        </button>
+	        <button className="secondary" type="button" onClick={onCancel}>{t('common.cancel')}</button>
+      </div>
+    </section>
+  );
+}
+
 function ClassDetailPage({
   classId,
   profile,
@@ -1282,22 +1688,45 @@ function ClassDetailPage({
   onBack,
   onJoinClass,
   onFindTeammates,
-  onViewMatches,
-  onOpenChat,
-}) {
-  const [state, setState] = useState({
-    loading: true,
-    error: '',
-    classItem: null,
-    requests: [],
-    progressByRequest: {},
-  });
+	  onViewMatches,
+	  onOpenChat,
+	  t = translate.bind(null, 'en'),
+	}) {
+	  const [state, setState] = useState({
+	    loading: true,
+	    error: '',
+	    actionError: '',
+	    actionSuccess: '',
+	    classItem: null,
+	    requests: [],
+	    progressByRequest: {},
+		    teamStatus: null,
+		    editingTeamStatus: false,
+		    savingTeamStatus: false,
+		    editingRequest: null,
+		    deleteRequestTarget: null,
+		    savingRequest: false,
+		  });
 
   useEffect(() => {
     let alive = true;
 
-    if (!profileId || !classId) {
-      setState({ loading: false, error: '', classItem: null, requests: [], progressByRequest: {} });
+	    if (!profileId || !classId) {
+	      setState({
+	        loading: false,
+	        error: '',
+	        actionError: '',
+	        actionSuccess: '',
+	        classItem: null,
+	        requests: [],
+	        progressByRequest: {},
+		        teamStatus: null,
+		        editingTeamStatus: false,
+		        savingTeamStatus: false,
+		        editingRequest: null,
+		        deleteRequestTarget: null,
+		        savingRequest: false,
+		      });
       return () => {
         alive = false;
       };
@@ -1305,8 +1734,12 @@ function ClassDetailPage({
 
     setState((current) => ({ ...current, loading: true, error: '' }));
 
-    Promise.all([listMyClassesWithStatus(profileId), listMyTeamRequests(profileId)])
-      .then(async ([classes, requests]) => {
+	    Promise.all([
+	      listMyClassesWithStatus(profileId),
+	      listMyTeamRequests(profileId),
+	      getMyClassTeamStatus(profileId, classId).catch(() => null),
+	    ])
+	      .then(async ([classes, requests, teamStatus]) => {
         const classItem = classes.find((item) => item.id === classId) || null;
         const classRequests = requests.filter((request) => request.class_id === classId);
         const progressEntries = await Promise.all(
@@ -1322,22 +1755,32 @@ function ClassDetailPage({
         if (alive) {
           setState({
             loading: false,
-            error: '',
-            classItem,
-            requests: classRequests,
-            progressByRequest: Object.fromEntries(progressEntries),
-          });
+	            error: '',
+	            actionError: '',
+	            classItem,
+	            requests: classRequests,
+	            progressByRequest: Object.fromEntries(progressEntries),
+	            teamStatus,
+	          });
         }
       })
       .catch((err) => {
         if (alive) {
           setState({
             loading: false,
-            error: getFriendlyError(err, "We couldn't load this class right now. Please try again."),
-            classItem: null,
-            requests: [],
-            progressByRequest: {},
-          });
+	            error: getFriendlyError(err, "We couldn't load this class right now. Please try again."),
+	            actionError: '',
+	            actionSuccess: '',
+	            classItem: null,
+	            requests: [],
+	            progressByRequest: {},
+		            teamStatus: null,
+		            editingTeamStatus: false,
+		            savingTeamStatus: false,
+		            editingRequest: null,
+		            deleteRequestTarget: null,
+		            savingRequest: false,
+		          });
         }
       });
 
@@ -1350,44 +1793,131 @@ function ClassDetailPage({
     return (
       <main className="screen compact">
         <section className="empty-state">
-          <p>Create your student profile before viewing classes.</p>
+	          <p>{t('profile.createFirst')}</p>
         </section>
       </main>
     );
   }
 
   if (state.loading) {
-    return <main className="screen compact"><p className="loading">Loading class...</p></main>;
+	    return <main className="screen compact"><p className="loading">{t('classes.loading')}</p></main>;
   }
 
   if (state.error || !state.classItem) {
     return (
       <main className="screen compact">
         <section className="empty-state">
-          <p>{state.error || 'This class is not available on this device.'}</p>
-          <button className="primary" onClick={onJoinClass}>Join Class</button>
+          <p>{state.error || t('class.notAvailable')}</p>
+	          <button className="primary" onClick={onJoinClass}>{t('join.joinClass')}</button>
         </section>
       </main>
     );
   }
 
-  const activeRequest = state.requests.find((request) => request.status === 'looking') || null;
-  const selectedRequest = activeRequest || pickClassRequest(state.requests, state.classItem.id);
-  const progress = selectedRequest ? state.progressByRequest[selectedRequest.id] || { found_count: 0, teammates: [] } : null;
-  const metrics = selectedRequest ? getTeamProgress(selectedRequest, progress) : null;
-  const status = classTeamStatus(state.classItem, selectedRequest, metrics);
-  const teammates = progress?.teammates || [];
+	  const activeRequest = state.requests.find((request) => request.status === 'looking') || null;
+	  const selectedRequest = activeRequest || pickClassRequest(state.requests, state.classItem.id);
+	  const progress = selectedRequest ? state.progressByRequest[selectedRequest.id] || { found_count: 0, teammates: [] } : null;
+	  const requestMetrics = selectedRequest ? getTeamProgress(selectedRequest, progress) : null;
+	  const editableStatus = getTeamStatusFromEditableTeam(state.teamStatus, t);
+	  const metrics = editableStatus?.metrics || requestMetrics;
+	  const status = editableStatus || classTeamStatus(state.classItem, selectedRequest, requestMetrics, t);
+	  const teammates = progress?.teammates || [];
+	  const classClosed = state.classItem.formation_status === 'formation_complete' || state.classItem.status === 'closed';
 
-  return (
+		  const saveTeamStatus = async (values) => {
+	    setState((current) => ({ ...current, savingTeamStatus: true, actionError: '', actionSuccess: '' }));
+
+	    try {
+	      const saved = await saveClassTeamStatus({
+	        profileId,
+	        classId: state.classItem.id,
+	        ...values,
+	      });
+	      setState((current) => ({
+	        ...current,
+	        savingTeamStatus: false,
+	        editingTeamStatus: false,
+	        teamStatus: saved,
+	        actionSuccess: t('teamStatus.saved'),
+	      }));
+	    } catch (err) {
+	      setState((current) => ({
+	        ...current,
+	        savingTeamStatus: false,
+	        actionError: getFriendlyError(err, t('teamStatus.saveFail')),
+	      }));
+	    }
+		  };
+
+		  const updateClassRequest = async (updatedRequest) => {
+		    const updatedProgress = await getTeamRequestProgress(updatedRequest.id, profileId)
+		      .catch(() => ({ found_count: 0, teammates: [] }));
+
+		    setState((current) => ({
+		      ...current,
+		      editingRequest: null,
+		      requests: current.requests.map((request) =>
+		        request.id === updatedRequest.id ? { ...request, ...updatedRequest } : request,
+		      ),
+		      progressByRequest: {
+		        ...current.progressByRequest,
+		        [updatedRequest.id]: updatedProgress,
+		      },
+		      actionSuccess: t('opportunities.updated'),
+		      actionError: '',
+		    }));
+		  };
+
+		  const deleteClassRequest = async () => {
+		    const target = state.deleteRequestTarget;
+		    if (!target) return;
+
+		    setState((current) => ({ ...current, savingRequest: true, actionError: '', actionSuccess: '' }));
+
+		    try {
+		      const updated = await cancelTeamRequest(target.id, profileId);
+		      setState((current) => ({
+		        ...current,
+			        savingRequest: false,
+			        deleteRequestTarget: null,
+			        requests: current.requests.filter((request) => request.id !== updated.id),
+			        actionSuccess: t('request.deleted'),
+			        actionError: '',
+			      }));
+		    } catch (err) {
+		      console.error('Class request delete failed', err);
+		      setState((current) => ({
+		        ...current,
+		        savingRequest: false,
+		        actionError: t('request.deleteFail'),
+		      }));
+		    }
+		  };
+
+		  if (state.editingRequest && profile) {
+		    return (
+		      <RequestForm
+		        profile={profile}
+		        request={state.editingRequest}
+		        mode="edit"
+		        classContext={state.classItem}
+		        onBack={() => setState((current) => ({ ...current, editingRequest: null, actionError: '', actionSuccess: '' }))}
+		        onUpdated={updateClassRequest}
+		        t={t}
+		      />
+		    );
+		  }
+
+	  return (
     <main className="screen">
       <button className="ghost" type="button" onClick={onBack}>
         <ArrowLeft size={18} />
-        My Classes
+	        {t('classes.title')}
       </button>
 
       <div className="results-header">
         <div>
-          <p className="eyebrow">Class Detail</p>
+	          <p className="eyebrow">{t('class.detail')}</p>
           <h2>{getClassDisplay(state.classItem)}</h2>
           <p>{state.classItem.university} | {schoolLabel(state.classItem.school)} | {state.classItem.major}</p>
         </div>
@@ -1395,107 +1925,204 @@ function ClassDetailPage({
 
       <div className="request-management-grid">
         <section className="request-panel standalone">
-          <p className="eyebrow">Class Information</p>
+	          <p className="eyebrow">{t('class.info')}</p>
           <dl>
-            <div><dt>Course</dt><dd>{state.classItem.course_name || state.classItem.course}</dd></div>
-            <div><dt>Course Code</dt><dd>{state.classItem.course_code}</dd></div>
-            <div><dt>Class / Session</dt><dd>{getSessionDisplay(state.classItem)}</dd></div>
-            <div><dt>Lecturer</dt><dd>{state.classItem.lecturer_name || 'Not specified'}</dd></div>
-            <div><dt>Class Code</dt><dd>{state.classItem.class_code || state.classItem.demo_class_code || state.classItem.join_code}</dd></div>
-            <div><dt>Your Join Status</dt><dd>{classNetworkStatusLabel(state.classItem.network_status)}</dd></div>
-          </dl>
-        </section>
+	            <div><dt>{t('class.course')}</dt><dd>{state.classItem.course_name || state.classItem.course}</dd></div>
+	            <div><dt>{t('class.courseCode')}</dt><dd>{state.classItem.course_code}</dd></div>
+		            <div><dt>{t('class.session')}</dt><dd>{getSessionDisplay(state.classItem)}</dd></div>
+		            <div><dt>{t('join.lecturer')}</dt><dd>{state.classItem.lecturer_name || t('common.notSpecified')}</dd></div>
+		            <div><dt>{t('classes.classCode')}</dt><dd>{state.classItem.class_code || state.classItem.demo_class_code || state.classItem.join_code}</dd></div>
+		            <div><dt>{t('class.requiredSize')}</dt><dd>{state.classItem.required_members_per_team || 4}</dd></div>
+		            <div><dt>{t('class.deadline')}</dt><dd>{state.classItem.team_formation_deadline || t('common.notSpecified')}</dd></div>
+		            <div><dt>{t('class.joinStatus')}</dt><dd>{classNetworkStatusLabel(state.classItem.network_status, t)}</dd></div>
+	          </dl>
+	        </section>
 
         <section className="request-panel standalone">
-          <p className="eyebrow">Team Status</p>
-          <span className={`status-badge ${status.tone}`}>{status.label}</span>
-          {metrics ? (
-            <>
-              <div className="progress-header">
-                <strong>{teammateCountSummary(metrics)}</strong>
-                <span>{metrics.complete ? 'Complete' : `${metrics.remaining} missing`}</span>
+	          <p className="eyebrow">{t('class.teamStatus')}</p>
+	          <span className={`status-badge ${status.tone}`}>{translateStatusText(status.label, t)}</span>
+	          {metrics ? (
+	            <>
+	              <div className="progress-header">
+	                <strong>{teammateCountSummary(metrics, t)}</strong>
+		                <span>{metrics.complete ? t('class.complete') : `${metrics.remaining} ${t('class.missing')}`}</span>
               </div>
               <div className="progress-track" aria-label="Class team formation progress">
                 <div className="progress-fill" style={{ width: `${metrics.percent}%` }} />
               </div>
-              <p className={metrics.complete ? 'success' : 'note'}>{status.detail}</p>
+	              <p className={metrics.complete ? 'success' : 'note'}>{translateStatusText(status.detail, t)}</p>
             </>
           ) : (
-            <p className="note">{status.detail}</p>
-          )}
+		              <p className="note">{translateStatusText(status.detail, t)}</p>
+	          )}
 
-          <div className="hero-actions">
-            {activeRequest ? (
-              <button className="primary" onClick={() => onViewMatches(activeRequest.id)}>
-                View Matches
-              </button>
-            ) : !status.complete && (
-              <button className="primary" onClick={() => onFindTeammates(state.classItem)}>
-                Find Teammates
-              </button>
-            )}
-          </div>
-        </section>
-      </div>
+	          {state.teamStatus?.team_name && (
+		            <p className="note">{t('class.teamName')}: {state.teamStatus.team_name}</p>
+	          )}
 
-      {selectedRequest && (
+	          {state.teamStatus?.members?.length > 0 && (
+	            <section className="matched-list compact-list">
+		              <h3>{t('class.existing')}</h3>
+	              {state.teamStatus.members.map((member) => (
+	                <article className="matched-row" key={member.id || member.student_identifier}>
+	                  <div>
+	                    <strong>{member.display_name || member.student_identifier}</strong>
+	                    <span>
+	                      {member.is_on_teamergency
+		                        ? t('class.linked')
+		                        : t('class.notOnApp')}
+	                    </span>
+	                  </div>
+	                </article>
+	              ))}
+	            </section>
+	          )}
+
+		          {classClosed && <p className="note">{t('class.closed')}</p>}
+	
+	          <div className="hero-actions">
+	            <button
+	              className="secondary"
+	              type="button"
+	              onClick={() => setState((current) => ({ ...current, editingTeamStatus: true, actionError: '', actionSuccess: '' }))}
+	            >
+	              <Pencil size={18} />
+		              {t('class.editStatus')}
+	            </button>
+	            {activeRequest ? (
+	              <button className="primary" onClick={() => onViewMatches(activeRequest.id)}>
+		                {t('class.viewMatches')}
+	              </button>
+	            ) : !status.complete && !classClosed && (
+	              <button className="primary" onClick={() => onFindTeammates(state.classItem, state.teamStatus)}>
+		                {t('class.findTeammates')}
+	              </button>
+	            )}
+	          </div>
+	        </section>
+	      </div>
+
+	      {state.editingTeamStatus && (
+	        <TeamStatusEditor
+	          classItem={state.classItem}
+	          teamStatus={state.teamStatus}
+	          saving={state.savingTeamStatus}
+	          error={state.actionError}
+	          onSave={saveTeamStatus}
+		          onCancel={() => setState((current) => ({ ...current, editingTeamStatus: false, actionError: '' }))}
+		          t={t}
+		        />
+	      )}
+	
+	      {selectedRequest && (
         <section className="request-panel standalone">
           <div className="results-header compact-header">
             <div>
-              <p className="eyebrow">Current Class Request</p>
+	              <p className="eyebrow">{t('class.currentRequest')}</p>
               <h2>{getCourseDisplay(selectedRequest)}</h2>
             </div>
-            {activeRequest && (
-              <button className="secondary" onClick={() => onViewMatches(activeRequest.id)}>
-                Find Matches
-              </button>
-            )}
+	            {activeRequest && (
+	              <div className="hero-actions">
+	                <button className="secondary" onClick={() => setState((current) => ({ ...current, editingRequest: activeRequest, actionError: '', actionSuccess: '' }))}>
+	                  <Pencil size={18} />
+		                  {t('request.editClass')}
+	                </button>
+	                <button className="secondary quiet-action" onClick={() => setState((current) => ({ ...current, deleteRequestTarget: activeRequest, actionError: '', actionSuccess: '' }))}>
+	                  <Trash2 size={18} />
+		                  {t('request.deleteClass')}
+	                </button>
+	                <button className="secondary" onClick={() => onViewMatches(activeRequest.id)}>
+		                  {t('class.findMatches')}
+	                </button>
+	              </div>
+	            )}
           </div>
           <dl>
-            <div><dt>Skills Needed</dt><dd>{joinList(selectedRequest.skills_needed)}</dd></div>
-            <div><dt>Total Team Size</dt><dd>{getTotalTeamSize(selectedRequest)}</dd></div>
-            <div><dt>Initially Looking For</dt><dd>{getInitialNeeded(selectedRequest)}</dd></div>
-            <div><dt>Work Style</dt><dd>{joinList(getWorkStyles(selectedRequest))}</dd></div>
-            <div><dt>Status</dt><dd>{titleCase(selectedRequest.status)}</dd></div>
-            <div><dt>Notes</dt><dd>{selectedRequest.requirements || 'Not specified'}</dd></div>
+            <div><dt>{t('request.skillsNeeded')}</dt><dd>{joinList(selectedRequest.skills_needed)}</dd></div>
+            <div><dt>{t('request.teamSize')}</dt><dd>{getTotalTeamSize(selectedRequest)}</dd></div>
+            <div><dt>{t('opportunities.initiallyLooking')}</dt><dd>{getInitialNeeded(selectedRequest)}</dd></div>
+            <div><dt>{t('matches.workStyle')}</dt><dd>{joinList(getWorkStyles(selectedRequest))}</dd></div>
+            <div><dt>{t('matches.teamStatus')}</dt><dd>{requestStatusLabel(selectedRequest.status, t)}</dd></div>
+            <div><dt>{t('request.anythingElse')}</dt><dd>{selectedRequest.requirements || t('common.notSpecified')}</dd></div>
           </dl>
 
           <section className="matched-list">
-            <h3>Team Members Found ({metrics?.matchedCount || 0})</h3>
+	            <h3>{t('class.teamMembersFound')} ({metrics?.matchedCount || 0})</h3>
             {teammates.length === 0 ? (
-              <p className="note">No teammates connected through this request yet.</p>
+	              <p className="note">{t('class.noConnected')}</p>
             ) : (
               teammates.map((teammate) => (
                 <article className="matched-row" key={teammate.profile_id}>
                   <div>
                     <strong>{displayName(teammate.full_name)} {teammate.is_demo && <DemoBadge />}</strong>
-                    <span>{teammate.major || 'Not specified'}</span>
+                    <span>{teammate.major || t('common.notSpecified')}</span>
                   </div>
                   <button className="secondary" onClick={() => onOpenChat(teammate.connection_id)}>
                     <MessageCircle size={18} />
-                    Message
+	                    {t('common.message')}
                   </button>
                 </article>
               ))
             )}
-          </section>
-        </section>
-      )}
+	          </section>
+	        </section>
+	      )}
 
-      {!selectedRequest && status.complete && (
+		      {state.actionSuccess && <p className="success">{state.actionSuccess}</p>}
+		      {state.actionError && !state.editingTeamStatus && <p className="error">{state.actionError}</p>}
+		      {state.deleteRequestTarget && (
+		        <div className="modal-backdrop" role="presentation">
+		          <section className="connect-modal" role="dialog" aria-modal="true" aria-label={t('request.deleteClassTitle')}>
+		            <div className="modal-header">
+		              <div>
+		                <p className="eyebrow">{t('request.deleteClassTitle')}</p>
+		                <h2>{t('request.deleteClassQuestion')}</h2>
+		              </div>
+		              <button className="ghost" onClick={() => setState((current) => ({ ...current, deleteRequestTarget: null }))} type="button">{t('common.close')}</button>
+		            </div>
+		            <p className="note">{t('request.deleteClassHelper')}</p>
+		            <div className="hero-actions">
+		              <button className="secondary" onClick={() => setState((current) => ({ ...current, deleteRequestTarget: null }))} type="button">
+		                {t('common.cancel')}
+		              </button>
+		              <button className="primary danger-action" onClick={deleteClassRequest} disabled={state.savingRequest}>
+		                {state.savingRequest ? t('common.updating') : t('request.deleteClassConfirm')}
+		              </button>
+		            </div>
+		          </section>
+		        </div>
+		      )}
+	
+	      {!selectedRequest && status.complete && (
         <section className="request-panel standalone">
-          <p className="success">You marked that you already have a complete team for this class.</p>
+	          <p className="success">{t('class.alreadyComplete')}</p>
         </section>
       )}
     </main>
   );
 }
 
-function LecturerDashboard({ activeRole, lecturerSession, onOpenProfile }) {
+function LecturerDashboard({ activeRole, lecturerSession, profileId, onOpenProfile, onOpenChat, t = translate.bind(null, 'en') }) {
   const [classes, setClasses] = useState([]);
   const [selectedClassId, setSelectedClassId] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [actionMessage, setActionMessage] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [creatingClass, setCreatingClass] = useState(false);
+  const [confirmingTeams, setConfirmingTeams] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [classForm, setClassForm] = useState({
+    course_name: 'Digital Media Studio 4',
+    course_code: 'COMM2784',
+    major: 'Digital Media',
+    school: 'SCD',
+    session_code: '01',
+    approximate_student_count: 28,
+    required_members_per_team: 4,
+    team_formation_deadline: '2026-09-15',
+  });
+  const [closingState, setClosingState] = useState(null);
 
   useEffect(() => {
     let alive = true;
@@ -1509,27 +2136,30 @@ function LecturerDashboard({ activeRole, lecturerSession, onOpenProfile }) {
       };
     }
 
-    setLoading(true);
-    setError('');
-
-    getDemoLecturerDashboards({
+    const loadDashboards = () => {
+      setLoading(true);
+      setError('');
+      getDemoLecturerDashboards({
       university: lecturerSession.university,
       lecturerId: lecturerSession.lecturerId,
-    })
-      .then((rows) => {
-        if (!alive) return;
-        setClasses(rows);
-        setSelectedClassId((current) => current || rows[0]?.id || '');
       })
-      .catch((err) => {
-        if (alive) {
-          setClasses([]);
-          setError(getFriendlyError(err, "We couldn't load lecturer dashboard data. Please run the Phase 2 demo migration and try again."));
-        }
-      })
-      .finally(() => {
-        if (alive) setLoading(false);
-      });
+        .then((rows) => {
+          if (!alive) return;
+          setClasses(rows);
+          setSelectedClassId((current) => current || rows[0]?.id || '');
+        })
+        .catch((err) => {
+          if (alive) {
+            setClasses([]);
+            setError(getFriendlyError(err, "We couldn't load lecturer dashboard data. Please run the Phase 2 demo migration and try again."));
+          }
+        })
+        .finally(() => {
+          if (alive) setLoading(false);
+        });
+    };
+
+    loadDashboards();
 
     return () => {
       alive = false;
@@ -1540,8 +2170,8 @@ function LecturerDashboard({ activeRole, lecturerSession, onOpenProfile }) {
     return (
       <main className="screen compact">
         <section className="empty-state">
-          <p>Switch to Lecturer Mode in My Profile before opening the Lecturer Dashboard.</p>
-          <button className="primary" onClick={onOpenProfile}>Open My Profile</button>
+	          <p>{t('lecturer.needLecturerRole')}</p>
+	          <button className="primary" onClick={onOpenProfile}>{t('profile.myProfile')}</button>
         </section>
       </main>
     );
@@ -1551,34 +2181,220 @@ function LecturerDashboard({ activeRole, lecturerSession, onOpenProfile }) {
     return (
       <main className="screen compact">
         <section className="empty-state">
-          <p>Enter a demo Lecturer ID in My Profile to open the Lecturer Dashboard.</p>
-          <button className="primary" onClick={onOpenProfile}>Open My Profile</button>
+	          <p>{t('lecturer.needProfile')}</p>
+	          <button className="primary" onClick={onOpenProfile}>{t('profile.myProfile')}</button>
         </section>
       </main>
     );
   }
 
   const selectedClass = classes.find((classItem) => classItem.id === selectedClassId) || classes[0] || null;
+  const teamCompleteCount = Number(selectedClass?.students_in_teams || 0);
+  const stillFormingCount = Number(selectedClass?.students_looking || 0);
+  const studentsNeedingAttentionCount = Number(selectedClass?.students_without_team || 0);
+  const noRequestCount = Math.max(0, studentsNeedingAttentionCount - stillFormingCount);
+  const attentionStudents = (selectedClass?.students || []).filter((student) => {
+    const status = String(student.status || '').toLowerCase();
+    const remaining = Number(student.remaining_teammates || 0);
+    return remaining > 0 || status.includes('looking') || status.includes('joined') || status.includes('no request');
+  });
+  const unresolvedCount = attentionStudents.length;
+  const proposedTeams = attentionStudents.length
+    ? attentionStudents.reduce((groups, student, index) => {
+        const groupIndex = Math.floor(index / Math.max(2, Number(selectedClass?.required_members_per_team || 4)));
+        groups[groupIndex] = [...(groups[groupIndex] || []), student];
+        return groups;
+      }, [])
+    : [];
+
+  const updateClassForm = (field, value) => {
+    setClassForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const createClass = async (event) => {
+    event.preventDefault();
+    setActionError('');
+    setActionMessage('');
+    setCreatingClass(true);
+
+    try {
+      const created = await createLecturerClass({
+        ...classForm,
+        lecturer_profile_id: profileId,
+        university: lecturerSession.university,
+        lecturer_name: lecturerSession.lecturerName,
+        lecturer_id: lecturerSession.lecturerId,
+      });
+      setClasses((current) => [created, ...current]);
+      setSelectedClassId(created.id);
+      setCreateOpen(false);
+      setActionMessage(`Class created. Class code: ${created.join_code || created.lecturer_access_code}`);
+    } catch (err) {
+      setActionError(getFriendlyError(err, 'Could not create class. Run supabase/class_team_status_open_opportunities_phase.sql in Supabase and try again.'));
+    } finally {
+      setCreatingClass(false);
+    }
+  };
+
+  const remindStudent = async (student) => {
+    setActionError('');
+    setActionMessage('');
+    try {
+      await sendLecturerReminder({
+        lecturerProfileId: profileId,
+        studentProfileId: student.profile_id,
+        classId: selectedClass.id,
+        message: `Your lecturer noticed that you have not started looking for teammates for ${selectedClass.course_name}. Do you need help forming a team?`,
+      });
+      setActionMessage(`Reminder sent to ${displayName(student.full_name)}.`);
+    } catch (err) {
+      setActionError(getFriendlyError(err, 'Could not send reminder yet. Run supabase/class_team_status_open_opportunities_phase.sql in Supabase and try again.'));
+    }
+  };
+
+  const messageStudent = async (student) => {
+    setActionError('');
+    setActionMessage('');
+    try {
+      const thread = await openLecturerStudentThread({
+        lecturerProfileId: profileId,
+        studentProfileId: student.profile_id,
+        classId: selectedClass.id,
+        message: `Hi, I noticed your team is still incomplete for ${selectedClass.course_name}. Are you having difficulty finding teammates or do you need help?`,
+      });
+      onOpenChat(thread.id);
+    } catch (err) {
+      setActionError(getFriendlyError(err, 'Could not open lecturer message thread yet. Run supabase/class_team_status_open_opportunities_phase.sql in Supabase and try again.'));
+    }
+  };
+
+  const closeFormation = async () => {
+    if (!selectedClass) return;
+    setActionError('');
+    setActionMessage('');
+
+    try {
+      const result = await closeClassTeamFormation({ lecturerProfileId: profileId, classId: selectedClass.id });
+      setClosingState(result);
+      setActionMessage(result.unresolved_count > 0
+        ? t('lecturer.unresolvedWarning', { count: result.unresolved_count })
+        : t('lecturer.closeComplete'));
+    } catch (err) {
+      setActionError(getFriendlyError(err, 'Could not close team formation yet. Run supabase/class_team_status_open_opportunities_phase.sql in Supabase and try again.'));
+    }
+  };
+
+  const confirmProposedTeams = async () => {
+    if (!selectedClass || proposedTeams.length === 0) return;
+    setActionError('');
+    setActionMessage('');
+    setConfirmingTeams(true);
+
+    const proposalPayload = proposedTeams.map((team, index) => ({
+      team_name: `Lecturer-assisted Team ${index + 1}`,
+      students: team.map((student) => ({
+        profile_id: student.profile_id,
+        full_name: student.full_name,
+        student_id: student.student_id || null,
+      })),
+    }));
+
+    try {
+      const result = await confirmClassTeamProposals({
+        lecturerProfileId: profileId,
+        classId: selectedClass.id,
+        proposals: proposalPayload,
+      });
+      setClasses((current) =>
+        current.map((classItem) =>
+          classItem.id === selectedClass.id
+            ? {
+                ...classItem,
+                formation_status: result.formation_status,
+                formation_rate: 100,
+                students_looking: 0,
+                students_without_team: 0,
+                students_in_teams: classItem.approximate_student_count || classItem.total_students || classItem.students_in_teams,
+                students: [],
+              }
+            : classItem,
+        ),
+      );
+      setClosingState({ ...result, unresolved_count: 0, showProposal: false });
+      setActionMessage('Proposed teams confirmed. Team formation is now complete for this class.');
+    } catch (err) {
+      setActionError(getFriendlyError(err, 'Could not confirm proposed teams yet. Run supabase/class_team_status_open_opportunities_phase.sql in Supabase and try again.'));
+    } finally {
+      setConfirmingTeams(false);
+    }
+  };
 
   return (
     <main className="screen">
-      <div className="results-header">
-        <div>
-          <p className="eyebrow">Lecturer Dashboard</p>
-          <h2>{lecturerSession.lecturerName}'s demo classes</h2>
-          <p>{lecturerSession.university} · Demo lecturer ID {lecturerSession.lecturerId}</p>
-        </div>
-      </div>
+	      <div className="results-header">
+	        <div>
+		          <p className="eyebrow">{t('lecturer.dashboard')}</p>
+	          <h2>{lecturerSession.lecturerName}'s demo classes</h2>
+	          <p>{lecturerSession.university} · Demo lecturer ID {lecturerSession.lecturerId}</p>
+	        </div>
+	        <button className="primary" type="button" onClick={() => setCreateOpen((current) => !current)}>
+	          <Plus size={18} />
+		          {t('lecturer.createClass')}
+	        </button>
+	      </div>
+
+	      {createOpen && (
+	        <section className="request-panel standalone">
+		          <p className="eyebrow">{t('lecturer.createClass')}</p>
+	          <form className="form-grid" onSubmit={createClass}>
+	            <label>
+		              Course / Subject Name
+	              <input value={classForm.course_name} onChange={(event) => updateClassForm('course_name', event.target.value)} required />
+	            </label>
+	            <label>
+	              Course Code
+	              <input value={classForm.course_code} onChange={(event) => updateClassForm('course_code', event.target.value.toUpperCase())} required />
+	            </label>
+	            <label>
+	              Academic Field / Major
+	              <select value={classForm.major} onChange={(event) => updateClassForm('major', event.target.value)} required>
+	                {Object.values(majorsBySchool).flat().map((major) => (
+	                  <option value={major} key={major}>{major}</option>
+	                ))}
+	              </select>
+	            </label>
+	            <label>
+	              Session
+	              <input value={classForm.session_code} onChange={(event) => updateClassForm('session_code', event.target.value)} placeholder="01" required />
+	            </label>
+	            <label>
+	              Approx. Number of Students
+	              <input min="0" type="number" value={classForm.approximate_student_count} onChange={(event) => updateClassForm('approximate_student_count', event.target.value)} required />
+	            </label>
+	            <label>
+	              Required Members Per Team
+	              <input min="2" type="number" value={classForm.required_members_per_team} onChange={(event) => updateClassForm('required_members_per_team', event.target.value)} required />
+	            </label>
+	            <label className="wide">
+		              {t('class.deadline')}
+	              <input type="date" value={classForm.team_formation_deadline} onChange={(event) => updateClassForm('team_formation_deadline', event.target.value)} />
+	            </label>
+	            <button className="primary wide" type="submit" disabled={creatingClass}>
+		              {creatingClass ? t('request.creating') : t('lecturer.createClass')}
+	            </button>
+	          </form>
+	        </section>
+	      )}
 
       <div className="request-management-grid">
         <section className="request-panel standalone">
-          <p className="eyebrow">My Classes</p>
+	          <p className="eyebrow">{t('lecturer.myClasses')}</p>
           <div className="request-summary-box">
-            <p>These demo classes are fictional and for MVP testing only.</p>
+	            <p>{t('lecturer.demoOnly')}</p>
           </div>
-          {loading && <p className="loading">Loading classes...</p>}
+	          {loading && <p className="loading">{t('classes.loading')}</p>}
           {error && <p className="error">{error}</p>}
-          {!loading && !error && classes.length === 0 && <p className="note">No demo classes found for this lecturer.</p>}
+	          {!loading && !error && classes.length === 0 && <p className="note">{t('lecturer.noClasses')}</p>}
           <div className="request-list">
             {classes.map((classItem) => (
               <article className={selectedClassId === classItem.id ? 'request-list-row selected' : 'request-list-row'} key={classItem.id}>
@@ -1588,7 +2404,7 @@ function LecturerDashboard({ activeRole, lecturerSession, onOpenProfile }) {
                   <p className="note">Class code: {classItem.class_code}</p>
                 </div>
                 <button className="secondary" type="button" onClick={() => setSelectedClassId(classItem.id)}>
-                  Open Class
+	                  {t('classes.open')}
                 </button>
               </article>
             ))}
@@ -1598,55 +2414,105 @@ function LecturerDashboard({ activeRole, lecturerSession, onOpenProfile }) {
         <section className="request-panel standalone">
           {!selectedClass ? (
             <section className="empty-state inline-empty">
-              <p>Select a demo class to view team-formation progress.</p>
+	              <p>{t('lecturer.selectClass')}</p>
             </section>
           ) : (
             <section className="progress-panel">
-              <div className="progress-header">
-                <strong>{getClassDisplay(selectedClass)}</strong>
-                <span>{selectedClass.formation_rate}% formed</span>
-              </div>
-              <div className="stats-grid">
-                <div><strong>{selectedClass.total_students}</strong><span>Total Students</span></div>
-                <div><strong>{selectedClass.students_looking}</strong><span>Looking</span></div>
-                <div><strong>{selectedClass.students_in_teams}</strong><span>In Team</span></div>
-                <div><strong>{selectedClass.students_without_team}</strong><span>Without Team</span></div>
-                <div><strong>{selectedClass.teams_formed}</strong><span>Teams Formed</span></div>
-                <div><strong>{selectedClass.average_match_usefulness} / 5</strong><span>Match Usefulness</span></div>
-              </div>
-              <div className="matched-list">
-                <h3>Student Status</h3>
-                {(selectedClass.students || []).map((student) => (
-                  <article className="matched-row" key={student.profile_id}>
-                    <div>
-                      <strong>{displayName(student.full_name)}</strong>
-                      <span>{student.major || 'Not specified'} · {student.status}</span>
-                      {Number(student.total_team_size) > 0 && (
-                        <span>
-                          {student.found_count || 0} / {student.total_team_size} members
-                          {Number(student.remaining_teammates) > 0 ? ` · missing ${student.remaining_teammates}` : ''}
-                        </span>
-                      )}
-                      <span>{student.network_status || 'No teammate preference recorded'}</span>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </section>
-          )}
+	              <div className="progress-header">
+	                <strong>{getClassDisplay(selectedClass)}</strong>
+	                <span>{selectedClass.formation_rate ?? selectedClass.team_formation_rate ?? 0}% formed</span>
+	              </div>
+	              <div className="stats-grid">
+		                <div><strong>{selectedClass.approximate_student_count || selectedClass.total_students}</strong><span>{t('lecturer.totalStudents')}</span></div>
+		                <div><strong>{teamCompleteCount}</strong><span>{t('lecturer.teamComplete')}</span></div>
+		                <div><strong>{stillFormingCount}</strong><span>{t('lecturer.stillForming')}</span></div>
+		                <div><strong>{noRequestCount}</strong><span>{t('lecturer.noRequest')}</span></div>
+		                <div><strong>{selectedClass.teams_formed || 0}</strong><span>{t('lecturer.teamsFormed')}</span></div>
+		                <div><strong>{selectedClass.average_match_usefulness || 0} / 5</strong><span>{t('lecturer.matchUsefulness')}</span></div>
+	              </div>
+	              <div className="hero-actions">
+	                <button className="secondary" type="button" onClick={closeFormation}>
+		                  {t('lecturer.closeFormation')}
+	                </button>
+	              </div>
+		              {closingState?.unresolved_count > 0 && (
+		                <section className="inline-prompt warning-prompt">
+		                  <h3>{t('lecturer.unresolvedWarning', { count: closingState.unresolved_count })}</h3>
+		                  <p>{t('lecturer.closeHelper')}</p>
+		                  <div className="hero-actions">
+	                    <button className="secondary" type="button" onClick={() => attentionStudents.forEach((student) => remindStudent(student))}>
+		                      {t('lecturer.messageStudents')}
+	                    </button>
+	                    <button className="primary" type="button" onClick={() => setClosingState((current) => ({ ...current, showProposal: true }))}>
+		                      {t('lecturer.autoForm')}
+	                    </button>
+	                  </div>
+	                </section>
+	              )}
+	              {closingState?.showProposal && (
+	                <section className="request-summary-box">
+		                  <p className="eyebrow">{t('lecturer.proposedTeams')}</p>
+		                  {proposedTeams.map((team, index) => (
+		                    <p key={`proposal-${index}`}>
+		                      {t('lecturer.teamLabel', { number: index + 1 })}: {team.map((student) => displayName(student.full_name)).join(', ')}
+		                    </p>
+		                  ))}
+	                  <button className="primary" type="button" onClick={confirmProposedTeams} disabled={confirmingTeams}>
+		                    {confirmingTeams ? t('lecturer.confirming') : t('lecturer.confirmFormation')}
+	                  </button>
+		                  <p className="field-helper">{t('lecturer.proposalHelper')}</p>
+	                </section>
+	              )}
+	              <div className="matched-list">
+		                <h3>{t('lecturer.studentsAttention')} ({studentsNeedingAttentionCount || attentionStudents.length})</h3>
+	                {studentsNeedingAttentionCount > attentionStudents.length && (
+		                  <p className="note">{t('lecturer.representative')}</p>
+	                )}
+		                {attentionStudents.length === 0 && <p className="note">{t('lecturer.noIntervention')}</p>}
+	                {attentionStudents.map((student) => (
+	                  <article className="matched-row" key={student.profile_id}>
+	                    <div>
+	                      <strong>{displayName(student.full_name)}</strong>
+		                      <span>{student.major || t('common.notSpecified')} · {student.status}</span>
+	                      {Number(student.total_team_size) > 0 && (
+	                        <span>
+	                          {t('status.memberProgress', { current: student.found_count || 0, total: student.total_team_size })}
+	                          {Number(student.remaining_teammates) > 0 ? ` · ${t('lecturer.missingCount', { count: student.remaining_teammates })}` : ''}
+	                        </span>
+		                      )}
+		                      <span>{student.network_status || t('lecturer.noPreference')}</span>
+	                    </div>
+	                    <div className="hero-actions">
+	                      <button className="secondary" type="button" onClick={() => remindStudent(student)}>
+		                        {t('lecturer.remind')}
+	                      </button>
+	                      <button className="primary" type="button" onClick={() => messageStudent(student)}>
+	                        <MessageCircle size={18} />
+		                        {t('lecturer.messageStudent')}
+	                      </button>
+	                    </div>
+	                  </article>
+	                ))}
+	              </div>
+	              {actionMessage && <p className="success">{actionMessage}</p>}
+	              {actionError && <p className="error">{actionError}</p>}
+	            </section>
+	          )}
         </section>
       </div>
     </main>
   );
 }
 
-function ProfileForm({ initialRole = 'student', onSaved }) {
+function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = translate.bind(null, 'en') }) {
   const [form, setForm] = useState(() => ({
     ...emptyProfile,
+    ...initialData,
     role: initialRole === 'lecturer' ? 'lecturer' : 'student',
-    major: initialRole === 'lecturer' ? 'Lecturer' : '',
+    major: initialRole === 'lecturer' ? 'Lecturer' : initialData.major || '',
   }));
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const isLecturer = form.role === 'lecturer';
   const profileSkillOptions = mergeOptionSets(getSkillsForSchool(form.school), form.skills);
@@ -1656,22 +2522,19 @@ function ProfileForm({ initialRole = 'student', onSaved }) {
     setForm((current) => ({
       ...current,
       role: initialRole === 'lecturer' ? 'lecturer' : 'student',
-      major: initialRole === 'lecturer' ? 'Lecturer' : current.major,
+      full_name: current.full_name || initialData.full_name || '',
+      avatar_url: current.avatar_url || initialData.avatar_url || '',
+      contact_type: current.contact_type || initialData.contact_type || 'email',
+      contact_value: current.contact_value || initialData.contact_value || '',
+      lecturer_contact_method: current.lecturer_contact_method || initialData.lecturer_contact_method || 'Email',
+      lecturer_contact_detail: current.lecturer_contact_detail || initialData.lecturer_contact_detail || '',
+      major: initialRole === 'lecturer' ? 'Lecturer' : current.major || initialData.major || '',
     }));
-  }, [initialRole]);
+  }, [initialRole, initialData]);
 
   const updateField = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
-  };
-
-  const updateRole = (role) => {
-    setForm((current) => ({
-      ...current,
-      role,
-      major: role === 'lecturer' ? 'Lecturer' : '',
-      skills: role === 'lecturer' ? [] : current.skills,
-      lecturer_title: role === 'student' ? '' : current.lecturer_title,
-    }));
+    setFieldErrors((current) => ({ ...current, [field]: '' }));
   };
 
   const updateSchool = (value) => {
@@ -1681,6 +2544,7 @@ function ProfileForm({ initialRole = 'student', onSaved }) {
       major: majorsBySchool[value]?.includes(current.major) ? current.major : '',
       skills: filterSkillsForSchool(current.skills, value),
     }));
+    setFieldErrors((current) => ({ ...current, school: '', major: '', skills: '' }));
   };
 
   const toggleProfileSkill = (skill) => {
@@ -1689,6 +2553,7 @@ function ProfileForm({ initialRole = 'student', onSaved }) {
       skills: toggleValue(current.skills, skill),
       other_skill: skill === 'Other' && current.skills.includes('Other') ? '' : current.other_skill,
     }));
+    setFieldErrors((current) => ({ ...current, skills: '' }));
   };
 
   const submit = async (event) => {
@@ -1696,19 +2561,15 @@ function ProfileForm({ initialRole = 'student', onSaved }) {
     setError('');
 
     const skills = getProfileSkillsFromForm(form);
-
-    if (isLecturer) {
-      if (!form.full_name || !form.school || !form.contact_value) {
-        setError("Please fill in your lecturer profile's required fields.");
-        return;
-      }
-    } else if (!form.full_name || !form.school || !form.major || skills.length === 0 || !form.contact_value || !form.short_bio) {
-      setError("Please fill in your profile's required fields.");
+    const nextFieldErrors = getProfileFieldErrors({ ...form, skills }, t);
+    setFieldErrors(nextFieldErrors);
+    if (Object.keys(nextFieldErrors).length > 0) {
+      setError(t('validation.fixMissing'));
       return;
     }
 
     if (!form.consent_public_visibility) {
-      setError('Please confirm that your profile information will be visible to other Teamergency users.');
+      setError(t('validation.consent'));
       return;
     }
 
@@ -1722,16 +2583,25 @@ function ProfileForm({ initialRole = 'student', onSaved }) {
         school: form.school.trim(),
         major: isLecturer ? 'Lecturer' : form.major.trim(),
         skills: isLecturer ? ['Teaching'] : skills,
-        contact_type: form.contact_type,
-        contact_value: form.contact_value.trim() || null,
+        avatar_url: form.avatar_url || null,
+        availability: [],
+        preferred_active_time: null,
+        work_styles: isLecturer ? [] : form.work_styles,
+	        contact_type: isLecturer ? 'email' : form.contact_type,
+	        contact_value: isLecturer ? form.lecturer_contact_detail.trim() : form.contact_value.trim() || null,
         short_bio: isLecturer
           ? form.short_bio.trim() || 'Lecturer profile for class team-formation monitoring.'
           : form.short_bio.trim(),
         is_available: !isLecturer,
         consent_public_visibility: true,
-        role,
-        lecturer_title: isLecturer ? form.lecturer_title.trim() || null : null,
-      });
+	        role,
+	        lecturer_title: isLecturer ? form.lecturer_title.trim() || null : null,
+	        lecturer_id: isLecturer ? form.lecturer_id.trim() : null,
+	        academic_field: isLecturer ? form.academic_field.trim() : form.major.trim(),
+	        lecturer_contact_method: isLecturer ? form.lecturer_contact_method : null,
+	        lecturer_contact_detail: isLecturer ? form.lecturer_contact_detail.trim() : null,
+	        student_id: isLecturer ? null : form.student_id.trim() || null,
+	      });
       storeProfileId(profile.id);
       onSaved(profile);
     } catch (err) {
@@ -1748,76 +2618,122 @@ function ProfileForm({ initialRole = 'student', onSaved }) {
         <div className="form-heading">
           <UserRound size={28} />
           <div>
-            <p className="eyebrow">Create User Profile</p>
-            <h2>Your reusable teammate profile</h2>
+	            <p className="eyebrow">{t('profile.createUserProfile')}</p>
+	            <h2>{t('profile.completeTitle')}</h2>
+              <p className="note">{isLecturer ? t('profile.lecturerProfileHint') : t('profile.studentProfileHint')}</p>
+              <p className="signed-in-line">{t('profile.role')}: {isLecturer ? t('profile.lecturer') : t('profile.student')}</p>
           </div>
         </div>
 
-        <fieldset className="wide">
-          <legend>Choose your role</legend>
-          <div className="role-grid">
-            {profileRoleOptions.map((option) => (
-              <label className={form.role === option.value ? 'role-card selected' : 'role-card'} key={option.value}>
-                <input
-                  type="radio"
-                  name="profile-role"
-                  checked={form.role === option.value}
-                  onChange={() => updateRole(option.value)}
-                />
-                <span>
-                  <strong>{option.label}</strong>
-                  <small>{option.description}</small>
-                </span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
-
         <div className="form-grid">
           <label>
-            Full Name
+	            {t('profile.fullName')}
             <input value={form.full_name} onChange={(event) => updateField('full_name', event.target.value)} required />
+            <FieldError message={fieldErrors.full_name} />
           </label>
           <label>
-            University
+	            {t('profile.university')}
             <select value={form.university} onChange={(event) => updateField('university', event.target.value)} required>
               {universityOptions.map((university) => (
                 <option value={university.value} key={university.value}>{university.label}</option>
               ))}
             </select>
+            <FieldError message={fieldErrors.university} />
           </label>
           <label>
-            {isLecturer ? 'School / Department' : 'School'}
+	            {isLecturer ? t('profile.department') : t('profile.school')}
             <select value={form.school} onChange={(event) => updateSchool(event.target.value)} required>
-              <option value="">{isLecturer ? 'Select department' : 'Select school'}</option>
+	              <option value="">{isLecturer ? t('profile.selectDepartment') : t('profile.selectSchool')}</option>
               {profileSchoolOptions.map((school) => (
                 <option value={school.value} key={school.value}>{school.label}</option>
               ))}
             </select>
+            <FieldError message={fieldErrors.school} />
           </label>
-          {isLecturer ? (
-            <label>
-              Lecturer Role / Title
-              <input
-                value={form.lecturer_title}
-                onChange={(event) => updateField('lecturer_title', event.target.value)}
-                placeholder="Course coordinator, lecturer, tutor..."
-              />
-            </label>
-          ) : (
-            <>
-              <label>
-                Major
-                <select value={form.major} onChange={(event) => updateField('major', event.target.value)} required>
-                  <option value="">Select major</option>
+	          {isLecturer ? (
+	            <>
+	              <label>
+	                {t('profile.lecturerTitle')}
+	                <input
+	                  value={form.lecturer_title}
+	                  onChange={(event) => updateField('lecturer_title', event.target.value)}
+	                  placeholder="Course coordinator, lecturer, tutor..."
+	                />
+	              </label>
+	              <label>
+	                {t('profile.academicField')}
+	                  <select
+	                    value={form.academic_field}
+	                    onChange={(event) => updateField('academic_field', event.target.value)}
+	                    required
+	                  >
+		                  <option value="">{t('request.field')}</option>
+	                  {opportunityFields.map((field) => (
+	                    <option value={field} key={field}>{field}</option>
+	                  ))}
+	                </select>
+                    <FieldError message={fieldErrors.academic_field} />
+	              </label>
+	              <label>
+	                {t('profile.lecturerId')}
+	                <input
+	                  value={form.lecturer_id}
+	                  onChange={(event) => updateField('lecturer_id', event.target.value)}
+	                  placeholder="v123456"
+	                  required
+	                />
+	                <span className="field-helper">{t('profile.demoLecturerIds')}: {demoLecturerHelperText}</span>
+                    <FieldError message={fieldErrors.lecturer_id} />
+	              </label>
+	              <label>
+		                {t('profile.preferredContact')}
+	                <select
+	                  value={form.lecturer_contact_method}
+	                  onChange={(event) => updateField('lecturer_contact_method', event.target.value)}
+	                  required
+	                >
+	                  {lecturerContactMethods.map((method) => (
+	                    <option value={method} key={method}>{method}</option>
+	                  ))}
+	                </select>
+	              </label>
+	              <label className="wide">
+		                {t('profile.contactDetail')}
+	                <input
+	                  value={form.lecturer_contact_detail}
+	                  onChange={(event) => updateField('lecturer_contact_detail', event.target.value)}
+	                  placeholder="name@university.edu or Microsoft Teams handle"
+	                  required
+	                />
+                    <FieldError message={fieldErrors.lecturer_contact_detail} />
+	              </label>
+	            </>
+	          ) : (
+	            <>
+	              <label>
+		                {t('profile.major')}
+	                <select value={form.major} onChange={(event) => updateField('major', event.target.value)} required>
+	                  <option value="">{t('profile.major')}</option>
                   {(majorsBySchool[form.school] || []).map((major) => (
                     <option value={major} key={major}>{major}</option>
                   ))}
-                </select>
-              </label>
-              <fieldset className="wide">
-                <legend>Skills & Technologies</legend>
-                <p className="field-helper">Suggested skills update based on your school. You can still add a custom skill.</p>
+	                </select>
+                    <FieldError message={fieldErrors.major} />
+	              </label>
+	              <label>
+		                {t('profile.studentId')}
+	                <input
+	                  value={form.student_id}
+	                  onChange={(event) => updateField('student_id', event.target.value)}
+	                  placeholder="s1234567"
+                    required
+	                />
+                    <FieldError message={fieldErrors.student_id} />
+	              </label>
+	              <fieldset className="wide">
+	                <legend>{t('profile.skills')}</legend>
+	                <p className="field-helper">{t('profile.skillHelper')}</p>
+                    <FieldError message={fieldErrors.skills} />
                 <CheckboxGrid
                   options={profileSkillOptions}
                   selected={form.skills}
@@ -1827,37 +2743,51 @@ function ProfileForm({ initialRole = 'student', onSaved }) {
                   <input
                     value={form.other_skill}
                     onChange={(event) => updateField('other_skill', event.target.value)}
-                    placeholder="Add another skill"
+	                    placeholder={t('profile.addSkill')}
                   />
                 )}
-              </fieldset>
+	              </fieldset>
+                <fieldset className="wide">
+                  <legend>{t('profile.workStyle')}</legend>
+                  <CheckboxGrid
+                    options={workStyleOptions}
+                    selected={form.work_styles}
+                    onToggle={(style) => updateField('work_styles', toggleValue(form.work_styles, style))}
+                  />
+                </fieldset>
             </>
           )}
-          <label>
-            Contact Method
-            <select value={form.contact_type} onChange={(event) => updateField('contact_type', event.target.value)}>
-              {contactTypes.map((type) => (
-                <option value={type} key={type}>{contactLabel(type)}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Contact Information
-            <input
-              value={form.contact_value}
-              onChange={(event) => updateField('contact_value', event.target.value)}
-              placeholder="name@email.com or @handle"
-              required
-            />
-          </label>
+	          {!isLecturer && (
+	            <>
+	              <label>
+		                {t('profile.contactMethod')}
+	                <select value={form.contact_type} onChange={(event) => updateField('contact_type', event.target.value)}>
+	                  {contactTypes.map((type) => (
+	                    <option value={type} key={type}>{contactLabel(type)}</option>
+	                  ))}
+	                </select>
+	              </label>
+	              <label>
+		                {t('profile.contactInfo')}
+	                <input
+	                  value={form.contact_value}
+	                  onChange={(event) => updateField('contact_value', event.target.value)}
+	                  placeholder="name@email.com or @handle"
+	                  required
+	                />
+                    <FieldError message={fieldErrors.contact_value} />
+	              </label>
+	            </>
+	          )}
           <label className="wide">
-            {isLecturer ? 'Short Bio / Note' : 'Short Bio'}
+	            {isLecturer ? t('profile.bioNote') : t('profile.shortBio')}
             <textarea
               value={form.short_bio}
               onChange={(event) => updateField('short_bio', event.target.value)}
               rows="4"
               required={!isLecturer}
             />
+            {!isLecturer && <FieldError message={fieldErrors.short_bio} />}
           </label>
         </div>
 
@@ -1869,21 +2799,21 @@ function ProfileForm({ initialRole = 'student', onSaved }) {
             required
           />
           <span>
-            I understand that the information I provide will be visible to relevant Teamergency users for MVP testing.
+	            {t('profile.consent')}
           </span>
         </label>
-        <p className="field-helper">Teamergency is an MVP being developed and tested as part of a university project.</p>
+        <p className="field-helper">{t('profile.completeLead')}</p>
 
         {error && <p className="error">{error}</p>}
         <button className="primary" type="submit" disabled={saving || !form.consent_public_visibility}>
-          {saving ? 'Creating...' : 'Create Profile'}
+	          {saving ? t('request.creating') : t('profile.createProfile')}
         </button>
       </form>
     </main>
   );
 }
 
-function ProfileSaved({ profile, onContinue }) {
+function ProfileSaved({ profile, onContinue, t = translate.bind(null, 'en') }) {
   const isLecturer = isLecturerProfile(profile);
 
   return (
@@ -1891,22 +2821,22 @@ function ProfileSaved({ profile, onContinue }) {
       <StepRail step={1} />
       <section className="confirmation">
         <CheckCircle2 size={42} />
-        <p className="eyebrow">Profile Saved</p>
-        <h2>{displayName(profile?.full_name) || 'Your profile'} is ready.</h2>
-        <p>
-          {isLecturer
-            ? 'Your lecturer profile is saved on this device.'
-            : 'Your profile ID is saved on this device and will be used for new teammate searches.'}
-        </p>
-        <button className="primary" onClick={onContinue}>
-          {isLecturer ? 'Open Lecturer Dashboard' : 'Create Teammate Search Request'}
-        </button>
+	        <p className="eyebrow">{t('profile.saved')}</p>
+	        <h2>{displayName(profile?.full_name) || 'Your profile'} {t('profile.ready')}</h2>
+	        <p>
+	          {isLecturer
+	            ? t('profile.lecturerSaved')
+	            : t('profile.studentSaved')}
+	        </p>
+	        <button className="primary" onClick={onContinue}>
+	          {isLecturer ? t('profile.openLecturer') : t('classes.title')}
+	        </button>
       </section>
     </main>
   );
 }
 
-function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mode = 'create', classContext = null }) {
+function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mode = 'create', classContext = null, t = translate.bind(null, 'en') }) {
   const [form, setForm] = useState(() => buildRequestFormState(profile, request, classContext));
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -1960,6 +2890,22 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
 
   const updateField = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const updateOpportunityType = (value) => {
+    setForm((current) => ({
+      ...current,
+      opportunity_type: value,
+      other_opportunity_type: value === 'Other' ? current.other_opportunity_type : '',
+    }));
+  };
+
+  const updateOpportunityField = (value) => {
+    setForm((current) => ({
+      ...current,
+      opportunity_field: value,
+      other_opportunity_field: value === 'Other' ? current.other_opportunity_field : '',
+    }));
   };
 
   const updateCourse = (courseCode) => {
@@ -2077,24 +3023,36 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
       ...form.skills_needed.filter((skill) => skill !== 'Other'),
       ...splitList(form.other_skill),
     ];
-    const requiredTools = [
-      ...form.required_tools.filter((tool) => tool !== 'Other'),
-      ...splitList(form.other_tool),
-    ];
+	    const requiredTools = [
+	      ...form.required_tools.filter((tool) => tool !== 'Other'),
+	      ...splitList(form.other_tool),
+	    ];
+    const opportunityType = form.opportunity_type === 'Other'
+      ? form.other_opportunity_type.trim()
+      : form.opportunity_type;
+    const opportunityField = form.opportunity_field === 'Other'
+      ? form.other_opportunity_field.trim()
+      : form.opportunity_field;
 
     const portfolioFileError = validatePortfolioFile(form.portfolio_file);
     const totalTeamSize = Number(form.total_team_size);
     const teammatesNeededInitial = Number(form.teammates_needed_initial);
 
-    const classSession = formatClassSession(form);
+    const classSession = isClassLocked ? formatClassSession(form) : 'Collab';
+    const opportunityName = form.opportunity_name.trim();
+    const hasRequiredContext = isClassLocked
+      ? form.school && form.major && form.course_name && form.course_code && classSession
+	      : opportunityType && opportunityField && opportunityName;
 
-    if (!form.school || !form.major || !form.course_name || !form.course_code || !classSession || skillsNeeded.length === 0 || totalTeamSize < 2 || teammatesNeededInitial < 1) {
-      setError('Please fill in course, session, skills needed, total team size, and spots remaining.');
+    if (!hasRequiredContext || skillsNeeded.length === 0 || totalTeamSize < 2 || teammatesNeededInitial < 1) {
+      setError(isClassLocked
+        ? t('request.classRequired')
+        : t('request.collabRequired'));
       return;
     }
 
     if (teammatesNeededInitial >= totalTeamSize) {
-      setError('You cannot look for more teammates than the total team size.');
+      setError(t('request.tooManyTeammates'));
       return;
     }
 
@@ -2118,12 +3076,17 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
         : null;
 
       const payload = {
-        school: form.school,
-        major: form.major,
+        school: form.school || profile.school,
+        major: form.major || profile.major,
         class_id: form.class_id || null,
-        course: form.course_name.trim(),
-        course_name: form.course_name.trim(),
-        course_code: form.course_code.trim(),
+        request_scope: isClassLocked ? 'class' : 'open_opportunity',
+        opportunity_type: isClassLocked ? null : opportunityType,
+        opportunity_field: isClassLocked ? null : opportunityField,
+        opportunity_name: isClassLocked ? null : opportunityName,
+        deadline: isClassLocked ? null : form.deadline || null,
+        course: isClassLocked ? form.course_name.trim() : opportunityName,
+        course_name: isClassLocked ? form.course_name.trim() : opportunityName,
+        course_code: isClassLocked ? form.course_code.trim() : opportunityType,
         class_session: classSession,
         class_day: null,
         class_start_time: null,
@@ -2158,8 +3121,8 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
       }
     } catch (err) {
       const fallback = mode === 'edit'
-        ? "We couldn't update your teammate search. Please try again."
-        : "We couldn't create your teammate search. Please try again.";
+        ? t('request.updateFail')
+        : t('request.createFail');
       setError(getFriendlyError(err, fallback));
     } finally {
       setSaving(false);
@@ -2172,21 +3135,21 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
       <form className="form-shell" onSubmit={submit}>
         <button className="ghost" type="button" onClick={onBack}>
           <ArrowLeft size={18} />
-          Back
+          {t('common.back')}
         </button>
         <div className="form-heading">
           <Search size={28} />
           <div>
-            <p className="eyebrow">
-              {mode === 'edit'
-                ? 'Edit Team Request'
-                : isClassLocked ? 'Class Team Request' : 'Open Opportunity'}
-            </p>
-            <h2>
-              {mode === 'edit'
-                ? 'Update this teammate search'
-                : isClassLocked ? 'Find teammates inside this class' : 'Find teammates outside class'}
-            </h2>
+		            <p className="eyebrow">
+		              {mode === 'edit'
+		                ? (isClassLocked ? t('request.editClass') : t('request.edit'))
+		                : isClassLocked ? t('request.class') : t('request.open')}
+		            </p>
+	            <h2>
+	              {mode === 'edit'
+	                ? t('request.updateTitle')
+	                : isClassLocked ? t('request.classTitle') : t('request.openTitle')}
+	            </h2>
           </div>
         </div>
 
@@ -2197,57 +3160,94 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
         </div>
 
         <div className="form-grid">
-          {selectedClass && (
-            <div className="request-summary-box wide">
-              <p className="eyebrow">{isClassLocked ? 'This Request Belongs To' : 'Selected Class'}</p>
-              <h3>{getClassDisplay(selectedClass)}</h3>
-              <p>{selectedClass.university} · {schoolLabel(selectedClass.school)} · {selectedClass.major}</p>
-              <p>{getAcademicPeriodDisplay(selectedClass)} · Class code {selectedClass.class_code || selectedClass.demo_class_code || selectedClass.join_code}</p>
-              {selectedClass.lecturer_name && <p>Lecturer: {selectedClass.lecturer_name}</p>}
-            </div>
-          )}
+	          {selectedClass && (
+	            <div className="request-summary-box wide">
+	              <p className="eyebrow">{isClassLocked ? t('request.belongsTo') : t('request.selectedClass')}</p>
+	              <h3>{getClassDisplay(selectedClass)}</h3>
+	              <p>{selectedClass.university} · {schoolLabel(selectedClass.school)} · {selectedClass.major}</p>
+	              <p>{getAcademicPeriodDisplay(selectedClass)} · {t('classes.classCode')} {selectedClass.class_code || selectedClass.demo_class_code || selectedClass.join_code}</p>
+	              {selectedClass.lecturer_name && <p>{t('join.lecturer')}: {selectedClass.lecturer_name}</p>}
+	            </div>
+	          )}
           {!isClassLocked && (
             <>
               {classesError && <p className="field-helper wide">{classesError}</p>}
-              <div className="request-summary-box wide">
-                <p className="eyebrow">Outside Class</p>
-                <p>Use this for competitions, hackathons, club projects, student events, personal projects, or interdisciplinary opportunities.</p>
-              </div>
-              <div className="course-session-row wide">
-                <label>
-                  Course / Opportunity Area
-                  <select value={form.course_code} onChange={(event) => updateCourse(event.target.value)} required>
-                    <option value="">Select course or opportunity area</option>
-                    {courseOptions.map((course) => (
-                      <option value={course.code} key={course.code}>{formatCourseOption(course)}</option>
-                    ))}
-                  </select>
-                  <span className="field-helper">Standalone requests do not need a class code or class membership.</span>
-                </label>
-                <label>
-                  Session / Group
-                  <select value={form.session_code} onChange={(event) => updateSession(event.target.value)} required>
-                    <option value="">Select group</option>
-                    {sessionOptions.map((session) => (
-                      <option value={session.code} key={session.id}>{formatSessionCode(session.code)}</option>
-                    ))}
-                  </select>
-                  <span className="field-helper">For open opportunities, use the closest available group for matching.</span>
-                </label>
-              </div>
-            </>
-          )}
+	              <div className="request-summary-box wide">
+		                <p className="eyebrow">{t('request.outsideClass')}</p>
+		                <p>{t('request.outsideClassHelp')}</p>
+		              </div>
+		              <div className="course-session-row wide">
+		                <label>
+		                  {t('request.opportunityType')}
+		                  <select value={form.opportunity_type} onChange={(event) => updateOpportunityType(event.target.value)} required>
+		                    <option value="">{t('request.selectType')}</option>
+		                    {opportunityTypes.map((type) => (
+		                      <option value={type} key={type}>{type}</option>
+		                    ))}
+		                  </select>
+		                </label>
+		                <label>
+		                  {t('request.field')}
+		                  <select value={form.opportunity_field} onChange={(event) => updateOpportunityField(event.target.value)} required>
+		                    <option value="">{t('request.selectField')}</option>
+		                    {opportunityFields.map((field) => (
+		                      <option value={field} key={field}>{field}</option>
+		                    ))}
+		                  </select>
+		                </label>
+		              </div>
+                  {form.opportunity_type === 'Other' && (
+                    <label className="wide inline-other-field">
+                      {t('request.specify')} {t('request.opportunityType').toLowerCase()}
+                      <input
+                        value={form.other_opportunity_type}
+                        onChange={(event) => updateField('other_opportunity_type', event.target.value)}
+                        placeholder={t('request.typePlaceholder')}
+                        required
+                      />
+                    </label>
+                  )}
+                  {form.opportunity_field === 'Other' && (
+                    <label className="wide inline-other-field">
+                      {t('request.specify')} {t('request.field').toLowerCase()}
+                      <input
+                        value={form.other_opportunity_field}
+                        onChange={(event) => updateField('other_opportunity_field', event.target.value)}
+                        placeholder={t('request.fieldPlaceholder')}
+                        required
+                      />
+                    </label>
+                  )}
+		              <label className="wide">
+		                {t('request.opportunityName')}
+	                <input
+	                  value={form.opportunity_name}
+	                  onChange={(event) => updateField('opportunity_name', event.target.value)}
+	                  placeholder={t('request.namePlaceholder')}
+	                  required
+	                />
+	              </label>
+		              <label className="wide">
+		                {t('request.deadline')}
+	                <input
+	                  type="date"
+	                  value={form.deadline}
+	                  onChange={(event) => updateField('deadline', event.target.value)}
+	                />
+	              </label>
+	            </>
+	          )}
           {selectedSession?.lecturer && (
             <div className="request-summary-box wide">
-              <p className="eyebrow">Session Metadata</p>
+              <p className="eyebrow">{t('request.sessionMetadata')}</p>
               <h3>{formatSessionCode(selectedSession.code)}</h3>
               <p>{selectedSession.semester}, {selectedSession.academicYear}</p>
-              <p>Lecturer: {selectedSession.lecturer}</p>
+              <p>{t('join.lecturer')}: {selectedSession.lecturer}</p>
             </div>
           )}
           <fieldset className="wide">
-            <legend>What skills are you looking for?</legend>
-            <p className="field-helper">Starts with skills related to your school, plus cross-disciplinary options for mixed teams.</p>
+            <legend>{t('request.skillsNeeded')}</legend>
+            <p className="field-helper">{t('request.skillsHelper')}</p>
             <CheckboxGrid
               options={requestSkillOptions}
               selected={form.skills_needed}
@@ -2257,13 +3257,13 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
               <input
                 value={form.other_skill}
                 onChange={(event) => updateField('other_skill', event.target.value)}
-                placeholder="Add another skill"
+                    placeholder={t('request.addSkill')}
               />
             )}
           </fieldset>
           <div className="course-session-row wide">
-            <label>
-              Total team members required
+	            <label>
+	              {t('request.teamSize')}
               <input
                 min="2"
                 type="number"
@@ -2272,8 +3272,8 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
                 required
               />
             </label>
-            <label>
-              How many teammates are you still looking for?
+	            <label>
+	              {t('request.spotsRemaining')}
               <input
                 min="1"
                 type="number"
@@ -2287,7 +3287,7 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
             </label>
           </div>
           <fieldset className="wide">
-            <legend>What kind of teammate are you looking for?</legend>
+            <legend>{t('request.teammateKind')}</legend>
             <CheckboxGrid
               options={workStyleOptions}
               selected={form.work_styles}
@@ -2295,8 +3295,8 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
             />
           </fieldset>
           <fieldset className="wide">
-            <legend>Any specific requirements?</legend>
-            <p className="field-helper">Optional - select anything that matters to your team.</p>
+            <legend>{t('request.requirementsTitle')}</legend>
+            <p className="field-helper">{t('request.requirementsHelper')}</p>
             <CheckboxGrid
               options={requirementOptions}
               selected={form.requirements_selected}
@@ -2318,14 +3318,14 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
             )}
             {form.requirements_selected.includes('Has a portfolio') && (
               <div className="conditional-box">
-                <strong>Portfolio requirement</strong>
+                <strong>{t('request.portfolioRequirement')}</strong>
                 <label className={form.portfolio_link_required ? 'check-option selected' : 'check-option'}>
                   <input
                     type="checkbox"
                     checked={form.portfolio_link_required}
                     onChange={() => updateField('portfolio_link_required', !form.portfolio_link_required)}
                   />
-                  <span>Ask candidates to provide a portfolio link</span>
+                  <span>{t('request.askPortfolio')}</span>
                 </label>
                 <label className={form.portfolio_upload_enabled ? 'check-option selected' : 'check-option'}>
                   <input
@@ -2337,27 +3337,27 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
                       portfolio_file: current.portfolio_upload_enabled ? null : current.portfolio_file,
                     }))}
                   />
-                  <span>Upload a portfolio / reference file</span>
+                  <span>{t('request.uploadPortfolio')}</span>
                 </label>
                 {form.portfolio_upload_enabled && (
                   <label>
-                    Upload portfolio / reference file
+                    {t('request.uploadPortfolio')}
                     <span className="field-helper">
-                      Optional - upload a portfolio or reference that helps candidates understand the level/style you are looking for.
+                      {t('request.uploadPortfolioHelper')}
                     </span>
                     <input
                       type="file"
                       accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
                       onChange={(event) => updatePortfolioFile(event.target.files?.[0] || null)}
                     />
-                    <span className="field-helper">PDF, PNG, JPG - Max 10 MB</span>
+                    <span className="field-helper">{t('request.uploadPortfolioLimit')}</span>
                   </label>
                 )}
               </div>
             )}
             {form.requirements_selected.includes('Has experience with specific software/tools') && (
               <div className="conditional-box">
-                <strong>Which tools?</strong>
+                <strong>{t('request.whichTools')}</strong>
                 <CheckboxGrid
                   options={toolOptions}
                   selected={form.required_tools}
@@ -2367,33 +3367,41 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
                   <input
                     value={form.other_tool}
                     onChange={(event) => updateField('other_tool', event.target.value)}
-                    placeholder="Other tools, separated by commas if needed"
+                    placeholder={t('request.otherTools')}
                   />
                 )}
               </div>
             )}
           </fieldset>
           <label className="wide">
-            Anything else?
+            {t('request.anythingElse')}
             <textarea
               value={form.requirements}
               onChange={(event) => updateField('requirements', event.target.value)}
-              placeholder="e.g. Prefer someone who has worked on an interactive web project before."
+              placeholder={t('request.notesPlaceholder')}
               rows="4"
             />
           </label>
         </div>
 
         {error && <p className="error">{error}</p>}
-        <button className="primary" type="submit" disabled={saving}>
-          {saving ? (mode === 'edit' ? 'Saving...' : 'Creating...') : (mode === 'edit' ? 'Save Changes' : 'Find Matches')}
-        </button>
+	        <button className="primary" type="submit" disabled={saving}>
+	          {saving ? (mode === 'edit' ? t('request.saving') : t('request.creating')) : (mode === 'edit' ? t('request.saveChanges') : t('request.findMatches'))}
+	        </button>
       </form>
     </main>
   );
 }
 
-function MatchCard({ request, connectionState, onView }) {
+function MatchCard({ request, connectionState, onView, onConnect, connecting, t = translate.bind(null, 'en') }) {
+  const teamStatus = request.team_status || {};
+  const remainingFromStatus = Number(teamStatus.remaining_members ?? request.members_needed ?? 0);
+  const teamStatusText = teamStatus.status_label
+    || (remainingFromStatus > 0
+      ? `${t('matches.lookingFor')} ${remainingFromStatus} ${remainingFromStatus === 1 ? t('matches.spot') : t('matches.spots')}`
+      : t('matches.teamNotSpecified'));
+  const canConnect = connectionState === 'none' && !connecting;
+
   return (
     <article className="match-card">
       <div className="score">
@@ -2401,59 +3409,70 @@ function MatchCard({ request, connectionState, onView }) {
         {request.matchScore}% Match
       </div>
       {request.ruleBasedScore !== undefined && request.ruleBasedScore !== request.matchScore && (
-        <p className="note">Standard score: {request.ruleBasedScore}%</p>
+        <p className="note">{t('matches.standardScore')}: {request.ruleBasedScore}%</p>
       )}
       <h3>{displayName(request.profile.full_name)} {request.profile.is_demo && <DemoBadge />}</h3>
       <p>{universityLabel(request.profile.university)} | {schoolLabel(request.profile.school)} | {request.profile.major}</p>
-      <p className={request.profile.is_available === false ? 'note unavailable-text' : 'note'}>
-        {request.profile.is_available === false ? 'Unavailable' : reviewSummaryLabel(request.profile)}
-      </p>
+      <p className="note">{reviewSummaryLabel(request.profile, null, t)}</p>
       <div className="match-meta">
         <span>{getCourseDisplay(request)}</span>
-        <span>{getSessionDisplay(request)}</span>
-        <span>{getInitialNeeded(request)} {getInitialNeeded(request) === 1 ? 'spot' : 'spots'} remaining</span>
+        <span>{getLocalizedSessionDisplay(request, t)}</span>
+        <span>{getInitialNeeded(request)} {getInitialNeeded(request) === 1 ? t('matches.spot') : t('matches.spots')} {t('matches.remaining')}</span>
       </div>
       <div className="mini-detail">
-        <strong>Skills they have</strong>
+        <strong>{t('matches.skillsHave')}</strong>
         <span>{joinList(request.profile.skills)}</span>
       </div>
       <div className="mini-detail">
-        <strong>Looking for</strong>
+        <strong>{t('matches.lookingFor')}</strong>
         <span>{joinList(request.skills_needed)}</span>
       </div>
       <div className="mini-detail">
-        <strong>Work style</strong>
+        <strong>{t('matches.workStyle')}</strong>
         <span>{joinList(getWorkStyles(request))}</span>
       </div>
       <div className="mini-detail">
-        <strong>Why this match</strong>
-        <span>{request.aiExplanation || 'Calculated using standard matching.'}</span>
+        <strong>{t('matches.teamStatus')}</strong>
+        <span>{teamStatusText}</span>
+      </div>
+      <div className="mini-detail">
+        <strong>{t('matches.why')}</strong>
+        <span>{request.aiExplanation || request.matchReason || t('matches.defaultWhy')}</span>
       </div>
       {request.aiStrengths?.length > 0 && (
         <div className="mini-detail">
-          <strong>Strengths</strong>
+          <strong>{t('matches.strengths')}</strong>
           <span>{joinList(request.aiStrengths)}</span>
         </div>
       )}
       {request.aiGaps?.length > 0 && (
         <div className="mini-detail">
-          <strong>Potential gaps</strong>
+          <strong>{t('matches.gaps')}</strong>
           <span>{joinList(request.aiGaps)}</span>
         </div>
       )}
       <ConnectionStateBadge state={connectionState} />
-      <button className="secondary" onClick={() => onView(request.id, request.matchScore)}>
-        View Profile
-      </button>
+      <div className="hero-actions">
+        <button className="secondary" onClick={() => onView(request.id, request.matchScore)}>
+          {t('common.viewProfile')}
+        </button>
+        {canConnect && (
+          <button className="primary" type="button" onClick={() => onConnect(request)} disabled={connecting}>
+            {connecting ? t('matches.sending') : t('matches.connect')}
+          </button>
+        )}
+      </div>
     </article>
   );
 }
 
-function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurrent, onCreateNew, onSelectRequest }) {
+function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurrent, onCreateNew, onSelectRequest, t = translate.bind(null, 'en') }) {
   const [state, setState] = useState({
     activeLoading: true,
     matchesLoading: false,
     error: '',
+    connectError: '',
+    sendingProfileId: '',
     data: null,
     activeRequests: [],
     progressById: {},
@@ -2569,7 +3588,7 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
           setState((current) => ({
             ...current,
             matchesLoading: false,
-            error: "We couldn't load teammates right now. Please try again.",
+            error: t('opportunities.loadFail'),
             data: null,
           }));
         }
@@ -2581,15 +3600,15 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
   }, [requestId, currentProfileId]);
 
   if (state.activeLoading) {
-    return <main className="screen compact"><p className="loading">Loading teammates...</p></main>;
+    return <main className="screen compact"><p className="loading">{t('matches.loading')}</p></main>;
   }
 
   if (!currentProfileId || state.activeRequests.length === 0) {
     return (
       <main className="screen compact">
         <section className="empty-state">
-          <p>You need an active team request before we can find teammates for you.</p>
-          <button className="primary" onClick={onCreateNew}>Create Team Request</button>
+          <p>{t('matches.needRequest')}</p>
+          <button className="primary" onClick={onCreateNew}>{t('matches.createRequest')}</button>
         </section>
       </main>
     );
@@ -2600,14 +3619,14 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
       <main className="screen compact">
         <section className="empty-state">
           <p>{state.error}</p>
-          <button className="secondary" onClick={onCreateNew}>Create New Search</button>
+          <button className="secondary" onClick={onCreateNew}>{t('matches.createNew')}</button>
         </section>
       </main>
     );
   }
 
   if (state.matchesLoading || !state.data) {
-    return <main className="screen compact"><p className="loading">Loading teammates...</p></main>;
+    return <main className="screen compact"><p className="loading">{t('matches.loading')}</p></main>;
   }
 
   const { currentRequest, matches } = state.data;
@@ -2631,31 +3650,66 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
     }
   };
 
+  const sendMatchConnect = async (request) => {
+    if (!currentProfileId || !currentRequest?.id) return;
+
+    setState((current) => ({
+      ...current,
+      connectError: '',
+      sendingProfileId: request.profile_id,
+    }));
+
+    try {
+      const connection = await sendConnectionRequest({
+        senderProfileId: currentProfileId,
+        receiverProfileId: request.profile_id,
+        senderTeamRequestId: currentRequest.id,
+        introMessage: `Hi ${displayName(request.profile?.full_name)}, your teammate search looks like a good match for mine. Want to connect?`,
+      });
+      setState((current) => ({
+        ...current,
+        sendingProfileId: '',
+        connectionsByProfile: {
+          ...current.connectionsByProfile,
+          [request.profile_id]: connection,
+        },
+      }));
+    } catch (err) {
+      setState((current) => ({
+        ...current,
+        sendingProfileId: '',
+        connectError: getFriendlyError(err, "We couldn't send your connection request. Please try again."),
+      }));
+    }
+  };
+
+  const isClassRequest = Boolean(currentRequest.class_id);
+
   return (
     <main className="screen results">
       <StepRail step={2} />
       <div className="results-header">
         <div>
-          <p className="eyebrow">Match Results</p>
-          <h2>Find teammates by request</h2>
+	          <p className="eyebrow">{isClassRequest ? t('matches.recommended') : t('matches.results')}</p>
+	          <h2>{isClassRequest ? t('matches.best') : t('matches.byRequest')}</h2>
         </div>
         <button className="secondary" onClick={onViewCurrent}>
           <Clock3 size={18} />
-          My Current Request
+	          {t('matches.current')}
         </button>
       </div>
 
       <section className="request-switcher-panel">
         <label>
-          Match Results for
+          {t('matches.resultsFor')}
           {state.activeRequests.length > 1 ? (
             <select value={currentRequest.id} onChange={(event) => handleRequestChange(event.target.value)}>
               {state.activeRequests.map((request) => (
                 <option value={request.id} key={request.id}>
-                  {request.id === currentRequest.id ? '✓ ' : ''}{getCourseDisplay(request)} | {getSessionDisplay(request)}
+                  {request.id === currentRequest.id ? '✓ ' : ''}{getCourseDisplay(request)} | {getLocalizedSessionDisplay(request, t)}
                 </option>
               ))}
-              <option value="__new__">+ Create New Request</option>
+              <option value="__new__">+ {t('matches.createNew')}</option>
             </select>
           ) : (
             <div className="static-request-name">{getCourseDisplay(currentRequest)}</div>
@@ -2663,21 +3717,23 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
         </label>
         <div className="request-context-summary">
           <h3>{getCourseDisplay(currentRequest)}</h3>
-          <p>Looking for: {joinList(currentRequest.skills_needed)}</p>
-          <p>{progressSummary(selectedMetrics)}</p>
-          <p>{remainingSummary(selectedMetrics)}</p>
+          <p>{t('matches.lookingFor')}: {joinList(currentRequest.skills_needed)}</p>
+          <p>{progressSummary(selectedMetrics, t)}</p>
+          <p>{remainingSummary(selectedMetrics, t)}</p>
         </div>
       </section>
 
+      {state.connectError && <p className="error">{state.connectError}</p>}
+
       {matches.length === 0 ? (
         <section className="empty-state">
-          <p>No active teammate searches are available right now.</p>
-          <button className="primary" onClick={onCreateNew}>Create Another Search</button>
+          <p>{t('matches.noneActive')}</p>
+          <button className="primary" onClick={onCreateNew}>{t('common.createAnother')}</button>
         </section>
       ) : visibleMatches.length === 0 ? (
         <section className="empty-state">
-          <p>No teammates match your current search yet. Try changing your criteria.</p>
-          <button className="primary" onClick={onCreateNew}>Create Another Search</button>
+          <p>{t('matches.noneMatch')}</p>
+          <button className="primary" onClick={onCreateNew}>{t('common.createAnother')}</button>
         </section>
       ) : (
         <div className="match-grid">
@@ -2687,6 +3743,9 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
               connectionState={getConnectionState(state.connectionsByProfile[request.profile_id], currentProfileId)}
               key={request.id}
               onView={onViewProfile}
+              onConnect={sendMatchConnect}
+              connecting={state.sendingProfileId === request.profile_id}
+              t={t}
             />
           ))}
         </div>
@@ -2695,7 +3754,7 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
   );
 }
 
-function DiscoverPage({ currentProfileId, onOpenProfile }) {
+function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null, 'en') }) {
   const [state, setState] = useState({
     loading: true,
     error: '',
@@ -2743,7 +3802,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
           setState((current) => ({
             ...current,
             loading: false,
-            error: "We couldn't load students right now. Please try again.",
+            error: t('discover.loadFail'),
           }));
         }
       });
@@ -2798,7 +3857,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
       setState((current) => ({
         ...current,
         sendingProfileId: '',
-        modalError: "We couldn't send your connection request. Please try again.",
+                modalError: t('connections.sendFail'),
       }));
     }
   };
@@ -2807,59 +3866,59 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
     <main className="screen">
       <div className="results-header">
         <div>
-          <p className="eyebrow">Discover</p>
-          <h2>Explore students across schools</h2>
-          <p>Discover is for networking and future projects, not a course-specific team request.</p>
+          <p className="eyebrow">{t('discover.title')}</p>
+          <h2>{t('discover.heading')}</h2>
+          <p>{t('discover.subtitle')}</p>
         </div>
       </div>
 
       <section className="filter-panel">
         <label>
-          University
+          {t('profile.university')}
           <select
             value={filters.university}
             onChange={(event) => setFilters((current) => ({ ...current, university: event.target.value }))}
           >
-            <option value="">All universities</option>
+            <option value="">{t('discover.allUniversities')}</option>
             {universityOptions.map((university) => (
               <option value={university.value} key={university.value}>{university.label}</option>
             ))}
           </select>
         </label>
         <label>
-          School
+          {t('profile.school')}
           <select
             value={filters.school}
             onChange={(event) => setFilters({ school: event.target.value, major: '', course: '', skill: filters.skill })}
           >
-            <option value="">All schools</option>
+            <option value="">{t('discover.allSchools')}</option>
             {schoolOptions.map((school) => (
               <option value={school.value} key={school.value}>{school.label}</option>
             ))}
           </select>
         </label>
         <label>
-          Major
+          {t('profile.major')}
           <select value={filters.major} onChange={(event) => setFilters((current) => ({ ...current, major: event.target.value }))}>
-            <option value="">All majors</option>
+            <option value="">{t('discover.allMajors')}</option>
             {availableMajors.map((major) => (
               <option value={major} key={major}>{major}</option>
             ))}
           </select>
         </label>
         <label>
-          Course
+          {t('class.course')}
           <select value={filters.course} onChange={(event) => setFilters((current) => ({ ...current, course: event.target.value }))}>
-            <option value="">All courses</option>
+            <option value="">{t('discover.allCourses')}</option>
             {discoverCourseOptions.map((course) => (
               <option value={course.code} key={course.code}>{formatCourseOption(course)}</option>
             ))}
           </select>
         </label>
         <label>
-          Skills
+          {t('profile.skills')}
           <select value={filters.skill} onChange={(event) => setFilters((current) => ({ ...current, skill: event.target.value }))}>
-            <option value="">All skills</option>
+            <option value="">{t('discover.allSkills')}</option>
             {discoverSkillOptions.map((skill) => (
               <option value={skill} key={skill}>{skill}</option>
             ))}
@@ -2867,11 +3926,11 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
         </label>
       </section>
 
-      {state.loading && <p className="loading">Loading students...</p>}
+      {state.loading && <p className="loading">{t('discover.loading')}</p>}
       {state.error && <p className="error">{state.error}</p>}
       {!state.loading && filteredProfiles.length === 0 && (
         <section className="empty-state">
-          <p>No students match these filters yet.</p>
+          <p>{t('discover.none')}</p>
         </section>
       )}
 
@@ -2879,7 +3938,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
         <div className="discover-grid">
           {filteredProfiles.map((profile) => {
             const disabledReason = !currentProfileId
-                ? 'Create a profile before connecting.'
+                ? t('connections.needProfile')
                 : '';
             const connection = state.sentByProfile[profile.id] || state.connectionsByProfile[profile.id];
             const connectionState = getConnectionState(connection, currentProfileId);
@@ -2891,13 +3950,13 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
                 <p>{universityLabel(profile.university)}</p>
                 <p>{schoolLabel(profile.school)}</p>
                 <p>{profile.major}</p>
-                <p className="note">{profile.is_available === false ? 'Unavailable' : reviewSummaryLabel(profile)}</p>
+	                <p className="note">{reviewSummaryLabel(profile, null, t)}</p>
                 {requestsByProfile[profile.id]?.[0] && (
                   <p>{getCourseDisplay(requestsByProfile[profile.id][0])}</p>
                 )}
-                <p>{profile.short_bio || 'No bio added yet.'}</p>
+                <p>{profile.short_bio || t('profile.noBio')}</p>
                 <div className="mini-detail">
-                  <strong>Skills they have</strong>
+                  <strong>{t('matches.skillsHave')}</strong>
                   <span>{joinList(profile.skills)}</span>
                 </div>
                 <ConnectionStateBadge state={connectionState} />
@@ -2907,12 +3966,12 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
                     className="secondary"
                     onClick={() => onOpenProfile(profile.id)}
                   >
-                    View Profile
+                    {t('common.viewProfile')}
                   </button>
                   {disabledReason ? (
                     <button className="disabled-contact compact-disabled" disabled>
                       <UserPlus size={18} />
-                      Connect
+                      {t('matches.connect')}
                     </button>
                   ) : connectionState === 'accepted' ? (
                     <button className="connected-button" disabled>
@@ -2920,16 +3979,16 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
                       {connectedButtonLabel(connection)}
                     </button>
                   ) : connectionState === 'sent_pending' ? (
-                    <button className="secondary" onClick={() => onOpenProfile(profile.id)}>Request Sent</button>
+                    <button className="secondary" onClick={() => onOpenProfile(profile.id)}>{t('connections.requestSent')}</button>
                   ) : connectionState === 'received_pending' ? (
-                    <button className="secondary" onClick={() => onOpenProfile(profile.id)}>Respond to Request</button>
+                    <button className="secondary" onClick={() => onOpenProfile(profile.id)}>{t('connections.respond')}</button>
                   ) : (
                     <button
                       className="primary"
                       onClick={() => setState((current) => ({ ...current, modalProfile: profile, modalError: '' }))}
                     >
                       <UserPlus size={18} />
-                      Connect
+                      {t('matches.connect')}
                     </button>
                   )}
                 </div>
@@ -2947,13 +4006,14 @@ function DiscoverPage({ currentProfileId, onOpenProfile }) {
           error={state.modalError}
           onClose={() => setState((current) => ({ ...current, modalProfile: null, modalError: '' }))}
           onSend={sendDiscoverConnect}
+          t={t}
         />
       )}
     </main>
   );
 }
 
-function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat, onOpenConnections }) {
+function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat, onOpenConnections, t = translate.bind(null, 'en') }) {
   const [state, setState] = useState({
     loading: true,
     error: '',
@@ -3104,42 +4164,41 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
     <main className="screen compact">
       <button className="ghost" type="button" onClick={onBack}>
         <ArrowLeft size={18} />
-        Back to Discover
+        {t('matches.backToDiscover')}
       </button>
       <section className="profile-panel standalone">
         <div className="avatar">{displayInitial(profile.full_name)}</div>
-        <p className="eyebrow">Discover Profile</p>
+        <p className="eyebrow">{t('matches.discoverProfile')}</p>
         <h2>{displayName(profile.full_name)} {profile.is_demo && <DemoBadge />}</h2>
-        <p>{profile.short_bio || 'No bio added yet.'}</p>
+        <p>{profile.short_bio || t('matches.noBio')}</p>
         <dl>
-          <div><dt>School</dt><dd>{schoolLabel(profile.school)}</dd></div>
-          <div><dt>University</dt><dd>{universityLabel(profile.university)}</dd></div>
-          <div><dt>Major</dt><dd>{profile.major}</dd></div>
-          <div><dt>Availability</dt><dd>{profile.is_available === false ? 'Unavailable' : 'Available for collaboration'}</dd></div>
-          <div><dt>Skills they have</dt><dd>{joinList(profile.skills)}</dd></div>
+          <div><dt>{t('profile.school')}</dt><dd>{schoolLabel(profile.school)}</dd></div>
+          <div><dt>{t('profile.university')}</dt><dd>{universityLabel(profile.university)}</dd></div>
+          <div><dt>{t('profile.major')}</dt><dd>{profile.major}</dd></div>
+          <div><dt>{t('matches.skillsHave')}</dt><dd>{joinList(profile.skills)}</dd></div>
           <div>
-            <dt>Contact</dt>
+            <dt>{t('profile.contact')}</dt>
             <dd>
               {profile.contact_value
                 ? `${contactLabel(profile.contact_type)}: ${profile.contact_value}`
                 : state.connection?.status === 'accepted'
-                  ? 'Not specified'
-                  : 'Visible after connecting'}
+                  ? t('common.notSpecified')
+                  : t('matches.visibleAfterConnecting')}
             </dd>
           </div>
         </dl>
-        <ReviewsSection profile={profile} reviews={state.reviews} />
+        <ReviewsSection profile={profile} reviews={state.reviews} t={t} />
         {state.activeRequest && (
           <div className="request-summary-box">
-            <p className="eyebrow">Looking for a Teammate</p>
+            <p className="eyebrow">{t('matches.lookingTeammate')}</p>
             <h3>{getCourseDisplay(state.activeRequest)}</h3>
             <dl>
-              <div><dt>Class / Session</dt><dd>{getSessionDisplay(state.activeRequest)}</dd></div>
-              <div><dt>Skills Needed</dt><dd>{joinList(state.activeRequest.skills_needed)}</dd></div>
-              <div><dt>Work Style</dt><dd>{joinList(getWorkStyles(state.activeRequest))}</dd></div>
-              <div><dt>Requirements</dt><dd>{describeRequirements(state.activeRequest)}</dd></div>
-              <div><dt>Team Size</dt><dd>{getTotalTeamSize(state.activeRequest)}</dd></div>
-              <div><dt>Looking For</dt><dd>{getInitialNeeded(state.activeRequest)} {getInitialNeeded(state.activeRequest) === 1 ? 'spot' : 'spots'}</dd></div>
+              <div><dt>{t('matches.classSession')}</dt><dd>{getLocalizedSessionDisplay(state.activeRequest, t)}</dd></div>
+              <div><dt>{t('request.skillsNeeded')}</dt><dd>{joinList(state.activeRequest.skills_needed)}</dd></div>
+              <div><dt>{t('matches.workStyle')}</dt><dd>{joinList(getWorkStyles(state.activeRequest))}</dd></div>
+              <div><dt>{t('matches.requirements')}</dt><dd>{describeRequirements(state.activeRequest)}</dd></div>
+              <div><dt>{t('matches.teamSize')}</dt><dd>{getTotalTeamSize(state.activeRequest)}</dd></div>
+              <div><dt>{t('matches.lookingFor')}</dt><dd>{getInitialNeeded(state.activeRequest)} {getInitialNeeded(state.activeRequest) === 1 ? t('matches.spot') : t('matches.spots')}</dd></div>
               <PortfolioReference request={state.activeRequest} />
             </dl>
           </div>
@@ -3156,7 +4215,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
           <div className="stacked-actions">
             <button className="disabled-contact" disabled>
               <UserPlus size={18} />
-              Connect
+	              {t('common.connect')}
             </button>
             <p className="connection-hint">{disabledReason}</p>
           </div>
@@ -3169,20 +4228,20 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
             <ConnectionRelationshipBadge connection={state.connection} />
             <button className="primary link-button" onClick={() => onOpenChat(state.connection.id)}>
               <MessageCircle size={18} />
-              Message
+	              {t('common.message')}
             </button>
             <button className="secondary link-button quiet-action" onClick={() => setState((current) => ({ ...current, unmatchOpen: true, actionError: '' }))}>
-              Unmatch
+	              {t('common.unmatch')}
             </button>
           </div>
         ) : connectionState === 'sent_pending' ? (
-          <button className="disabled-contact" disabled>Request Sent</button>
+	          <button className="disabled-contact" disabled>{t('common.requestSent')}</button>
         ) : connectionState === 'received_pending' ? (
-          <button className="secondary link-button" onClick={onOpenConnections}>Respond to Request</button>
+	          <button className="secondary link-button" onClick={onOpenConnections}>{t('common.respondRequest')}</button>
         ) : (
           <button className="primary link-button" onClick={() => setState((current) => ({ ...current, modalOpen: true, actionError: '' }))}>
             <UserPlus size={18} />
-            Connect
+	            {t('common.connect')}
           </button>
         )}
         {profile.is_demo && (
@@ -3204,6 +4263,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
           error={state.actionError}
           onClose={() => setState((current) => ({ ...current, modalOpen: false, actionError: '' }))}
           onSend={sendConnect}
+          t={t}
         />
       )}
       {state.unmatchOpen && (
@@ -3219,11 +4279,11 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
   );
 }
 
-function ReviewsSection({ reviews = [], profile, title = 'Existing Reviews' }) {
+function ReviewsSection({ reviews = [], profile, title = 'Existing Reviews', t = translate.bind(null, 'en') }) {
   return (
     <section className="request-summary-box">
       <p className="eyebrow">{title}</p>
-      <h3>{reviewSummaryLabel(profile, reviews)}</h3>
+      <h3>{reviewSummaryLabel(profile, reviews, t)}</h3>
       {reviews.length === 0 ? (
         <p className="note">No teammate reviews yet.</p>
       ) : (
@@ -3398,6 +4458,7 @@ function ProfileDetail({
   onBack,
   onOpenChat,
   onOpenConnections,
+  t = translate.bind(null, 'en'),
 }) {
   const [state, setState] = useState({
     loading: true,
@@ -3569,11 +4630,11 @@ function ProfileDetail({
     if (!currentProfileId) {
       return (
         <div className="stacked-actions">
-          <button className="disabled-contact" disabled>
-            <UserPlus size={18} />
-            Connect
-          </button>
-          <p className="connection-hint">Create a profile before connecting.</p>
+            <button className="disabled-contact" disabled>
+              <UserPlus size={18} />
+	            {t('common.connect')}
+            </button>
+	          <p className="connection-hint">{t('connect.needProfile')}</p>
         </div>
       );
     }
@@ -3585,20 +4646,20 @@ function ProfileDetail({
           onClick={() => setState((current) => ({ ...current, connectModalOpen: true, actionError: '' }))}
           disabled={!canSendConnection || state.actionLoading}
         >
-          <UserPlus size={18} />
-          Connect
+	          <UserPlus size={18} />
+	          {t('common.connect')}
         </button>
       );
     }
 
     if (connectionState === 'sent_pending') {
-      return <button className="disabled-contact" disabled>Request Sent</button>;
+	      return <button className="disabled-contact" disabled>{t('common.requestSent')}</button>;
     }
 
     if (connectionState === 'received_pending') {
       return (
         <button className="secondary link-button" onClick={onOpenConnections}>
-          Respond to Request
+	          {t('common.respondRequest')}
         </button>
       );
     }
@@ -3612,11 +4673,11 @@ function ProfileDetail({
           </button>
           <ConnectionRelationshipBadge connection={connection} />
           <button className="primary link-button" onClick={() => onOpenChat(connection.id)}>
-            <MessageCircle size={18} />
-            Message
+	            <MessageCircle size={18} />
+	            {t('common.message')}
           </button>
           <button className="secondary link-button quiet-action" onClick={() => setState((current) => ({ ...current, unmatchOpen: true, actionError: '' }))}>
-            Unmatch
+	            {t('common.unmatch')}
           </button>
         </div>
       );
@@ -3629,40 +4690,39 @@ function ProfileDetail({
     <main className="screen detail">
       <button className="ghost" type="button" onClick={onBack}>
         <ArrowLeft size={18} />
-        Back to Matches
+	        {t('matches.backToMatches')}
       </button>
 
       <section className="detail-layout">
         <div className="profile-panel">
           <div className="avatar">{displayInitial(profile.full_name)}</div>
-          <p className="eyebrow">Profile Data</p>
-          <h2>{displayName(profile.full_name)} {profile.is_demo && <DemoBadge />}</h2>
-          <p>{profile.short_bio || 'No bio added yet.'}</p>
-          <dl>
-            <div><dt>University</dt><dd>{universityLabel(profile.university)}</dd></div>
-            <div><dt>School</dt><dd>{schoolLabel(profile.school)}</dd></div>
-            <div><dt>Major</dt><dd>{profile.major}</dd></div>
-            <div><dt>Availability</dt><dd>{profile.is_available === false ? 'Unavailable' : 'Available for collaboration'}</dd></div>
-            <div><dt>Reviews</dt><dd>{reviewSummaryLabel(profile)}</dd></div>
+	          <p className="eyebrow">{t('matches.profileData')}</p>
+	          <h2>{displayName(profile.full_name)} {profile.is_demo && <DemoBadge />}</h2>
+	          <p>{profile.short_bio || t('matches.noBio')}</p>
+	          <dl>
+	            <div><dt>{t('profile.university')}</dt><dd>{universityLabel(profile.university)}</dd></div>
+	            <div><dt>{t('profile.school')}</dt><dd>{schoolLabel(profile.school)}</dd></div>
+	            <div><dt>{t('profile.major')}</dt><dd>{profile.major}</dd></div>
+	            <div><dt>{t('profile.reviews')}</dt><dd>{reviewSummaryLabel(profile, null, t)}</dd></div>
             <div>
-              <dt>Contact</dt>
-              <dd>
-                {profile.contact_value
-                  ? `${contactLabel(profile.contact_type)}: ${profile.contact_value}`
-                  : connection?.status === 'accepted'
-                    ? 'Not specified'
-                    : 'Visible after connecting'}
+	              <dt>{t('profile.contact')}</dt>
+	              <dd>
+	                {profile.contact_value
+	                  ? `${contactLabel(profile.contact_type)}: ${profile.contact_value}`
+	                  : connection?.status === 'accepted'
+	                    ? t('common.notSpecified')
+	                    : t('matches.visibleAfterConnecting')}
               </dd>
             </div>
           </dl>
           <div className="mini-detail">
-            <strong>Skills they have</strong>
+	            <strong>{t('matches.skillsHave')}</strong>
             <span>{joinList(profile.skills)}</span>
           </div>
           {state.actionError && <p className="error">{state.actionError}</p>}
           {state.actionSuccess && <p className="success">{state.actionSuccess}</p>}
           {renderConnectionAction()}
-          <ReviewsSection profile={profile} reviews={state.reviews} />
+          <ReviewsSection profile={profile} reviews={state.reviews} t={t} />
           {profile.is_demo && (
             <DemoSimulationPanel
               connection={connection}
@@ -3676,21 +4736,21 @@ function ProfileDetail({
         </div>
 
         <div className="request-panel">
-          <p className="eyebrow">Looking for a Teammate</p>
+	          <p className="eyebrow">{t('matches.lookingTeammate')}</p>
           <h3>{getCourseDisplay(request)}</h3>
           <dl>
-            {typeof matchScore === 'number' && <div><dt>Match Score</dt><dd>{matchScore}% Match</dd></div>}
-            <div><dt>School</dt><dd>{schoolLabel(request.school || profile.school)}</dd></div>
-            <div><dt>Major</dt><dd>{request.major || profile.major}</dd></div>
-            <div><dt>Class / Session</dt><dd>{getSessionDisplay(request)}</dd></div>
-            <div><dt>Skills Needed</dt><dd>{joinList(request.skills_needed)}</dd></div>
-            <div><dt>Team Size</dt><dd>{getTotalTeamSize(request)}</dd></div>
-            <div><dt>Looking For</dt><dd>{getInitialNeeded(request)} {getInitialNeeded(request) === 1 ? 'spot' : 'spots'}</dd></div>
-            <div><dt>Work Style</dt><dd>{joinList(getWorkStyles(request))}</dd></div>
-            <div><dt>Requirements</dt><dd>{describeRequirements(request)}</dd></div>
+	            {typeof matchScore === 'number' && <div><dt>{t('matches.matchScore')}</dt><dd>{matchScore}% Match</dd></div>}
+	            <div><dt>{t('profile.school')}</dt><dd>{schoolLabel(request.school || profile.school)}</dd></div>
+	            <div><dt>{t('profile.major')}</dt><dd>{request.major || profile.major}</dd></div>
+	            <div><dt>{t('matches.classSession')}</dt><dd>{getLocalizedSessionDisplay(request, t)}</dd></div>
+	            <div><dt>{t('request.skillsNeeded')}</dt><dd>{joinList(request.skills_needed)}</dd></div>
+	            <div><dt>{t('matches.teamSize')}</dt><dd>{getTotalTeamSize(request)}</dd></div>
+	            <div><dt>{t('matches.lookingFor')}</dt><dd>{getInitialNeeded(request)} {getInitialNeeded(request) === 1 ? t('matches.spot') : t('matches.spots')}</dd></div>
+	            <div><dt>{t('matches.workStyle')}</dt><dd>{joinList(getWorkStyles(request))}</dd></div>
+	            <div><dt>{t('matches.requirements')}</dt><dd>{describeRequirements(request)}</dd></div>
             <PortfolioReference request={request} />
           </dl>
-          {currentRequestId === request.id && <p className="note">This is your current request.</p>}
+	          {currentRequestId === request.id && <p className="note">{t('matches.thisRequest')}</p>}
           <TeammateFeedbackPanel
             connection={connection}
             currentProfileId={currentProfileId}
@@ -3706,6 +4766,7 @@ function ProfileDetail({
           error={state.actionError}
           onClose={() => setState((current) => ({ ...current, connectModalOpen: false, actionError: '' }))}
           onSend={connect}
+          t={t}
         />
       )}
       {state.unmatchOpen && (
@@ -3727,9 +4788,11 @@ function CurrentRequest({
   profile,
   onBack,
   onOpenChat,
-  onViewProfile,
-  onSelectRequest,
-  onCreateNew,
+	  onViewProfile,
+	  onSelectRequest,
+	  onViewRecommended,
+	  onCreateNew,
+	  t = translate.bind(null, 'en'),
 }) {
   const [state, setState] = useState({
     loading: true,
@@ -3820,13 +4883,13 @@ function CurrentRequest({
         requests: current.requests.map((request) =>
           request.id === updated.id ? { ...request, ...updated } : request,
         ),
-        success: 'Your request is marked as complete.',
+        success: t('opportunities.complete'),
       }));
     } catch {
       setState((current) => ({
         ...current,
         saving: false,
-        error: "We couldn't update your request. Please try again.",
+        error: t('opportunities.updateFail'),
       }));
     }
   };
@@ -3843,13 +4906,13 @@ function CurrentRequest({
           request.id === updated.id ? { ...request, ...updated } : request,
         ),
         dismissedReopen: true,
-        success: 'Your request is open again.',
+        success: t('opportunities.reopened'),
       }));
     } catch {
       setState((current) => ({
         ...current,
         saving: false,
-        error: "We couldn't reopen your request. Please try again.",
+        error: t('opportunities.reopenFail'),
       }));
     }
   };
@@ -3873,7 +4936,7 @@ function CurrentRequest({
         saving: false,
         cancelTarget: null,
         selectedId: current.selectedId === target.id ? nextActiveRequest?.id || target.id : current.selectedId,
-        success: 'Request cancelled.',
+        success: t('opportunities.cancelled'),
       }));
 
       if (state.selectedId === target.id) {
@@ -3883,7 +4946,7 @@ function CurrentRequest({
       setState((current) => ({
         ...current,
         saving: false,
-        error: "We couldn't cancel this request. Please try again.",
+        error: t('opportunities.cancelFail'),
       }));
     }
   };
@@ -3900,7 +4963,7 @@ function CurrentRequest({
   };
 
   if (state.loading) {
-    return <main className="screen compact"><p className="loading">Loading requests...</p></main>;
+    return <main className="screen compact"><p className="loading">{t('request.loading')}</p></main>;
   }
 
   if (state.error && state.requests.length === 0) {
@@ -3930,22 +4993,22 @@ function CurrentRequest({
       <article className={isSelected ? 'request-list-row selected' : 'request-list-row'}>
         <div>
           <h3>{getCourseDisplay(request)}</h3>
-          <p>{getSessionDisplay(request)} | {titleCase(request.status)}</p>
+          <p>{getLocalizedSessionDisplay(request, t)} | {requestStatusLabel(request.status, t)}</p>
           <p className="note">
-            {progressSummary(requestMetrics)}
-            {request.status === 'looking' ? ` | ${remainingSummary(requestMetrics)}` : ''}
+            {progressSummary(requestMetrics, t)}
+            {request.status === 'looking' ? ` | ${remainingSummary(requestMetrics, t)}` : ''}
           </p>
         </div>
         <div className="request-row-actions">
-          <button className="secondary" onClick={() => selectRequest(request)}>View Details</button>
+          <button className="secondary" onClick={() => selectRequest(request)}>{t('common.viewDetails')}</button>
           <button className="secondary" onClick={() => setState((current) => ({ ...current, editingRequest: request, success: '', error: '' }))}>
             <Pencil size={18} />
-            Edit Request
+            {t('common.editRequest')}
           </button>
           {request.status === 'looking' && (
             <button className="secondary quiet-action" onClick={() => setState((current) => ({ ...current, cancelTarget: request, success: '', error: '' }))}>
               <Trash2 size={18} />
-              Cancel Request
+              {t('opportunities.cancel')}
             </button>
           )}
         </div>
@@ -3957,7 +5020,7 @@ function CurrentRequest({
     <section className="request-list-section">
       <h3>{title}</h3>
       {requests.length === 0 ? (
-        <p className="note">No {title.toLowerCase()} requests.</p>
+        <p className="note">{t('opportunities.noSection', { section: title.toLowerCase() })}</p>
       ) : (
         <div className="request-list">
           {requests.map((request) => <RequestRow request={request} key={request.id} />)}
@@ -3972,7 +5035,8 @@ function CurrentRequest({
         profile={profile}
         request={state.editingRequest}
         mode="edit"
-        onBack={() => setState((current) => ({ ...current, editingRequest: null, error: '', success: '' }))}
+	        onBack={() => setState((current) => ({ ...current, editingRequest: null, error: '', success: '' }))}
+	        t={t}
         onUpdated={async (updatedRequest) => {
           const updatedProgress = await getTeamRequestProgress(updatedRequest.id, currentProfileId)
             .catch(() => ({ found_count: 0, teammates: [] }));
@@ -3987,7 +5051,7 @@ function CurrentRequest({
               [updatedRequest.id]: updatedProgress,
             },
             selectedId: updatedRequest.id,
-            success: 'Request updated successfully.',
+            success: t('opportunities.updated'),
           }));
           if (updatedRequest.status === 'looking') {
             onSelectRequest(updatedRequest.id);
@@ -4000,11 +5064,12 @@ function CurrentRequest({
   if (!selectedRequest) {
     return (
       <main className="screen compact">
-        <section className="empty-state">
-          <p>No open opportunities yet.</p>
-          <button className="primary" onClick={onCreateNew}>
-            <Plus size={18} />
-            New Open Opportunity
+	        <section className="empty-state">
+	          <p>{t('opportunities.none')}</p>
+	          <p className="note">{t('opportunities.emptyIntro')}</p>
+	          <button className="primary" onClick={onCreateNew}>
+	            <Plus size={18} />
+	            {t('opportunities.new')}
           </button>
         </section>
       </main>
@@ -4017,63 +5082,69 @@ function CurrentRequest({
     <main className="screen">
       <button className="ghost" type="button" onClick={onBack}>
         <ArrowLeft size={18} />
-        Back
+        {t('common.back')}
       </button>
       <div className="results-header">
         <div>
-          <p className="eyebrow">Open Opportunities</p>
-          <h2>Your outside-class team searches</h2>
+          <p className="eyebrow">{t('opportunities.title')}</p>
+          <h2>{t('opportunities.subtitle')}</h2>
         </div>
         <button className="primary" onClick={onCreateNew}>
           <Plus size={18} />
-          New Open Opportunity
+          {t('opportunities.new')}
         </button>
       </div>
 
       <div className="request-management-grid">
         <section className="request-list-panel">
-          <RequestSection title="Active" requests={groupedRequests.active} />
-          <RequestSection title="Completed" requests={groupedRequests.completed} />
-          <RequestSection title="Cancelled" requests={groupedRequests.cancelled} />
+          <RequestSection title={t('common.active')} requests={groupedRequests.active} />
+          <RequestSection title={t('common.completed')} requests={groupedRequests.completed} />
+          <RequestSection title={t('common.cancelled')} requests={groupedRequests.cancelled} />
         </section>
 
       <section className="request-panel standalone">
-        <p className="eyebrow">Selected Request</p>
-        <h2>{getCourseDisplay(request)}</h2>
-        <dl>
-          <div><dt>School</dt><dd>{schoolLabel(request.school || request.profile?.school)}</dd></div>
-          <div><dt>Major</dt><dd>{request.major || request.profile?.major || 'Not specified'}</dd></div>
-          <div><dt>Class / Session</dt><dd>{getSessionDisplay(request)}</dd></div>
-          <div><dt>Skills Needed</dt><dd>{joinList(request.skills_needed)}</dd></div>
-          <div><dt>Total Team Size</dt><dd>{getTotalTeamSize(request)}</dd></div>
-          <div><dt>Initially Looking For</dt><dd>{getInitialNeeded(request)}</dd></div>
-          <div><dt>Work Style</dt><dd>{joinList(getWorkStyles(request))}</dd></div>
-          <div><dt>Requirements</dt><dd>{describeRequirements(request)}</dd></div>
+	        <p className="eyebrow">{t('opportunities.selected')}</p>
+	        <h2>{getCourseDisplay(request)}</h2>
+	        <dl>
+	          <div><dt>{t('request.opportunityType')}</dt><dd>{request.opportunity_type || request.course_code || t('common.notSpecified')}</dd></div>
+	          <div><dt>{t('request.field')}</dt><dd>{request.opportunity_field || request.major || t('common.notSpecified')}</dd></div>
+	          <div><dt>{t('request.deadline')}</dt><dd>{request.deadline || t('common.notSpecified')}</dd></div>
+	          <div><dt>{t('request.skillsNeeded')}</dt><dd>{joinList(request.skills_needed)}</dd></div>
+	          <div><dt>{t('request.teamSize')}</dt><dd>{getTotalTeamSize(request)}</dd></div>
+          <div><dt>{t('opportunities.initiallyLooking')}</dt><dd>{getInitialNeeded(request)}</dd></div>
+          <div><dt>{t('request.teammateKind')}</dt><dd>{joinList(getWorkStyles(request))}</dd></div>
+          <div><dt>{t('request.requirementsTitle')}</dt><dd>{describeRequirements(request)}</dd></div>
           <PortfolioReference request={request} />
-          <div><dt>Status</dt><dd>{titleCase(request.status)}</dd></div>
+          <div><dt>{t('matches.teamStatus')}</dt><dd>{requestStatusLabel(request.status, t)}</dd></div>
         </dl>
-        <div className="hero-actions">
-          <button className="secondary" onClick={() => setState((current) => ({ ...current, editingRequest: request, success: '', error: '' }))}>
-            <Pencil size={18} />
-            Edit Request
+	        <div className="hero-actions">
+	          {request.status === 'looking' && (
+	            <button className="primary" onClick={() => onViewRecommended?.(request.id)}>
+	              <Sparkles size={18} />
+	              {t('matches.viewRecommended')}
+	            </button>
+	          )}
+	          <button className="secondary" onClick={() => setState((current) => ({ ...current, editingRequest: request, success: '', error: '' }))}>
+	            <Pencil size={18} />
+	            {t('common.editRequest')}
           </button>
           {request.status === 'looking' && (
             <button className="secondary quiet-action" onClick={() => setState((current) => ({ ...current, cancelTarget: request, success: '', error: '' }))}>
               <Trash2 size={18} />
-              Cancel Request
+              {t('opportunities.cancel')}
             </button>
           )}
         </div>
         <section className="progress-panel">
           <div className="progress-header">
-            <strong>Progress</strong>
-            <span>{progressSummary(metrics)}</span>
+            <strong>{t('opportunities.progress')}</strong>
+            <span>{progressSummary(metrics, t)}</span>
           </div>
           <div className="progress-track" aria-label="Team formation progress">
             <div className="progress-fill" style={{ width: `${metrics.percent}%` }} />
           </div>
-          {teamComplete ? <p className="success">Team complete 🎉</p> : <p className="note">{remainingSummary(metrics)}</p>}
-          {metrics.matchedCount > 0 && !teamComplete && <p className="note">You found another teammate! {remainingSummary(metrics)}</p>}
+	          {teamComplete ? <p className="success">{t('status.teamComplete')}</p> : <p className="note">{remainingSummary(metrics, t)}</p>}
+          {metrics.matchedCount > 0 && !teamComplete && <p className="note">{t('opportunities.foundAnother')} {remainingSummary(metrics, t)}</p>}
         </section>
 
         <MatchUsefulnessPanel
@@ -4084,40 +5155,40 @@ function CurrentRequest({
 
         <section className="progress-panel">
           <div className="progress-header">
-            <strong>Skill Coverage</strong>
-            <span>{skillGap.covered.length} / {skillGap.total} skills covered</span>
+            <strong>{t('opportunities.skillCoverage')}</strong>
+            <span>{t('opportunities.skillsCovered', { covered: skillGap.covered.length, total: skillGap.total })}</span>
           </div>
           <div className="connection-context">
             <div className="mini-detail">
-              <strong>Covered Skills</strong>
+              <strong>{t('opportunities.coveredSkills')}</strong>
               <span>{joinList(skillGap.covered)}</span>
             </div>
             <div className="mini-detail">
-              <strong>Missing Skills</strong>
+              <strong>{t('opportunities.missingSkills')}</strong>
               <span>{joinList(skillGap.missing)}</span>
             </div>
           </div>
         </section>
 
         <section className="matched-list">
-          <h3>Matched Teammates ({metrics.matchedCount})</h3>
+          <h3>{t('opportunities.matchedTeammates')} ({metrics.matchedCount})</h3>
           {teammates.length === 0 ? (
-            <p className="note">No teammates matched yet.</p>
+            <p className="note">{t('opportunities.noMatched')}</p>
           ) : (
             teammates.map((teammate) => (
               <article className="matched-row" key={teammate.profile_id}>
                 <div>
-                  <strong>✓ {displayName(teammate.full_name)} {teammate.is_demo && <DemoBadge />}</strong>
-                  <span>{teammate.major || 'Not specified'}</span>
+	                  <strong>{displayName(teammate.full_name)} {teammate.is_demo && <DemoBadge />}</strong>
+                  <span>{teammate.major || t('common.notSpecified')}</span>
                 </div>
                 <div className="hero-actions">
                   <button className="secondary" onClick={() => onOpenChat(teammate.connection_id)}>
                     <MessageCircle size={18} />
-                    Message
+                    {t('common.message')}
                   </button>
                   {teammate.active_request_id && (
                     <button className="secondary" onClick={() => onViewProfile(teammate.active_request_id)}>
-                      View Profile
+                      {t('common.viewProfile')}
                     </button>
                   )}
                 </div>
@@ -4128,14 +5199,14 @@ function CurrentRequest({
 
         {teamComplete && request.status === 'looking' && !state.dismissedComplete && (
           <section className="inline-prompt">
-            <h3>Your team is complete.</h3>
-            <p>You've found all the teammates you need. Mark this request as complete?</p>
+            <h3>{t('opportunities.teamCompleteTitle')}</h3>
+            <p>{t('opportunities.teamCompleteQuestion')}</p>
             <div className="hero-actions">
               <button className="primary" onClick={markFound} disabled={state.saving}>
-                {state.saving ? 'Updating...' : 'Mark as Complete'}
+                {state.saving ? t('common.updating') : t('opportunities.markComplete')}
               </button>
               <button className="secondary" onClick={() => setState((current) => ({ ...current, dismissedComplete: true }))}>
-                Keep Looking
+                {t('common.keepLooking')}
               </button>
             </div>
           </section>
@@ -4143,14 +5214,14 @@ function CurrentRequest({
 
         {noLongerComplete && !state.dismissedReopen && (
           <section className="inline-prompt warning-prompt">
-            <h3>Your team is no longer complete.</h3>
-            <p>Reopen this request?</p>
+            <h3>{t('opportunities.noLongerComplete')}</h3>
+            <p>{t('opportunities.reopenQuestion')}</p>
             <div className="hero-actions">
               <button className="primary" onClick={reopenRequest} disabled={state.saving}>
-                {state.saving ? 'Reopening...' : 'Reopen Request'}
+                {state.saving ? t('opportunities.reopening') : t('opportunities.reopen')}
               </button>
               <button className="secondary" onClick={() => setState((current) => ({ ...current, dismissedReopen: true }))}>
-                Keep Closed
+                {t('common.keepClosed')}
               </button>
             </div>
           </section>
@@ -4163,21 +5234,21 @@ function CurrentRequest({
 
       {state.cancelTarget && (
         <div className="modal-backdrop" role="presentation">
-          <section className="connect-modal" role="dialog" aria-modal="true" aria-label="Cancel request confirmation">
+          <section className="connect-modal" role="dialog" aria-modal="true" aria-label={t('opportunities.cancelTitle')}>
             <div className="modal-header">
               <div>
-                <p className="eyebrow">Cancel Request</p>
-                <h2>Cancel this request?</h2>
+                <p className="eyebrow">{t('opportunities.cancelTitle')}</p>
+                <h2>{t('opportunities.cancelQuestion')}</h2>
               </div>
-              <button className="ghost" onClick={() => setState((current) => ({ ...current, cancelTarget: null }))} type="button">Close</button>
+              <button className="ghost" onClick={() => setState((current) => ({ ...current, cancelTarget: null }))} type="button">{t('common.close')}</button>
             </div>
-            <p className="note">Are you sure you no longer want to look for teammates for this request?</p>
+            <p className="note">{t('opportunities.cancelHelper')}</p>
             <div className="hero-actions">
               <button className="secondary" onClick={() => setState((current) => ({ ...current, cancelTarget: null }))} type="button">
-                Keep Request
+                {t('opportunities.keep')}
               </button>
               <button className="primary danger-action" onClick={cancelRequest} disabled={state.saving}>
-                {state.saving ? 'Cancelling...' : 'Cancel Request'}
+                {state.saving ? t('opportunities.cancelling') : t('opportunities.cancel')}
               </button>
             </div>
           </section>
@@ -4187,55 +5258,60 @@ function CurrentRequest({
   );
 }
 
-function FoundConfirmation({ onCreateAnother, onHome }) {
+function FoundConfirmation({ onCreateAnother, onHome, t = translate.bind(null, 'en') }) {
   return (
     <main className="screen compact">
       <section className="confirmation">
         <CheckCircle2 size={42} />
-        <p className="eyebrow">Team Found Confirmation</p>
-        <h2>Your search is marked as found.</h2>
-        <p>Your profile is still saved on this device, so you can create another request later.</p>
+        <p className="eyebrow">{t('found.title')}</p>
+        <h2>{t('found.heading')}</h2>
+        <p>{t('found.body')}</p>
         <div className="hero-actions center">
-          <button className="primary" onClick={onCreateAnother}>Create Another Request</button>
-          <button className="secondary" onClick={onHome}>Home</button>
+          <button className="primary" onClick={onCreateAnother}>{t('found.createAnother')}</button>
+          <button className="secondary" onClick={onHome}>{t('found.home')}</button>
         </div>
       </section>
     </main>
   );
 }
 
-function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onViewProfile, onNotificationsChanged }) {
+function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onViewProfile, onNotificationsChanged, t = translate.bind(null, 'en') }) {
   const [tab, setTab] = useState('received');
   const [state, setState] = useState({
     loading: true,
     error: '',
     received: [],
     sent: [],
-    connected: [],
-    declined: [],
-    currentRequest: null,
+	    connected: [],
+	    declined: [],
+	    friends: [],
+	    currentRequest: null,
     actionLoadingId: '',
     actionError: '',
-    actionSuccess: '',
-    unmatchTarget: null,
-    unmatchSaving: false,
-  });
+	    actionSuccess: '',
+	    unmatchTarget: null,
+	    unmatchSaving: false,
+	    editMessageTarget: null,
+	    editMessageText: '',
+	    withdrawTarget: null,
+	  });
 
   const loadConnections = async () => {
     if (!currentProfileId) {
-      setState((current) => ({ ...current, loading: false, received: [], sent: [], connected: [] }));
+	      setState((current) => ({ ...current, loading: false, received: [], sent: [], connected: [], friends: [] }));
       return;
     }
 
     setState((current) => ({ ...current, loading: true, error: '' }));
 
     try {
-      const [received, sent, connected, currentRequest] = await Promise.all([
-        getConnectionRequests(currentProfileId, 'received'),
-        getConnectionRequests(currentProfileId, 'sent'),
-        getConnectionRequests(currentProfileId, 'connected'),
-        currentRequestId ? getTeamRequestById(currentRequestId).catch(() => null) : Promise.resolve(null),
-      ]);
+	      const [received, sent, connected, friends, currentRequest] = await Promise.all([
+	        getConnectionRequests(currentProfileId, 'received'),
+	        getConnectionRequests(currentProfileId, 'sent'),
+	        getConnectionRequests(currentProfileId, 'connected'),
+	        listFriends(currentProfileId).catch(() => []),
+	        currentRequestId ? getTeamRequestById(currentRequestId).catch(() => null) : Promise.resolve(null),
+	      ]);
       const [declined, unmatched] = await Promise.all([
         getConnectionRequests(currentProfileId, 'declined'),
         getConnectionRequests(currentProfileId, 'unmatched'),
@@ -4249,15 +5325,16 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
         loading: false,
         received,
         sent,
-        connected,
-        declined: declinedRows,
-        currentRequest,
-      }));
+	        connected,
+	        declined: declinedRows,
+	        friends,
+	        currentRequest,
+	      }));
     } catch {
       setState((current) => ({
         ...current,
         loading: false,
-        error: "We couldn't load connection requests right now. Please try again.",
+        error: t('connections.loadFail'),
       }));
     }
   };
@@ -4280,13 +5357,77 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
       setState((current) => ({
         ...current,
         actionLoadingId: '',
-        error: "We couldn't update this connection request. Please try again.",
+        error: t('connections.updateFail'),
       }));
     }
   };
 
-  const cancel = async (connectionId) => {
-    setState((current) => ({ ...current, actionLoadingId: connectionId, error: '' }));
+	  const withdraw = async () => {
+	    const target = state.withdrawTarget;
+	    if (!target) return;
+
+	    setState((current) => ({ ...current, actionLoadingId: target.id, actionError: '', actionSuccess: '' }));
+
+	    try {
+	      await cancelConnectionRequest(target.id, currentProfileId);
+	      setState((current) => ({
+	        ...current,
+	        withdrawTarget: null,
+	        actionLoadingId: '',
+	        actionSuccess: t('connections.withdrawn'),
+	      }));
+	      await loadConnections();
+	    } catch {
+	      setState((current) => ({
+	        ...current,
+	        actionLoadingId: '',
+	        actionError: t('connections.cancelFail'),
+	      }));
+	    }
+	  };
+
+	  const openEditMessage = (request) => {
+	    setState((current) => ({
+	      ...current,
+	      editMessageTarget: request,
+	      editMessageText: request.intro_message || '',
+	      actionError: '',
+	      actionSuccess: '',
+	    }));
+	  };
+
+	  const saveEditedMessage = async () => {
+	    const target = state.editMessageTarget;
+	    if (!target) return;
+
+	    setState((current) => ({ ...current, actionLoadingId: target.id, actionError: '', actionSuccess: '' }));
+
+	    try {
+	      await updatePendingConnectionMessage({
+	        connectionId: target.id,
+	        senderProfileId: currentProfileId,
+	        introMessage: state.editMessageText,
+	      });
+	      setState((current) => ({
+	        ...current,
+	        editMessageTarget: null,
+	        editMessageText: '',
+	        actionLoadingId: '',
+	        actionSuccess: t('connections.messageUpdated'),
+	      }));
+	      await loadConnections();
+	    } catch (err) {
+	      console.error('Connection message update failed', err);
+	      setState((current) => ({
+	        ...current,
+	        actionLoadingId: '',
+	        actionError: t('connections.messageUpdateFail'),
+	      }));
+	    }
+	  };
+
+	  const cancel = async (connectionId) => {
+	    setState((current) => ({ ...current, actionLoadingId: connectionId, error: '' }));
 
     try {
       await cancelConnectionRequest(connectionId, currentProfileId);
@@ -4295,7 +5436,7 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
       setState((current) => ({
         ...current,
         actionLoadingId: '',
-        error: "We couldn't cancel this connection request. Please try again.",
+        error: t('connections.cancelFail'),
       }));
     }
   };
@@ -4316,38 +5457,41 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
         ...current,
         unmatchSaving: false,
         unmatchTarget: null,
-        actionSuccess: `You are no longer connected with ${displayName(target.teammate_full_name)}.`,
+        actionSuccess: t('connections.unmatchedWith', { name: displayName(target.teammate_full_name) }),
       }));
       await loadConnections();
     } catch {
       setState((current) => ({
         ...current,
         unmatchSaving: false,
-        actionError: "We couldn't unmatch this connection. Please try again.",
+        actionError: t('connections.unmatchFail'),
       }));
     }
   };
 
   const tabs = [
-    { id: 'received', label: 'Received', rows: state.received },
-    { id: 'sent', label: 'Sent', rows: state.sent },
-    { id: 'connected', label: 'Connected', rows: state.connected },
-    { id: 'declined', label: 'Declined', rows: state.declined },
-  ];
+    { id: 'received', label: t('connections.received'), rows: state.received },
+    { id: 'sent', label: t('connections.sent'), rows: state.sent },
+	    { id: 'connected', label: t('connections.connected'), rows: state.connected },
+	    { id: 'friends', label: t('connections.friends'), rows: state.friends },
+	    { id: 'declined', label: t('connections.declined'), rows: state.declined },
+	  ];
   const activeRows = tabs.find((item) => item.id === tab)?.rows || [];
   const emptyCopy = {
-    received: 'No connection requests yet.',
-    sent: 'No pending sent requests yet.',
-    connected: 'No connected teammates yet.',
-    declined: 'No declined or ended connections.',
-  };
+    received: t('connections.noneReceived'),
+    sent: t('connections.noneSent'),
+	    connected: t('connections.noneConnected'),
+	    friends: t('connections.noneFriends'),
+	    declined: t('connections.noneDeclined'),
+	  };
+	  const showingFriends = tab === 'friends';
 
   return (
     <main className="screen">
       <div className="results-header">
         <div>
-          <p className="eyebrow">Connections</p>
-          <h2>Connection requests</h2>
+          <p className="eyebrow">{t('nav.connections')}</p>
+          <h2>{t('connections.requests')}</h2>
         </div>
         <div className="segmented">
           {tabs.map((item) => (
@@ -4360,13 +5504,14 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
 
       {!currentProfileId && (
         <section className="empty-state">
-          <p>Create a profile before using connections.</p>
+          <p>{t('connections.needProfile')}</p>
         </section>
       )}
 
-      {currentProfileId && state.loading && <p className="loading">Loading connections...</p>}
-      {state.error && <p className="error">{state.error}</p>}
-      {state.actionSuccess && <p className="success">{state.actionSuccess}</p>}
+	      {currentProfileId && state.loading && <p className="loading">{t('connections.loading')}</p>}
+	      {state.error && <p className="error">{state.error}</p>}
+	      {state.actionError && <p className="error">{state.actionError}</p>}
+	      {state.actionSuccess && <p className="success">{state.actionSuccess}</p>}
 
       {currentProfileId && !state.loading && activeRows.length === 0 && (
         <section className="empty-state">
@@ -4374,19 +5519,49 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
         </section>
       )}
 
-      {currentProfileId && !state.loading && activeRows.length > 0 && (
-        <div className="connection-list">
+	      {currentProfileId && !state.loading && showingFriends && activeRows.length > 0 && (
+	        <div className="discover-grid">
+	          {activeRows.map((friend) => (
+	            <article className="discover-card" key={friend.connection_id}>
+	              <div className="avatar">{displayInitial(friend.teammate_full_name)}</div>
+	              <h3>{displayName(friend.teammate_full_name)} {friend.teammate_is_demo && <DemoBadge />}</h3>
+	              <p>{friend.teammate_university || 'RMIT University'}</p>
+	              <p>{schoolLabel(friend.teammate_school)} | {friend.teammate_major}</p>
+	              <div className="mini-detail">
+	                <strong>{t('connections.relationship')}</strong>
+	                <span>{t('connections.friendNotTeammate')}</span>
+	              </div>
+	              <div className="mini-detail">
+	                <strong>{t('matches.skillsHave')}</strong>
+	                <span>{joinList(friend.teammate_skills)}</span>
+	              </div>
+	              <div className="hero-actions">
+	                <button className="primary" onClick={() => onOpenChat(friend.connection_id)}>
+	                  <MessageCircle size={18} />
+	                  {t('common.message')}
+	                </button>
+	                <button className="secondary" onClick={() => onViewProfile(friend.teammate_profile_id)}>
+	                  {t('common.viewProfile')}
+	                </button>
+	              </div>
+	            </article>
+	          ))}
+	        </div>
+	      )}
+
+	      {currentProfileId && !state.loading && !showingFriends && activeRows.length > 0 && (
+	        <div className="connection-list">
           {activeRows.map((request) => (
             <article className="connection-row" key={request.id}>
               <div>
                 <p className="eyebrow">
-                  {tab === 'received' && `Received from ${displayName(request.teammate_full_name)}`}
-                  {tab === 'sent' && `Sent to ${displayName(request.teammate_full_name)}`}
-                  {tab === 'connected' && `${connectionRelationshipLabel(request)} · Connected with ${displayName(request.teammate_full_name)}`}
+                  {tab === 'received' && t('connections.receivedFrom', { name: displayName(request.teammate_full_name) })}
+                  {tab === 'sent' && t('connections.sentTo', { name: displayName(request.teammate_full_name) })}
+                  {tab === 'connected' && `${connectionRelationshipLabel(request)} · ${t('connections.connectedWith', { name: displayName(request.teammate_full_name) })}`}
                   {tab === 'declined' && (
                     request.status === 'unmatched'
-                      ? `Connection ended with ${displayName(request.teammate_full_name)}`
-                      : `Declined with ${displayName(request.teammate_full_name)}`
+                      ? t('connections.endedWith', { name: displayName(request.teammate_full_name) })
+                      : t('connections.declinedWith', { name: displayName(request.teammate_full_name) })
                   )}
                 </p>
                 <h3>{displayName(request.teammate_full_name)} {(request.teammate_is_demo || request.teammate_full_name?.includes('(Demo)')) && <DemoBadge />}</h3>
@@ -4394,7 +5569,7 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
                 {getCourseFilterValue(request) ? (
                   <p>{getCourseDisplay(request)} | {getSessionDisplay(request)}</p>
                 ) : (
-                  <p>Discover connection</p>
+                  <p>{t('connections.discoverConnection')}</p>
                 )}
                 {request.intro_message && <blockquote className="intro-message">{request.intro_message}</blockquote>}
                 {request.sender_team_request_id && state.currentRequest && (
@@ -4420,11 +5595,11 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
                 )}
                 <div className="connection-context">
                   <div className="mini-detail">
-                    <strong>Skills they have</strong>
+                    <strong>{t('matches.skillsHave')}</strong>
                     <span>{joinList(request.teammate_skills)}</span>
                   </div>
                   <div className="mini-detail">
-                    <strong>Looking for</strong>
+                    <strong>{t('matches.lookingFor')}</strong>
                     <span>{joinList(request.skills_needed)}</span>
                   </div>
                 </div>
@@ -4439,7 +5614,7 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
                       onClick={() => respond(request.id, 'accepted')}
                       disabled={state.actionLoadingId === request.id}
                     >
-                      Accept
+                      {t('connections.accept')}
                     </button>
                     <button
                       className="secondary"
@@ -4447,34 +5622,44 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
                       disabled={state.actionLoadingId === request.id}
                     >
                       <XCircle size={18} />
-                      Decline
+                      {t('connections.decline')}
                     </button>
                   </>
                 )}
-                {tab === 'sent' && request.status === 'pending' && (
-                  <button
-                    className="secondary"
-                    onClick={() => cancel(request.id)}
-                    disabled={state.actionLoadingId === request.id}
-                  >
-                    Cancel Request
-                  </button>
-                )}
+	                {tab === 'sent' && request.status === 'pending' && (
+	                  <>
+	                    <button
+	                      className="secondary"
+	                      onClick={() => openEditMessage(request)}
+	                      disabled={state.actionLoadingId === request.id}
+	                    >
+	                      <Pencil size={18} />
+	                      {t('connections.editMessage')}
+	                    </button>
+	                    <button
+	                      className="secondary quiet-action"
+	                      onClick={() => setState((current) => ({ ...current, withdrawTarget: request, actionError: '', actionSuccess: '' }))}
+	                      disabled={state.actionLoadingId === request.id}
+	                    >
+	                      {t('connections.withdrawRequest')}
+	                    </button>
+	                  </>
+	                )}
                 {request.status === 'accepted' && (
                   <button className="secondary" onClick={() => onOpenChat(request.id)}>
                     <MessageCircle size={18} />
-                    Message
+                    {t('common.message')}
                   </button>
                 )}
                 <button className="secondary" onClick={() => onViewProfile(request.teammate_profile_id)}>
-                  View Profile
+                  {t('common.viewProfile')}
                 </button>
                 {tab === 'connected' && (
                   <button
                     className="secondary quiet-action"
                     onClick={() => setState((current) => ({ ...current, unmatchTarget: request, actionError: '' }))}
                   >
-                    Unmatch
+                    {t('connections.unmatch')}
                   </button>
                 )}
               </div>
@@ -4484,20 +5669,101 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
       )}
 
       {currentProfileId && !currentRequestId && (
-        <p className="note">Create a current teammate search before sending new Connect requests.</p>
+        <p className="note">{t('connections.needCurrentSearch')}</p>
       )}
-      {state.unmatchTarget && (
-        <UnmatchModal
-          teammateName={displayName(state.unmatchTarget.teammate_full_name)}
-          saving={state.unmatchSaving}
-          error={state.actionError}
-          onClose={() => setState((current) => ({ ...current, unmatchTarget: null, actionError: '' }))}
-          onConfirm={unmatch}
-        />
-      )}
-    </main>
-  );
-}
+	      {state.unmatchTarget && (
+	        <UnmatchModal
+	          teammateName={displayName(state.unmatchTarget.teammate_full_name)}
+	          saving={state.unmatchSaving}
+	          error={state.actionError}
+	          onClose={() => setState((current) => ({ ...current, unmatchTarget: null, actionError: '' }))}
+	          onConfirm={unmatch}
+	        />
+	      )}
+	      {state.editMessageTarget && (
+	        <div className="modal-backdrop" role="presentation">
+	          <section className="connect-modal" role="dialog" aria-modal="true" aria-label={t('connections.editMessage')}>
+	            <div className="modal-header">
+	              <div>
+	                <p className="eyebrow">{t('connections.sent')}</p>
+	                <h2>{t('connections.editMessage')}</h2>
+	              </div>
+	              <button
+	                className="ghost"
+	                onClick={() => setState((current) => ({ ...current, editMessageTarget: null, editMessageText: '', actionError: '' }))}
+	                type="button"
+	              >
+	                {t('common.close')}
+	              </button>
+	            </div>
+	            <label>
+	              {t('connect.addMessage')}
+	              <textarea
+	                value={state.editMessageText}
+	                onChange={(event) => setState((current) => ({ ...current, editMessageText: event.target.value }))}
+	                rows="4"
+	              />
+	            </label>
+	            <div className="hero-actions">
+	              <button
+	                className="secondary"
+	                type="button"
+	                onClick={() => setState((current) => ({ ...current, editMessageTarget: null, editMessageText: '', actionError: '' }))}
+	              >
+	                {t('common.cancel')}
+	              </button>
+	              <button
+	                className="primary"
+	                type="button"
+	                onClick={saveEditedMessage}
+	                disabled={state.actionLoadingId === state.editMessageTarget.id}
+	              >
+	                {state.actionLoadingId === state.editMessageTarget.id ? t('common.updating') : t('request.saveChanges')}
+	              </button>
+	            </div>
+	          </section>
+	        </div>
+	      )}
+	      {state.withdrawTarget && (
+	        <div className="modal-backdrop" role="presentation">
+	          <section className="connect-modal" role="dialog" aria-modal="true" aria-label={t('connections.withdrawTitle')}>
+	            <div className="modal-header">
+	              <div>
+	                <p className="eyebrow">{t('connections.withdrawTitle')}</p>
+	                <h2>{t('connections.withdrawQuestion')}</h2>
+	              </div>
+	              <button
+	                className="ghost"
+	                onClick={() => setState((current) => ({ ...current, withdrawTarget: null, actionError: '' }))}
+	                type="button"
+	              >
+	                {t('common.close')}
+	              </button>
+	            </div>
+	            <p className="note">{t('connections.withdrawHelper')}</p>
+	            <div className="hero-actions">
+	              <button
+	                className="secondary"
+	                type="button"
+	                onClick={() => setState((current) => ({ ...current, withdrawTarget: null, actionError: '' }))}
+	              >
+	                {t('connections.keepRequest')}
+	              </button>
+	              <button
+	                className="primary danger-action"
+	                type="button"
+	                onClick={withdraw}
+	                disabled={state.actionLoadingId === state.withdrawTarget.id}
+	              >
+	                {state.actionLoadingId === state.withdrawTarget.id ? t('common.updating') : t('connections.withdrawRequest')}
+	              </button>
+	            </div>
+	          </section>
+	        </div>
+	      )}
+	    </main>
+	  );
+	}
 
 function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
   const [state, setState] = useState({
@@ -4840,7 +6106,7 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
   );
 }
 
-function MessagesList({ currentProfileId, onOpenChat, onViewProfile, onNotificationsChanged }) {
+function MessagesList({ currentProfileId, onOpenChat, onViewProfile, onNotificationsChanged, t = translate.bind(null, 'en') }) {
   const [state, setState] = useState({ loading: true, error: '', threads: [] });
 
   useEffect(() => {
@@ -4878,23 +6144,23 @@ function MessagesList({ currentProfileId, onOpenChat, onViewProfile, onNotificat
     <main className="screen compact">
       <div className="results-header">
         <div>
-          <p className="eyebrow">Messages</p>
-          <h2>Accepted connections</h2>
+	          <p className="eyebrow">{t('messages.title')}</p>
+	          <h2>{t('messages.accepted')}</h2>
         </div>
       </div>
 
       {!currentProfileId && (
         <section className="empty-state">
-          <p>Create a profile before using messages.</p>
+	          <p>{t('messages.needProfile')}</p>
         </section>
       )}
 
-      {currentProfileId && state.loading && <p className="loading">Loading messages...</p>}
+	      {currentProfileId && state.loading && <p className="loading">{t('common.loadingMessages')}</p>}
       {state.error && <p className="error">{state.error}</p>}
 
       {currentProfileId && !state.loading && state.threads.length === 0 && (
         <section className="empty-state">
-          <p>No messages yet. Say hello!</p>
+	          <p>{t('messages.none')}</p>
         </section>
       )}
 
@@ -4904,16 +6170,16 @@ function MessagesList({ currentProfileId, onOpenChat, onViewProfile, onNotificat
             <article className="thread-row" key={thread.connection_id}>
               <div>
                 <strong>{displayName(thread.teammate_full_name)}</strong>
-                <span>{thread.last_message || 'No messages yet. Say hello!'}</span>
+	                <span>{thread.last_message || t('messages.none')}</span>
               </div>
               <div className="thread-actions">
                 <time>{formatThreadTime(thread.last_message_at || thread.updated_at)}</time>
                 <button className="secondary" onClick={() => onOpenChat(thread.connection_id)}>
                   <MessageCircle size={18} />
-                  Message
+	                  {t('common.message')}
                 </button>
                 <button className="secondary" onClick={() => onViewProfile(thread.teammate_profile_id)}>
-                  View Profile
+	                  {t('common.viewProfile')}
                 </button>
               </div>
             </article>
@@ -5164,14 +6430,16 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
 function MyProfile({
   profile,
   activeRole,
+  authSession,
   lecturerSession,
   onCreateProfile,
   onCreateSearch,
   onOpenLecturer,
-  onRoleChange,
   onLecturerLogin,
   onLecturerLogout,
+  onLogout,
   onProfileUpdated,
+  t = translate.bind(null, 'en'),
 }) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(emptyProfile);
@@ -5185,6 +6453,8 @@ function MyProfile({
   const [error, setError] = useState('');
   const currentRole = activeRole === 'lecturer' ? 'lecturer' : 'student';
   const editingAsLecturer = form.role === 'lecturer';
+  const authEmail = authSession?.user?.email || authSession?.user?.user_metadata?.email || '';
+  const signedInWithGoogle = Boolean(authEmail && !authSession?.user?.is_anonymous);
   const profileSkillOptions = mergeOptionSets(getSkillsForSchool(form.school), form.skills);
   const profileSchoolOptions = getSchoolsForUniversity(form.university);
 
@@ -5242,10 +6512,17 @@ function MyProfile({
       skills: profile.skills || [],
       other_skill: '',
       contact_type: profile.contact_type || 'email',
-      contact_value: profile.contact_value || '',
-      short_bio: profile.short_bio || '',
-      lecturer_title: profile.lecturer_title || '',
-      is_available: profile.is_available ?? true,
+      avatar_url: profile.avatar_url || '',
+      work_styles: profile.work_styles || [],
+	      contact_value: profile.contact_value || '',
+	      short_bio: profile.short_bio || '',
+	      lecturer_title: profile.lecturer_title || '',
+	      lecturer_id: profile.lecturer_id || '',
+	      academic_field: profile.academic_field || '',
+	      lecturer_contact_method: profile.lecturer_contact_method || 'Email',
+	      lecturer_contact_detail: profile.lecturer_contact_detail || profile.contact_value || '',
+	      student_id: profile.student_id || '',
+	      is_available: profile.is_available ?? true,
       consent_public_visibility: profile.consent_public_visibility ?? true,
     });
     setMessage('');
@@ -5279,13 +6556,6 @@ function MyProfile({
     setError('');
   };
 
-  const switchRole = (role) => {
-    setEditing(false);
-    setError('');
-    setMessage('');
-    onRoleChange(role);
-  };
-
   const submitLecturerLogin = (event) => {
     event.preventDefault();
     setError('');
@@ -5293,12 +6563,12 @@ function MyProfile({
 
     const account = findDemoLecturerAccount(lecturerForm.university, lecturerForm.lecturerId);
     if (!account) {
-      setError('Lecturer ID not found. Try demo lecturer ID: v123456.');
+      setError(`Lecturer ID not found for this university. Try: ${demoLecturerHelperText}.`);
       return;
     }
 
     onLecturerLogin(account);
-    setMessage(`Lecturer Mode opened for ${account.lecturerName}.`);
+    setMessage(t('profile.lecturerOpened', { name: account.lecturerName }));
     onOpenLecturer();
   };
 
@@ -5309,11 +6579,11 @@ function MyProfile({
 
     const skills = getProfileSkillsFromForm(form);
 
-    if (editingAsLecturer) {
-      if (!form.full_name || !form.school || !form.contact_value) {
-        setError("Please fill in your lecturer profile's required fields.");
-        return;
-      }
+	    if (editingAsLecturer) {
+	      if (!form.full_name || !form.school || !form.academic_field || !form.lecturer_id || !form.lecturer_contact_detail) {
+	        setError("Please fill in your lecturer profile's required fields.");
+	        return;
+	      }
     } else if (!form.full_name || !form.school || !form.major || skills.length === 0 || !form.contact_value || !form.short_bio) {
       setError("Please fill in your profile's required fields.");
       return;
@@ -5328,15 +6598,24 @@ function MyProfile({
         school: form.school.trim(),
         major: editingAsLecturer ? 'Lecturer' : form.major.trim(),
         skills: editingAsLecturer ? ['Teaching'] : skills,
-        contact_type: form.contact_type,
-        contact_value: form.contact_value.trim(),
+        avatar_url: form.avatar_url || null,
+        availability: [],
+        preferred_active_time: null,
+        work_styles: editingAsLecturer ? [] : form.work_styles,
+	        contact_type: editingAsLecturer ? 'email' : form.contact_type,
+	        contact_value: editingAsLecturer ? form.lecturer_contact_detail.trim() : form.contact_value.trim(),
         short_bio: editingAsLecturer
           ? form.short_bio.trim() || 'Lecturer profile for class team-formation monitoring.'
           : form.short_bio.trim(),
-        is_available: editingAsLecturer ? false : form.is_available,
-        role: editingAsLecturer ? 'lecturer' : 'student',
-        lecturer_title: editingAsLecturer ? form.lecturer_title.trim() || null : null,
-      });
+	        is_available: profile.is_available ?? !editingAsLecturer,
+	        role: editingAsLecturer ? 'lecturer' : 'student',
+	        lecturer_title: editingAsLecturer ? form.lecturer_title.trim() || null : null,
+	        lecturer_id: editingAsLecturer ? form.lecturer_id.trim() : null,
+	        academic_field: editingAsLecturer ? form.academic_field.trim() : form.major.trim(),
+	        lecturer_contact_method: editingAsLecturer ? form.lecturer_contact_method : null,
+	        lecturer_contact_detail: editingAsLecturer ? form.lecturer_contact_detail.trim() : null,
+	        student_id: editingAsLecturer ? null : form.student_id.trim() || null,
+	      });
       onProfileUpdated(updated);
       setEditing(false);
       setMessage('Profile updated successfully.');
@@ -5348,87 +6627,31 @@ function MyProfile({
   };
 
   return (
-    <main className="screen compact">
+	    <main className="screen compact">
       <section className="profile-panel">
-        <p className="eyebrow">My Profile</p>
-        {!profile ? (
-          <>
-            <h2>No profile saved on this device.</h2>
-            <p>Create a profile before searching, connecting, or chatting.</p>
-            <button className="primary" onClick={onCreateProfile}>Create Profile</button>
-          </>
+	        <p className="eyebrow">{t('profile.myProfile')}</p>
+          {signedInWithGoogle && (
+            <p className="signed-in-line">{t('profile.googleSignedIn')}{authEmail ? ` · ${authEmail}` : ''}</p>
+          )}
+	        {!profile ? (
+	          <>
+	            <h2>{t('profile.noProfile')}</h2>
+	            <p>{t('profile.createFirst')}</p>
+	            <button className="primary" onClick={onCreateProfile}>{t('profile.createProfile')}</button>
+              <button className="secondary link-button" type="button" onClick={onLogout}>{t('profile.logout')}</button>
+	          </>
         ) : (
           <>
-            <fieldset className="wide">
-              <legend>Mode</legend>
-              <div className="role-grid">
-                {profileRoleOptions.map((option) => (
-                  <label className={currentRole === option.value ? 'role-card selected' : 'role-card'} key={option.value}>
-                    <input
-                      type="radio"
-                      name="active-role"
-                      checked={currentRole === option.value}
-                      onChange={() => switchRole(option.value)}
-                    />
-                    <span>
-                      <strong>{option.value === 'student' ? 'Student Mode' : 'Lecturer Mode'}</strong>
-                      <small>{option.description}</small>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-
-            {currentRole === 'lecturer' && (
-              <section className="request-summary-box">
-                <p className="eyebrow">Lecturer Demo Login</p>
-                {lecturerSession ? (
-                  <>
-                    <h3>{lecturerSession.lecturerName}</h3>
-                    <p>{lecturerSession.university} · Demo lecturer ID {lecturerSession.lecturerId}</p>
-                    <div className="hero-actions">
-                      <button className="primary" type="button" onClick={onOpenLecturer}>Open Lecturer Dashboard</button>
-                      <button className="secondary" type="button" onClick={onLecturerLogout}>Clear Demo Login</button>
-                    </div>
-                  </>
-                ) : (
-                  <form className="form-grid single" onSubmit={submitLecturerLogin}>
-                    <label>
-                      University
-                      <select
-                        value={lecturerForm.university}
-                        onChange={(event) => setLecturerForm((current) => ({ ...current, university: event.target.value }))}
-                      >
-                        {universityOptions.map((university) => (
-                          <option value={university.value} key={university.value}>{university.label}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      Lecturer ID
-                      <input
-                        value={lecturerForm.lecturerId}
-                        onChange={(event) => setLecturerForm((current) => ({ ...current, lecturerId: event.target.value }))}
-                        placeholder="Demo lecturer ID: v123456"
-                      />
-                      <span className="field-helper">Demo lecturer ID: v123456</span>
-                    </label>
-                    <button className="primary" type="submit">Open Lecturer Dashboard</button>
-                  </form>
-                )}
-              </section>
-            )}
-
             {editing ? (
               <form className="edit-profile-form" onSubmit={saveChanges}>
-                <h2>Edit Profile</h2>
+                <h2>{t('profile.editProfile')}</h2>
                 <div className="form-grid single">
                   <label>
-                    Full Name
+                    {t('profile.fullName')}
                     <input value={form.full_name} onChange={(event) => updateField('full_name', event.target.value)} required />
                   </label>
                   <label>
-                    University
+                    {t('profile.university')}
                     <select value={form.university} onChange={(event) => updateField('university', event.target.value)} required>
                       {universityOptions.map((university) => (
                         <option value={university.value} key={university.value}>{university.label}</option>
@@ -5436,37 +6659,90 @@ function MyProfile({
                     </select>
                   </label>
                   <label>
-                    {editingAsLecturer ? 'School / Department' : 'School'}
+                    {editingAsLecturer ? t('profile.department') : t('profile.school')}
                     <select value={form.school} onChange={(event) => updateSchool(event.target.value)} required>
-                      <option value="">{editingAsLecturer ? 'Select department' : 'Select school'}</option>
+                      <option value="">{editingAsLecturer ? t('profile.selectDepartment') : t('profile.selectSchool')}</option>
                       {profileSchoolOptions.map((school) => (
                         <option value={school.value} key={school.value}>{school.label}</option>
                       ))}
                     </select>
                   </label>
-                  {editingAsLecturer ? (
-                    <label>
-                      Lecturer Role / Title
-                      <input
-                        value={form.lecturer_title}
-                        onChange={(event) => updateField('lecturer_title', event.target.value)}
-                        placeholder="Course coordinator, lecturer, tutor..."
-                      />
-                    </label>
-                  ) : (
-                    <>
+	                  {editingAsLecturer ? (
+	                    <>
+	                      <label>
+	                        {t('profile.lecturerTitle')}
+	                        <input
+	                          value={form.lecturer_title}
+	                          onChange={(event) => updateField('lecturer_title', event.target.value)}
+	                          placeholder="Course coordinator, lecturer, tutor..."
+	                        />
+	                      </label>
+	                      <label>
+	                        {t('profile.academicField')}
+	                        <select
+	                          value={form.academic_field}
+	                          onChange={(event) => updateField('academic_field', event.target.value)}
+	                          required
+	                        >
+	                          <option value="">{t('request.selectField')}</option>
+	                          {opportunityFields.map((field) => (
+	                            <option value={field} key={field}>{field}</option>
+	                          ))}
+	                        </select>
+	                      </label>
+	                      <label>
+	                        {t('profile.lecturerId')}
+	                        <input
+	                          value={form.lecturer_id}
+	                          onChange={(event) => updateField('lecturer_id', event.target.value)}
+	                          placeholder="v123456"
+	                          required
+	                        />
+	                        <span className="field-helper">{t('profile.demoLecturerIds')}: {demoLecturerHelperText}</span>
+	                      </label>
+	                      <label>
+	                        {t('profile.preferredContact')}
+	                        <select
+	                          value={form.lecturer_contact_method}
+	                          onChange={(event) => updateField('lecturer_contact_method', event.target.value)}
+	                          required
+	                        >
+	                          {lecturerContactMethods.map((method) => (
+	                            <option value={method} key={method}>{method}</option>
+	                          ))}
+	                        </select>
+	                      </label>
+	                      <label>
+	                        {t('profile.contactDetail')}
+	                        <input
+	                          value={form.lecturer_contact_detail}
+	                          onChange={(event) => updateField('lecturer_contact_detail', event.target.value)}
+	                          required
+	                        />
+	                      </label>
+	                    </>
+	                  ) : (
+	                    <>
                       <label>
-                        Major
+                        {t('profile.major')}
                         <select value={form.major} onChange={(event) => updateField('major', event.target.value)} required>
-                          <option value="">Select major</option>
+                          <option value="">{t('profile.major')}</option>
                           {(majorsBySchool[form.school] || []).map((major) => (
                             <option value={major} key={major}>{major}</option>
                           ))}
                         </select>
-                      </label>
-                      <fieldset className="wide">
-                        <legend>Skills & Technologies</legend>
-                        <p className="field-helper">Suggested skills update based on your school. You can still add a custom skill.</p>
+	                      </label>
+	                      <label>
+	                        {t('profile.studentId')}
+	                        <input
+	                          value={form.student_id}
+	                          onChange={(event) => updateField('student_id', event.target.value)}
+	                          placeholder="s1234567"
+	                        />
+	                      </label>
+	                      <fieldset className="wide">
+                        <legend>{t('profile.skills')}</legend>
+                        <p className="field-helper">{t('profile.skillHelper')}</p>
                         <CheckboxGrid
                           options={profileSkillOptions}
                           selected={form.skills}
@@ -5476,30 +6752,42 @@ function MyProfile({
                           <input
                             value={form.other_skill}
                             onChange={(event) => updateField('other_skill', event.target.value)}
-                            placeholder="Add another skill"
+                            placeholder={t('profile.addSkill')}
                           />
                         )}
                       </fieldset>
+	                      <fieldset className="wide">
+	                        <legend>{t('profile.workStyle')}</legend>
+                        <CheckboxGrid
+                          options={workStyleOptions}
+                          selected={form.work_styles}
+                          onToggle={(style) => updateField('work_styles', toggleValue(form.work_styles, style))}
+                        />
+                      </fieldset>
                     </>
                   )}
+	                  {!editingAsLecturer && (
+	                    <>
+	                      <label>
+	                        {t('profile.contactMethod')}
+	                        <select value={form.contact_type} onChange={(event) => updateField('contact_type', event.target.value)}>
+	                          {contactTypes.map((type) => (
+	                            <option value={type} key={type}>{contactLabel(type)}</option>
+	                          ))}
+	                        </select>
+	                      </label>
+	                      <label>
+	                        {t('profile.contactInfo')}
+	                        <input
+	                          value={form.contact_value}
+	                          onChange={(event) => updateField('contact_value', event.target.value)}
+	                          required
+	                        />
+	                      </label>
+	                    </>
+	                  )}
                   <label>
-                    Contact Method
-                    <select value={form.contact_type} onChange={(event) => updateField('contact_type', event.target.value)}>
-                      {contactTypes.map((type) => (
-                        <option value={type} key={type}>{contactLabel(type)}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Contact Information
-                    <input
-                      value={form.contact_value}
-                      onChange={(event) => updateField('contact_value', event.target.value)}
-                      required
-                    />
-                  </label>
-                  <label>
-                    {editingAsLecturer ? 'Short Bio / Note' : 'Short Bio'}
+                    {editingAsLecturer ? t('profile.bioNote') : t('profile.shortBio')}
                     <textarea
                       value={form.short_bio}
                       onChange={(event) => updateField('short_bio', event.target.value)}
@@ -5507,23 +6795,13 @@ function MyProfile({
                       required={!editingAsLecturer}
                     />
                   </label>
-                  {!editingAsLecturer && (
-                    <label className={form.is_available ? 'consent-box selected wide' : 'consent-box wide'}>
-                      <input
-                        type="checkbox"
-                        checked={form.is_available}
-                        onChange={() => updateField('is_available', !form.is_available)}
-                      />
-                      <span>Available for collaboration</span>
-                    </label>
-                  )}
-                </div>
+	                </div>
                 {error && <p className="error">{error}</p>}
                 <div className="hero-actions">
                   <button className="primary" type="submit" disabled={saving}>
-                    {saving ? 'Saving...' : 'Save Changes'}
+                    {saving ? t('request.saving') : t('request.saveChanges')}
                   </button>
-                  <button className="secondary" type="button" onClick={cancelEdit}>Cancel</button>
+                  <button className="secondary" type="button" onClick={cancelEdit}>{t('common.cancel')}</button>
                 </div>
               </form>
             ) : currentRole === 'student' ? (
@@ -5531,38 +6809,55 @@ function MyProfile({
                 <div className="avatar">{displayInitial(profile.full_name)}</div>
                 <h2>{displayName(profile.full_name)}</h2>
                 <dl>
-                  <div><dt>Role</dt><dd>Student Mode</dd></div>
-                  <div><dt>University</dt><dd>{universityLabel(profile.university)}</dd></div>
-                  <div><dt>School</dt><dd>{schoolLabel(profile.school)}</dd></div>
-                  <div><dt>Major</dt><dd>{profile.major}</dd></div>
-                  <div><dt>Availability</dt><dd>{profile.is_available === false ? 'Unavailable' : 'Available for collaboration'}</dd></div>
-                  <div>
-                    <dt>Reviews</dt>
-                    <dd>{reviewsState.loading ? 'Loading reviews...' : reviewSummaryLabel(profile, reviewsState.reviews)}</dd>
+	                  <div><dt>{t('profile.role')}</dt><dd>{t('profile.student')}</dd></div>
+                  <div><dt>{t('profile.university')}</dt><dd>{universityLabel(profile.university)}</dd></div>
+                  <div><dt>{t('profile.school')}</dt><dd>{schoolLabel(profile.school)}</dd></div>
+                  <div><dt>{t('profile.major')}</dt><dd>{profile.major}</dd></div>
+	                  <div>
+                    <dt>{t('profile.reviews')}</dt>
+                    <dd>{reviewsState.loading ? t('profile.loadingReviews') : reviewSummaryLabel(profile, reviewsState.reviews, t)}</dd>
                   </div>
-                  <div><dt>Contact</dt><dd>{contactLabel(profile.contact_type)}: {profile.contact_value}</dd></div>
-                  <div><dt>Bio</dt><dd>{profile.short_bio || 'Not specified'}</dd></div>
+                  <div><dt>{t('profile.contact')}</dt><dd>{contactLabel(profile.contact_type)}: {profile.contact_value}</dd></div>
+                  <div><dt>{t('profile.bio')}</dt><dd>{profile.short_bio || t('common.notSpecified')}</dd></div>
                 </dl>
                 <PillList items={profile.skills} />
-                {reviewsState.loading && <p className="loading">Loading reviews...</p>}
+                {reviewsState.loading && <p className="loading">{t('profile.loadingReviews')}</p>}
                 {reviewsState.error && <p className="error">{reviewsState.error}</p>}
                 {!reviewsState.loading && !reviewsState.error && (
                   <ReviewsSection
                     profile={profile}
                     reviews={reviewsState.reviews}
-                    title="Reviews About You"
+                    title={t('profile.reviewsAboutYou')}
+                    t={t}
                   />
                 )}
                 {message && <p className="success">{message}</p>}
                 <div className="stacked-actions">
-                  <button className="primary link-button" onClick={startEdit}>Edit Profile</button>
-                  <button className="secondary link-button" onClick={onCreateSearch}>Create New Search</button>
+                  <button className="primary link-button" onClick={startEdit}>{t('profile.editProfile')}</button>
+	                  <button className="secondary link-button" onClick={onCreateSearch}>{t('opportunities.new')}</button>
+                  <button className="secondary link-button quiet-action" type="button" onClick={onLogout}>{t('profile.logout')}</button>
                 </div>
               </>
             ) : (
               <>
+                <div className="avatar">{displayInitial(profile.full_name)}</div>
+                <h2>{displayName(profile.full_name)}</h2>
+                <dl>
+                  <div><dt>{t('profile.role')}</dt><dd>{t('profile.lecturer')}</dd></div>
+                  <div><dt>{t('profile.university')}</dt><dd>{universityLabel(profile.university)}</dd></div>
+                  <div><dt>{t('profile.department')}</dt><dd>{schoolLabel(profile.school)}</dd></div>
+                  <div><dt>{t('profile.academicField')}</dt><dd>{profile.academic_field || t('common.notSpecified')}</dd></div>
+                  <div><dt>{t('profile.lecturerId')}</dt><dd>{profile.lecturer_id || lecturerSession?.lecturerId || t('common.notSpecified')}</dd></div>
+                  <div><dt>{t('profile.contact')}</dt><dd>{profile.lecturer_contact_detail || profile.contact_value || t('common.notSpecified')}</dd></div>
+                  <div><dt>{t('profile.bio')}</dt><dd>{profile.short_bio || t('common.notSpecified')}</dd></div>
+                </dl>
                 {message && <p className="success">{message}</p>}
                 {error && <p className="error">{error}</p>}
+                <div className="stacked-actions">
+                  <button className="primary link-button" type="button" onClick={onOpenLecturer}>{t('profile.openLecturer')}</button>
+                  <button className="secondary link-button" type="button" onClick={startEdit}>{t('profile.editProfile')}</button>
+                  <button className="secondary link-button quiet-action" type="button" onClick={onLogout}>{t('profile.logout')}</button>
+                </div>
               </>
             )}
           </>
@@ -5579,6 +6874,7 @@ export default function App() {
   const [requestId, setRequestId] = useState('');
   const [profile, setProfile] = useState(null);
   const [profileFormRole, setProfileFormRole] = useState('student');
+  const [selectedLandingRole, setSelectedLandingRole] = useState(() => getStoredPendingRole());
   const [activeRole, setActiveRole] = useState('student');
   const [lecturerSession, setLecturerSession] = useState(null);
   const [selectedClassId, setSelectedClassId] = useState('');
@@ -5589,18 +6885,42 @@ export default function App() {
   const [selectedDiscoverProfileId, setSelectedDiscoverProfileId] = useState('');
   const [bootError, setBootError] = useState('');
   const [notificationCounts, setNotificationCounts] = useState({ connections: 0, messages: 0 });
+  const [language, setLanguage] = useState(() => getStoredLanguage());
+  const [authSession, setAuthSession] = useState(null);
+  const [googleSigningIn, setGoogleSigningIn] = useState(false);
+  const t = useMemo(() => (key, values) => translate(language, key, values), [language]);
+  const googleProfileSeed = useMemo(
+    () => getGoogleProfileSeed(authSession, profileFormRole),
+    [authSession?.user?.id, authSession?.user?.email, profileFormRole],
+  );
 
   useEffect(() => {
     const storedProfileId = getStoredProfileId();
     const storedRequestId = getStoredRequestId();
     const inviteCode = getStoredInviteCode();
     const storedActiveRole = getStoredActiveRole();
+    const pendingRole = getStoredPendingRole();
     const storedLecturerSession = getStoredLecturerSession();
+    const loggedOut = getStoredLoggedOut();
+
+    if (loggedOut && !pendingRole && !inviteCode) {
+      setProfileId('');
+      setRequestId('');
+      setSelectedClassId('');
+      setActiveRole('student');
+      setSelectedLandingRole('');
+      setProfileFormRole('student');
+      setLecturerSession(null);
+      setView('home');
+      return;
+    }
 
     setProfileId(storedProfileId || '');
     setRequestId(storedRequestId || '');
     setSelectedClassId(getStoredClassId() || '');
     setActiveRole(storedActiveRole);
+    setSelectedLandingRole(pendingRole || '');
+    setProfileFormRole(pendingRole || storedActiveRole);
     setLecturerSession(storedLecturerSession);
 
     if (inviteCode) {
@@ -5612,6 +6932,109 @@ export default function App() {
         .then(setProfile)
         .catch(() => setProfileId(''));
     }
+	  }, []);
+
+  useEffect(() => {
+    if (!hasSupabaseConfig || !supabase) return undefined;
+    let alive = true;
+
+	    const syncProfileForSession = async (session, { navigateAfterSignIn = false } = {}) => {
+	      if (!session?.user) return;
+	      const storedProfileId = getStoredProfileId();
+	      const pendingRole = getStoredPendingRole();
+
+      if (storedProfileId) {
+        if (session.user.email && pendingRole) {
+          const nextRole = pendingRole === 'lecturer' ? 'lecturer' : 'student';
+          setSelectedLandingRole(nextRole);
+          setProfileFormRole(nextRole);
+          changeActiveRole(nextRole);
+
+          try {
+            const storedProfile = await getProfileById(storedProfileId, { claimLegacy: true });
+            if (!alive) return;
+            setProfileId(storedProfile.id);
+            setProfile(storedProfile);
+            const profileLecturerSession = lecturerSessionFromProfile({ ...storedProfile, role: nextRole });
+	            if (profileLecturerSession) {
+	              setLecturerSession(profileLecturerSession);
+	              storeLecturerSession(profileLecturerSession);
+	            }
+	            if (navigateAfterSignIn) {
+	              clearPendingRole();
+	              navigate(isProfileCompleteForRole({ ...storedProfile, role: nextRole }, nextRole)
+	                ? (nextRole === 'lecturer' ? 'lecturer' : 'my-classes')
+	                : 'profile');
+	            }
+	          } catch {
+	            if (!alive) return;
+	            if (navigateAfterSignIn) navigate('profile');
+	          }
+	        }
+	        return;
+      }
+
+      try {
+        const ownedProfile = await getMyProfile();
+        if (!alive) return;
+        if (!ownedProfile?.id) {
+	          if (session.user.email) {
+	            const pendingRole = getStoredPendingRole() || getStoredActiveRole();
+	            setSelectedLandingRole(pendingRole);
+	            setProfileFormRole(pendingRole);
+	            changeActiveRole(pendingRole);
+	            if (navigateAfterSignIn) navigate('profile');
+	          }
+	          return;
+	        }
+        storeProfileId(ownedProfile.id);
+        setProfileId(ownedProfile.id);
+        setProfile(ownedProfile);
+        const nextRole = getStoredPendingRole() || getProfileRole(ownedProfile);
+        changeActiveRole(nextRole);
+        const profileLecturerSession = lecturerSessionFromProfile({ ...ownedProfile, role: nextRole });
+	        if (profileLecturerSession) {
+	          setLecturerSession(profileLecturerSession);
+	          storeLecturerSession(profileLecturerSession);
+	        }
+	        if (navigateAfterSignIn && session.user.email) {
+	          clearPendingRole();
+	          navigate(isProfileCompleteForRole({ ...ownedProfile, role: nextRole }, nextRole)
+	            ? (nextRole === 'lecturer' ? 'lecturer' : 'my-classes')
+	            : 'profile');
+	        }
+	      } catch {
+	        if (session.user.email) {
+	          const pendingRole = getStoredPendingRole() || getStoredActiveRole();
+	          setSelectedLandingRole(pendingRole);
+	          setProfileFormRole(pendingRole);
+	          changeActiveRole(pendingRole);
+	          if (navigateAfterSignIn) navigate('profile');
+	        }
+	      }
+	    };
+
+    getCurrentSession()
+      .then((session) => {
+	        if (!alive) return;
+	        setAuthSession(session);
+	        syncProfileForSession(session, {
+	          navigateAfterSignIn: Boolean(getStoredPendingRole()) && !getStoredLoggedOut(),
+	        });
+	      })
+	      .catch(() => {});
+
+	    const { data } = supabase.auth.onAuthStateChange((event, session) => {
+	      setAuthSession(session);
+	      syncProfileForSession(session, {
+	        navigateAfterSignIn: event === 'SIGNED_IN' && Boolean(getStoredPendingRole()),
+	      });
+	    });
+
+    return () => {
+      alive = false;
+      data?.subscription?.unsubscribe();
+    };
   }, []);
 
   const refreshNotificationCounts = async () => {
@@ -5641,19 +7064,102 @@ export default function App() {
 
   const hasProfile = Boolean(profileId);
   const currentRole = activeRole === 'lecturer' ? 'lecturer' : 'student';
-  const showStudentNavigation = !hasProfile || currentRole === 'student';
-  const showLecturerNavigation = !hasProfile || currentRole === 'lecturer';
+  const currentLecturerSession = lecturerSession || lecturerSessionFromProfile(profile);
+  const showStudentNavigation = hasProfile && currentRole === 'student';
+  const showLecturerNavigation = hasProfile && currentRole === 'lecturer';
 
-  const openProfileForm = (role = 'student') => {
-    setProfileFormRole(role === 'lecturer' ? 'lecturer' : 'student');
+  const selectLandingRole = (role) => {
+    const nextRole = role === 'lecturer' ? 'lecturer' : 'student';
+    clearLoggedOut();
+    setSelectedLandingRole(nextRole);
+    setProfileFormRole(nextRole);
+    storePendingRole(nextRole);
+    changeActiveRole(nextRole);
+  };
+
+	  const openProfileForm = (role = 'student') => {
+    const nextRole = role === 'lecturer' ? 'lecturer' : 'student';
+    clearLoggedOut();
+    setProfileFormRole(nextRole);
+    setSelectedLandingRole(nextRole);
+    storePendingRole(nextRole);
+    changeActiveRole(nextRole);
     navigate('profile');
   };
 
-  const changeActiveRole = (role) => {
+	  const changeActiveRole = (role) => {
     const nextRole = role === 'lecturer' ? 'lecturer' : 'student';
     setActiveRole(nextRole);
     storeActiveRole(nextRole);
-  };
+	  };
+
+	  const changeLanguage = (nextLanguage) => {
+	    const normalized = nextLanguage === 'vi' ? 'vi' : 'en';
+	    setLanguage(normalized);
+	    storeLanguage(normalized);
+	  };
+
+	  const continueWithExistingGoogleSession = async (session, nextRole) => {
+	    setAuthSession(session);
+	    let ownedProfile = null;
+	    const storedProfileId = getStoredProfileId();
+
+	    if (storedProfileId) {
+	      ownedProfile = await getProfileById(storedProfileId, { claimLegacy: true }).catch(() => null);
+	    }
+
+	    if (!ownedProfile) {
+	      ownedProfile = await getMyProfile().catch(() => null);
+	    }
+
+	    if (!ownedProfile?.id) {
+	      navigate('profile');
+	      return;
+	    }
+
+	    storeProfileId(ownedProfile.id);
+	    setProfileId(ownedProfile.id);
+	    setProfile(ownedProfile);
+	    const profileLecturerSession = lecturerSessionFromProfile({ ...ownedProfile, role: nextRole });
+	    if (profileLecturerSession) {
+	      setLecturerSession(profileLecturerSession);
+	      storeLecturerSession(profileLecturerSession);
+	    }
+
+	    if (isProfileCompleteForRole({ ...ownedProfile, role: nextRole }, nextRole)) {
+	      clearPendingRole();
+	      navigate(nextRole === 'lecturer' ? 'lecturer' : 'my-classes');
+	      return;
+	    }
+
+	    navigate('profile');
+	  };
+
+	  const handleGoogleSignIn = async (roleOverride = selectedLandingRole || profileFormRole || activeRole) => {
+	    setBootError('');
+	    setGoogleSigningIn(true);
+      const nextRole = roleOverride === 'lecturer' ? 'lecturer' : 'student';
+      setSelectedLandingRole(nextRole);
+      setProfileFormRole(nextRole);
+      storePendingRole(nextRole);
+      changeActiveRole(nextRole);
+      clearLoggedOut();
+
+	    try {
+	      const existingSession = await getCurrentSession().catch(() => null);
+	      if (existingSession?.user?.email && !existingSession.user.is_anonymous) {
+	        await continueWithExistingGoogleSession(existingSession, nextRole);
+	        return;
+	      }
+
+	      await signInWithGoogle();
+	    } catch (err) {
+	      console.error('Google sign-in failed', err);
+	      setBootError(t('profile.googleSignInFail'));
+	    } finally {
+	      setGoogleSigningIn(false);
+	    }
+	  };
 
   const handleLecturerLogin = (account) => {
     setLecturerSession(account);
@@ -5664,6 +7170,34 @@ export default function App() {
   const handleLecturerLogout = () => {
     setLecturerSession(null);
     clearLecturerSession();
+  };
+
+  const handleLogout = async () => {
+    setBootError('');
+    try {
+      if (hasSupabaseConfig) {
+        await signOut();
+      }
+    } catch (err) {
+      setBootError(getFriendlyError(err, "We couldn't log you out. Please try again."));
+      return;
+    }
+
+    clearCurrentRequest();
+    clearLecturerSession();
+    clearPendingRole();
+    clearActiveRole();
+    storeLoggedOut();
+    setAuthSession(null);
+    setProfile(null);
+    setProfileId('');
+    setRequestId('');
+    setLecturerSession(null);
+    setSelectedLandingRole('');
+    setProfileFormRole('student');
+    setActiveRole('student');
+    setViewHistory([]);
+    setView('home');
   };
 
   const startRequest = async () => {
@@ -5725,8 +7259,8 @@ export default function App() {
     navigate('class-detail');
   };
 
-  const openClassRequest = (classItem) => {
-    setRequestClassContext(classItem);
+  const openClassRequest = (classItem, teamStatus = null) => {
+    setRequestClassContext({ ...classItem, teamStatus });
     setSelectedClassId(classItem.id);
     storeClassId(classItem.id);
     navigate('request');
@@ -5764,79 +7298,97 @@ export default function App() {
             <span>TEA</span><span>M</span><span>ERGENCY</span>
           </span>
         </button>
-        <div className="top-actions">
-          {view === 'home' ? (
-            <>
-              {showStudentNavigation && <button className="ghost" onClick={() => navigate('discover')}>Discovery</button>}
-              {showStudentNavigation && <button className="ghost" onClick={() => navigate('my-classes')}>My Classes</button>}
-              {showLecturerNavigation && <button className="ghost" onClick={() => navigate('lecturer')}>Lecturer</button>}
-              {showStudentNavigation && <button className="ghost" onClick={startRequest}>Open Opportunities</button>}
-              <button className="ghost nav-outline" onClick={() => navigate('my-profile')}>Log In</button>
-              {!hasProfile && <button className="ghost" onClick={() => openProfileForm('student')}>Sign Up</button>}
-            </>
-          ) : (
-            <>
-              {showStudentNavigation && <button className="ghost" onClick={() => navigate('discover')}>Discover</button>}
-              {showStudentNavigation && <button className="ghost" onClick={() => navigate('my-classes')}>My Classes</button>}
-              {showLecturerNavigation && <button className="ghost" onClick={() => navigate('lecturer')}>Lecturer</button>}
-              {showStudentNavigation && requestId && <button className="ghost" onClick={findMatches}>Find Teammates</button>}
-              {showStudentNavigation && profileId && <button className="ghost" onClick={() => navigate('current-request')}>Open Opportunities</button>}
-              {showStudentNavigation && <button className="ghost" onClick={() => navigate('connections')}>Connections{notificationCounts.connections > 0 && <span className="nav-badge">{notificationCounts.connections}</span>}</button>}
-              {showStudentNavigation && <button className="ghost" onClick={() => navigate('friends')}>Friends</button>}
-              {showStudentNavigation && <button className="ghost" onClick={() => navigate('messages')}>Messages{notificationCounts.messages > 0 && <span className="nav-badge">{notificationCounts.messages}</span>}</button>}
-              <button className="ghost" onClick={() => navigate('my-profile')}>My Profile</button>
-            </>
-          )}
+	        <div className="top-actions">
+	          <div className="language-switch" aria-label="Language">
+	            <Languages size={16} />
+	            {languages.map((option) => (
+	              <button
+	                className={language === option.value ? 'active' : ''}
+	                key={option.value}
+	                onClick={() => changeLanguage(option.value)}
+	                type="button"
+	              >
+	                {option.label}
+	              </button>
+	            ))}
+	          </div>
+	          {view === 'home' ? (
+	            <>
+	              <button className="ghost nav-outline" onClick={() => navigate('my-profile')}>{hasProfile ? t('nav.myProfile') : t('nav.logIn')}</button>
+	            </>
+	          ) : (
+	            <>
+	              <button className="ghost" onClick={() => navigate('home')}>{t('nav.home')}</button>
+	              {showStudentNavigation && <button className="ghost" onClick={() => navigate('my-classes')}>{t('nav.myClasses')}</button>}
+	              {showLecturerNavigation && <button className="ghost" onClick={() => navigate('lecturer')}>{t('nav.lecturer')}</button>}
+	              {showStudentNavigation && profileId && <button className="ghost" onClick={() => navigate('current-request')}>{t('nav.openOpportunities')}</button>}
+	              {showStudentNavigation && <button className="ghost" onClick={() => navigate('connections')}>{t('nav.connections')}{notificationCounts.connections > 0 && <span className="nav-badge">{notificationCounts.connections}</span>}</button>}
+	              {showLecturerNavigation && <button className="ghost" onClick={() => navigate('messages')}>{t('nav.messages')}{notificationCounts.messages > 0 && <span className="nav-badge">{notificationCounts.messages}</span>}</button>}
+	              <button className="ghost" onClick={() => navigate('my-profile')}>{t('nav.myProfile')}</button>
+	            </>
+	          )}
         </div>
       </header>
 
       {configWarning && <div className="banner">{configWarning}</div>}
       {bootError && <div className="banner error-banner">{bootError}</div>}
 
-      {view === 'home' && (
-        <Home
-          profileId={profileId}
-          requestId={requestId}
-          onStartProfile={() => openProfileForm('student')}
-          onStartRequest={startRequest}
-          onFindMatches={findMatches}
-        />
-      )}
+	      {view === 'home' && (
+	        <Home
+            selectedRole={selectedLandingRole}
+            authSession={authSession}
+	          googleSigningIn={googleSigningIn}
+            onSelectRole={selectLandingRole}
+	          onStartProfile={openProfileForm}
+            onGoogleSignIn={handleGoogleSignIn}
+	          t={t}
+	        />
+	      )}
 
       {view === 'profile' && (
-        <ProfileForm
-          initialRole={profileFormRole}
-          onSaved={(savedProfile) => {
+	        <ProfileForm
+	          initialRole={profileFormRole}
+            initialData={googleProfileSeed}
+	          t={t}
+	          onSaved={(savedProfile) => {
             const savedRole = getProfileRole(savedProfile);
             setProfile(savedProfile);
             setProfileId(savedProfile.id);
             setProfileFormRole(savedRole);
             changeActiveRole(savedRole);
+            const profileLecturerSession = lecturerSessionFromProfile(savedProfile);
+            if (profileLecturerSession) {
+              setLecturerSession(profileLecturerSession);
+              storeLecturerSession(profileLecturerSession);
+            }
+            clearPendingRole();
             navigate(getStoredInviteCode() ? 'join-class' : 'profile-saved');
           }}
         />
       )}
 
-      {view === 'profile-saved' && (
-        <ProfileSaved profile={profile} onContinue={() => navigate(currentRole === 'lecturer' ? 'my-profile' : 'request')} />
-      )}
+	      {view === 'profile-saved' && (
+	        <ProfileSaved profile={profile} onContinue={() => navigate(currentRole === 'lecturer' ? 'lecturer' : 'my-classes')} t={t} />
+	      )}
 
       {view === 'join-class' && (
         <JoinClassPage
-          profile={profile}
-          profileId={profileId}
-          onCreateProfile={() => openProfileForm('student')}
-          onJoined={handleClassJoined}
-        />
+	          profile={profile}
+	          profileId={profileId}
+	          onCreateProfile={() => openProfileForm('student')}
+	          onJoined={handleClassJoined}
+	          t={t}
+	        />
       )}
 
       {view === 'my-classes' && (
         <MyClassesPage
           profileId={profileId}
-          onCreateProfile={() => openProfileForm('student')}
-          onJoinClass={() => navigate('join-class')}
-          onOpenClass={openClass}
-        />
+	          onCreateProfile={() => openProfileForm('student')}
+	          onJoinClass={() => navigate('join-class')}
+	          onOpenClass={openClass}
+	          t={t}
+	        />
       )}
 
       {view === 'class-detail' && (
@@ -5846,33 +7398,38 @@ export default function App() {
           profileId={profileId}
           onBack={() => navigate('my-classes')}
           onJoinClass={() => navigate('join-class')}
-          onFindTeammates={openClassRequest}
-          onViewMatches={openMatchesForRequest}
-          onOpenChat={openChat}
-        />
+	          onFindTeammates={openClassRequest}
+	          onViewMatches={openMatchesForRequest}
+	          onOpenChat={openChat}
+	          t={t}
+	        />
       )}
 
       {view === 'lecturer' && (
-        <LecturerDashboard
-          activeRole={currentRole}
-          lecturerSession={lecturerSession}
-          onOpenProfile={() => navigate('my-profile')}
-        />
+	        <LecturerDashboard
+	          activeRole={currentRole}
+	          lecturerSession={currentLecturerSession}
+		          profileId={profileId}
+		          onOpenProfile={() => navigate('my-profile')}
+		          onOpenChat={openChat}
+		          t={t}
+		        />
       )}
 
       {view === 'request' && profile && (
         <RequestForm
           profile={profile}
-          onBack={() => (requestClassContext ? navigate('class-detail') : goBack('home'))}
-          classContext={requestClassContext}
-          onCreated={(request) => {
+	          onBack={() => (requestClassContext ? navigate('class-detail') : goBack('home'))}
+	          classContext={requestClassContext}
+	          t={t}
+	          onCreated={(request) => {
             setRequestId(request.id);
             if (request.class_id || requestClassContext?.id) {
               const nextClassId = request.class_id || requestClassContext.id;
               setSelectedClassId(nextClassId);
               storeClassId(nextClassId);
               setRequestClassContext(null);
-              navigate('class-detail');
+              navigate('matches');
             } else {
               navigate('matches');
             }
@@ -5884,10 +7441,11 @@ export default function App() {
         <MatchResults
           requestId={requestId}
           currentProfileId={profileId}
-          onCreateNew={startRequest}
-          onSelectRequest={selectCurrentRequest}
-          onViewCurrent={() => navigate('current-request')}
-          onViewProfile={(id, score) => {
+	          onCreateNew={startRequest}
+	          onSelectRequest={selectCurrentRequest}
+	          onViewCurrent={() => navigate('current-request')}
+	          t={t}
+	          onViewProfile={(id, score) => {
             setSelectedRequestId(id);
             setSelectedMatchScore(score);
             navigate('profile-detail');
@@ -5904,6 +7462,7 @@ export default function App() {
           onBack={() => goBack('matches')}
           onOpenChat={openChat}
           onOpenConnections={() => navigate('connections')}
+          t={t}
         />
       )}
 
@@ -5919,15 +7478,18 @@ export default function App() {
             setSelectedMatchScore(null);
             navigate('profile-detail');
           }}
-          onSelectRequest={selectCurrentRequest}
-          onCreateNew={startRequest}
-        />
+		          onSelectRequest={selectCurrentRequest}
+		          onViewRecommended={openMatchesForRequest}
+		          onCreateNew={startRequest}
+		          t={t}
+		        />
       )}
 
       {view === 'found' && (
         <FoundConfirmation
           onCreateAnother={startRequest}
           onHome={() => navigate('home')}
+          t={t}
         />
       )}
 
@@ -5936,17 +7498,19 @@ export default function App() {
           currentProfileId={profileId}
           currentRequestId={requestId}
           onOpenChat={openChat}
-          onViewProfile={(id) => {
-            setSelectedDiscoverProfileId(id);
-            navigate('discover-profile');
-          }}
-          onNotificationsChanged={refreshNotificationCounts}
-        />
+	          onViewProfile={(id) => {
+	            setSelectedDiscoverProfileId(id);
+	            navigate('discover-profile');
+	          }}
+	          onNotificationsChanged={refreshNotificationCounts}
+	          t={t}
+	        />
       )}
 
       {view === 'discover' && (
         <DiscoverPage
           currentProfileId={profileId}
+          t={t}
           onOpenProfile={(id) => {
             setSelectedDiscoverProfileId(id);
             navigate('discover-profile');
@@ -5972,6 +7536,7 @@ export default function App() {
           onBack={() => goBack('discover')}
           onOpenChat={openChat}
           onOpenConnections={() => navigate('connections')}
+          t={t}
         />
       )}
 
@@ -6003,17 +7568,26 @@ export default function App() {
 
       {view === 'my-profile' && (
         <MyProfile
-          profile={profile}
-          activeRole={currentRole}
-          lecturerSession={lecturerSession}
-          onCreateProfile={() => openProfileForm('student')}
-          onCreateSearch={startRequest}
-          onOpenLecturer={() => navigate('lecturer')}
-          onRoleChange={changeActiveRole}
+	          profile={profile}
+	          activeRole={currentRole}
+	          authSession={authSession}
+	          lecturerSession={lecturerSession}
+	          onCreateProfile={() => openProfileForm('student')}
+	          onCreateSearch={startRequest}
+	          onOpenLecturer={() => navigate('lecturer')}
           onLecturerLogin={handleLecturerLogin}
-          onLecturerLogout={handleLecturerLogout}
-          onProfileUpdated={(updatedProfile) => setProfile(updatedProfile)}
-        />
+	          onLecturerLogout={handleLecturerLogout}
+          onLogout={handleLogout}
+	          onProfileUpdated={(updatedProfile) => {
+              setProfile(updatedProfile);
+              const profileLecturerSession = lecturerSessionFromProfile(updatedProfile);
+              if (profileLecturerSession) {
+                setLecturerSession(profileLecturerSession);
+                storeLecturerSession(profileLecturerSession);
+              }
+            }}
+	          t={t}
+	        />
       )}
     </div>
   );
