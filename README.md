@@ -8,14 +8,14 @@ TEAMERGENCY is an MVP for students who need to find teammates for a group assign
 
 ## MVP Flow
 
-1. Homepage
-2. Choose role and create User Profile
-3. Profile Saved
-4. Create Teammate Search Request
-5. Match Results
-6. View Teammate Profile
-7. My Current Request
-8. Team Found Confirmation
+1. Landing page chooses Student or Lecturer first
+2. Continue with Google, or use the temporary demo session
+3. Complete the Teamergency profile for the chosen role
+4. Students enter My Classes or Collabs
+5. Class requests are created from Class Detail only
+6. Collabs handle non-class teammate discovery
+7. Match Results and Recommended Teammates
+8. Connect, chat, and mark team/collab progress
 
 Extended flow:
 
@@ -29,16 +29,16 @@ Find Matches
   -> Mark Team Found
 ```
 
-There is no SSO, login UI, personal GPA profile field, hobbies, push notification, voice call, or video call in this MVP. Public testing uses Supabase Anonymous Auth silently in the browser for basic ownership checks.
+Google sign-in is now the preferred user-facing entry option and uses Supabase Auth. Public testing can still use Supabase Anonymous Auth silently in the browser for temporary demo ownership. There is no custom authentication system, university SSO, personal GPA profile field, hobbies, push notification, voice call, or video call in this MVP.
 
 ## MVP Roles
 
-Profile creation starts with a role choice:
+The landing page starts with a role choice:
 
-- `student`: keeps the existing Teamergency student experience for profiles, team requests, matching, Discover, Connect, chat, reviews, and marking a team as found.
+- `student`: keeps the Teamergency student experience for profiles, My Classes, class requests, Collabs, matching, Discover, Connect, chat, reviews, and marking a team as found.
 - `lecturer`: opens a minimal Lecturer Dashboard experience for checking class/team-formation progress.
 
-This is not production university authentication. It is an MVP role-based experience on top of the existing anonymous Supabase ownership system. Existing profiles without a role safely behave as `student`.
+This is not production university authentication. It is an MVP role-based experience on top of the existing Supabase ownership system. Existing profiles without a role safely behave as `student`.
 
 ## Why Profiles and Requests Are Separate
 
@@ -145,10 +145,12 @@ Do not put a `service_role` key in the frontend.
 - `supabase/session_code_matching_update.sql` updates matching to compare stable session codes such as `Session 01` instead of timetable-style day/start time values.
 - `supabase/class_cohort_phase2.sql` adds Class/Cohort support, lecturer-created join codes, class membership, class-aware request creation, and a light lecturer dashboard.
 - `supabase/role_lecturer_access_phase2.sql` adds profile role selection, lecturer title, demo lecturer class codes, demo class memberships, and code-based Lecturer Dashboard access.
-- `supabase/my_profile_role_switch_demo.sql` adds the latest My Profile mode switch, demo lecturer IDs, school/major-aware demo class lookup, and My Classes lecturer dashboard data.
+- `supabase/my_profile_role_switch_demo.sql` is a legacy reference migration. Do not run it for the current one-code-per-class demo flow.
 - `supabase/class_based_team_status.sql` adds class-based student team status helpers for Class Detail and the Lecturer Dashboard.
 - `supabase/fix_join_demo_class_ambiguous.sql` replaces the demo join function if Supabase reports `column reference "class_id" is ambiguous`.
 - `supabase/fix_current_request_team_size_and_class_rpc.sql` applies the current team-size request RPCs without rerunning older connection migrations.
+- `supabase/class_team_status_open_opportunities_phase.sql` adds editable class team status, external teammate Student IDs, Collabs, lecturer support actions, class closing helpers, and the current Join Class ambiguity fix.
+- `supabase/demo_university_class_identity_corrections.sql` corrects demo class identity, adds multi-university demo profiles, and adds v2 recommended-teammate RPCs.
 - `supabase/seed.sql` creates 15 fictional demo profiles and 15 active demo team requests.
 
 Demo profiles use:
@@ -263,11 +265,12 @@ Match Usefulness Rating answers: "Was Teamergency's recommendation useful?"
 
 ## Row Level Security
 
-This MVP is designed for public testing without login UI. It uses Supabase Anonymous Auth so each browser gets an authenticated anonymous user ID.
+This MVP supports public testing with Supabase Anonymous Auth and an optional Google sign-in button. Anonymous Auth still lets each browser get an authenticated temporary user ID. Google sign-in should be configured through Supabase Auth, not through a custom authentication system.
 
 Allowed:
 
 - Anonymous-authenticated users can create real profiles.
+- Google-authenticated users can create real profiles through the same Supabase ownership model.
 - Anonymous-authenticated users can create team requests for profiles they own.
 - Public profile/request browsing goes through limited database functions.
 - `edit_token` is not returned by public request browsing functions.
@@ -304,9 +307,21 @@ Connect/chat functions include:
 
 These functions check profile involvement and connection status before changing data.
 
+## Google Sign-In And Ownership
+
+Google sign-in is an optional user-facing login path. Configure it in Supabase Authentication > Providers > Google with the Google OAuth client ID/secret, local and deployed redirect URLs, and the Supabase callback URL.
+
+The app keeps the existing MVP role data while removing casual role switching from the interface:
+
+- Google identifies the person through Supabase Auth.
+- The landing-page choice sets the initial Student/Lecturer experience.
+- `profiles.role` still controls the selected experience inside Teamergency.
+- Lecturer remains demo access until real university verification is added.
+- Existing anonymous/demo profiles are preserved where possible; Google sign-in uses Supabase Auth and does not delete existing profiles, requests, connections, or messages.
+
 ## Ownership Token
 
-Because there is no login UI, the app stores the anonymous Supabase session in the browser. Each new team request still gets a random `edit_token` as a fallback for marking a request found.
+The app stores the Supabase session in the browser. Each new team request still gets a random `edit_token` as a fallback for marking a request found.
 
 The browser stores:
 
@@ -314,13 +329,14 @@ The browser stores:
 - `currentTeamRequestId`
 - `currentTeamRequestEditToken`
 - `currentClassId`, when the student joins a lecturer-created class
-- Supabase anonymous auth session
+- Supabase auth session, anonymous or Google
+- `teamergencyLanguage`, for the English/Vietnamese language switch
 
 These values live in `localStorage` on the current device/browser.
 
 Security limitations:
 
-- Anonymous Auth is better than plain `currentProfileId`, but it is still device/browser-based.
+- Anonymous Auth is better than plain `currentProfileId`, but it is still device/browser-based until linked to Google.
 - If the user clears browser storage or changes device, they may lose access to their anonymous session and profile ownership.
 - Existing legacy profiles with no `owner_id` can be claimed once from the browser that already has the saved profile ID.
 - Anyone with access to the same browser session can act as that user.
@@ -505,10 +521,12 @@ Run this only after the current MVP migrations are already in place:
 
 ```text
 supabase/class_cohort_phase2.sql
-supabase/my_profile_role_switch_demo.sql
+supabase/role_lecturer_access_phase2.sql
 supabase/fix_join_demo_class_ambiguous.sql
 supabase/fix_current_request_team_size_and_class_rpc.sql
 supabase/class_based_team_status.sql
+supabase/class_team_status_open_opportunities_phase.sql
+supabase/demo_university_class_identity_corrections.sql
 ```
 
 This migration is additive. It does not drop existing tables, reset data, or delete real users. It adds:
@@ -542,17 +560,23 @@ Create Profile
   -> My Classes
   -> Join Class with lecturer code
   -> Class Detail
-  -> See team status
-  -> Create Team Request for that class
+  -> View or edit team status
+  -> Add existing teammate Student IDs if needed
+  -> Create Team Request only when missing teammates
   -> Return to Class Detail
   -> Find Matches inside that class
 ```
 
-Standalone / outside-class flow:
+Collabs / outside-class flow:
 
 ```text
-Open Opportunities
+Collabs
+  -> Select Competition Type and Field
+  -> If Type or Field is Other, enter the custom value
+  -> Enter Competition Name
   -> Create Teammate Request
+  -> View Recommended Profiles
+  -> Edit, cancel, reopen, or complete the existing request without creating duplicates
   -> Find teammates outside a specific enrolled class
 ```
 
@@ -560,28 +584,69 @@ Lecturer flow:
 
 ```text
 My Profile
-  -> Switch to Lecturer Mode
-  -> Select University
-  -> Enter demo Lecturer ID
+Landing
+  -> Choose Lecturer
+  -> Continue with Google or demo session
+  -> Complete Lecturer Profile
   -> Open Lecturer Dashboard
   -> View My Classes and team-formation progress
+  -> Remind or message students who need help
+  -> Close Team Formation when ready
 ```
 
-Security limitation: there is still no real university login, SSO, or staff verification. Lecturer Mode is an MVP-only local mode plus demo Lecturer ID lookup, so it is suitable for testing the experience and dashboard evidence only. Production should use real Supabase Auth roles and university identity checks before handling real class administration.
+Security limitation: there is still no real university login, SSO, or staff verification. Lecturer is an MVP role chosen at entry plus demo Lecturer ID lookup, so it is suitable for testing the experience and dashboard evidence only. Production should use real Supabase Auth roles and university identity checks before handling real class administration.
 
 Demo lecturer accounts:
 
 - `RMIT University` · Lecturer ID `v123456` · Tom Anderson
-- `University of Economics Ho Chi Minh City` · Lecturer ID `v654321` · Minh Nguyen
-- `University of Technology Ho Chi Minh City` · Lecturer ID `v888888` · Sarah Tran
+- `University of Economics Ho Chi Minh City` · Lecturer ID `v234567` · Patrick Hartono
+- `University of Technology Ho Chi Minh City` · Lecturer ID `v345678` · Sarah Nguyen
 
 Student demo class codes:
 
-- `200206`
-- `676767`
-- `88889999`
+- `200206` · RMIT University · Digital Media Studio 4 · Session 01 · 28 students
+- `676767` · University of Economics Ho Chi Minh City · Consumer Behaviour · Session 02 · 26 students
+- `88889999` · University of Technology Ho Chi Minh City · Software Engineering · Session 01 · 29 students
 
-The app shows `Demo lecturer ID: v123456` under the Lecturer ID field and `Demo codes: 200206 • 676767 • 88889999` under the Join Class field so testers do not need to search the README. Demo class lookup chooses a class that matches the student's saved school/major where possible, so a Business or IT student is not shown the Digital Media class by default.
+The app shows the demo lecturer IDs under the Lecturer ID field and `Demo codes: 200206 • 676767 • 88889999` under the Join Class field so testers do not need to search the README. Each demo class code maps to one specific class only. If a class does not match the student's academic context, the join flow explains that instead of silently mapping the code to another course.
+
+Additional safe migration for this revision:
+
+```text
+supabase/class_team_status_open_opportunities_phase.sql
+```
+
+Run this after the existing Phase 2 migrations. It adds editable class team status, external teammate Student IDs, Collab fields, and lightweight lecturer support actions without resetting existing data.
+
+Then run:
+
+```text
+supabase/demo_university_class_identity_corrections.sql
+```
+
+This final correction enforces one-code-per-class demo behavior, adds representative demo students from multiple universities, and enables class-specific Recommended Teammates immediately after a class request is created.
+
+For editable Collab requests, also run:
+
+```text
+supabase/open_opportunity_edit_phase.sql
+```
+
+This adds the owner-checked `update_open_opportunity_request_v1` function used by the Edit Collab button. It updates the current request instead of creating a duplicate.
+
+For Google/profile onboarding preferences, also run:
+
+```text
+supabase/google_profile_onboarding_phase.sql
+```
+
+This optional safe migration adds profile avatar and work-style preference fields. Older availability and preferred working time columns may still exist for backward compatibility, but the current frontend no longer shows or scores those fields.
+
+Matching behavior after this correction:
+
+- Academic class matching is a closed cohort: recommendations only include students who joined the same class and still have team capacity.
+- Collabs can match students across universities when the collab type, field, skills, and work style are compatible.
+- Lecturer Dashboard focuses on Students Needing Attention instead of showing a full roster.
 
 ## Deploy
 
