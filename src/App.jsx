@@ -41,6 +41,7 @@ import {
   joinClassById,
   getMatchesForRequest,
   getMyProfile,
+  getProfileByContactEmail,
 		  getMessages,
 	  getMessageThreads,
 	  getMyClassTeamStatus,
@@ -242,6 +243,27 @@ const emptyProfile = {
 	  student_id: '',
 	  is_available: true,
   consent_public_visibility: false,
+};
+
+const createProfileFormState = (initialRole = 'student', initialData = {}) => {
+  const role = initialRole === 'lecturer' ? 'lecturer' : 'student';
+  return {
+    ...emptyProfile,
+    ...initialData,
+    role,
+    university: initialData.university || emptyProfile.university,
+    school: initialData.school || '',
+    major: role === 'lecturer' ? 'Lecturer' : initialData.major || '',
+    skills: Array.isArray(initialData.skills) ? initialData.skills : [],
+    work_styles: Array.isArray(initialData.work_styles) ? initialData.work_styles : [],
+    contact_type: initialData.contact_type || 'email',
+    contact_value: initialData.contact_value || '',
+    lecturer_contact_method: initialData.lecturer_contact_method || 'Email',
+    lecturer_contact_detail: initialData.lecturer_contact_detail || initialData.contact_value || '',
+    student_id: initialData.student_id || '',
+    short_bio: initialData.short_bio || '',
+    consent_public_visibility: initialData.consent_public_visibility ?? Boolean(initialData.id),
+  };
 };
 
 const parseClassSession = (session = '') => {
@@ -849,6 +871,7 @@ const profileRequiredLabels = {
   contact_value: 'profile.contactInfo',
   short_bio: 'profile.shortBio',
   work_styles: 'profile.workStyle',
+  student_id: 'profile.studentId',
   academic_field: 'profile.academicField',
   lecturer_id: 'profile.lecturerId',
   lecturer_contact_detail: 'profile.contactDetail',
@@ -2545,12 +2568,8 @@ function LecturerDashboard({ activeRole, lecturerSession, profileId, onOpenProfi
 }
 
 function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = translate.bind(null, 'en') }) {
-  const [form, setForm] = useState(() => ({
-    ...emptyProfile,
-    ...initialData,
-    role: initialRole === 'lecturer' ? 'lecturer' : 'student',
-    major: initialRole === 'lecturer' ? 'Lecturer' : initialData.major || '',
-  }));
+  const initialDataSignature = JSON.stringify(initialData || {});
+  const [form, setForm] = useState(() => createProfileFormState(initialRole, initialData));
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
   const [saving, setSaving] = useState(false);
@@ -2559,18 +2578,10 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
   const profileSchoolOptions = getSchoolsForUniversity(form.university);
 
   useEffect(() => {
-    setForm((current) => ({
-      ...current,
-      role: initialRole === 'lecturer' ? 'lecturer' : 'student',
-      full_name: current.full_name || initialData.full_name || '',
-      avatar_url: current.avatar_url || initialData.avatar_url || '',
-      contact_type: current.contact_type || initialData.contact_type || 'email',
-      contact_value: current.contact_value || initialData.contact_value || '',
-      lecturer_contact_method: current.lecturer_contact_method || initialData.lecturer_contact_method || 'Email',
-      lecturer_contact_detail: current.lecturer_contact_detail || initialData.lecturer_contact_detail || '',
-      major: initialRole === 'lecturer' ? 'Lecturer' : current.major || initialData.major || '',
-    }));
-  }, [initialRole, initialData]);
+    setForm(createProfileFormState(initialRole, initialData));
+    setFieldErrors({});
+    setError('');
+  }, [initialRole, initialDataSignature]);
 
   const updateField = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -2617,7 +2628,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
 
     try {
       const role = isLecturer ? 'lecturer' : 'student';
-      const profile = await createProfile({
+      const profilePayload = {
         full_name: form.full_name.trim(),
         university: form.university || 'RMIT University',
         school: form.school.trim(),
@@ -2641,7 +2652,17 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
 	        lecturer_contact_method: isLecturer ? form.lecturer_contact_method : null,
 	        lecturer_contact_detail: isLecturer ? form.lecturer_contact_detail.trim() : null,
 	        student_id: isLecturer ? null : form.student_id.trim() || null,
-	      });
+	      };
+      let profile;
+      try {
+        profile = form.id
+          ? await updateProfile(form.id, profilePayload)
+          : await createProfile(profilePayload);
+      } catch (updateError) {
+        if (!form.id) throw updateError;
+        console.error('Existing profile could not be updated; creating an owned Google profile instead.', updateError);
+        profile = await createProfile(profilePayload);
+      }
       storeProfileId(profile.id);
       onSaved(profile);
     } catch (err) {
@@ -5315,7 +5336,7 @@ function FoundConfirmation({ onCreateAnother, onHome, t = translate.bind(null, '
   );
 }
 
-function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onViewProfile, onOpenDiscover, onNotificationsChanged, t = translate.bind(null, 'en') }) {
+function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onViewProfile, onNotificationsChanged, t = translate.bind(null, 'en') }) {
   const [tab, setTab] = useState('received');
   const [state, setState] = useState({
     loading: true,
@@ -5533,18 +5554,12 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
           <p className="eyebrow">{t('nav.connections')}</p>
           <h2>{t('connections.requests')}</h2>
         </div>
-        <div className="header-actions">
-          <button className="secondary" type="button" onClick={onOpenDiscover}>
-            <Search size={18} />
-            {t('discover.title')}
-          </button>
-          <div className="segmented">
-            {tabs.map((item) => (
-              <button className={tab === item.id ? 'selected' : ''} onClick={() => setTab(item.id)} key={item.id}>
-                {item.label}{item.rows.length ? ` (${item.rows.length})` : ''}
-              </button>
-            ))}
-          </div>
+        <div className="segmented">
+          {tabs.map((item) => (
+            <button className={tab === item.id ? 'selected' : ''} onClick={() => setTab(item.id)} key={item.id}>
+              {item.label}{item.rows.length ? ` (${item.rows.length})` : ''}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -6939,6 +6954,13 @@ export default function App() {
     () => getGoogleProfileSeed(authSession, profileFormRole),
     [authSession?.user?.id, getAuthSessionEmail(authSession), profileFormRole],
   );
+  const profileFormInitialData = useMemo(
+    () => ({
+      ...googleProfileSeed,
+      ...(profile || {}),
+    }),
+    [googleProfileSeed, profile],
+  );
 
   useEffect(() => {
     const storedProfileId = getStoredProfileId();
@@ -6990,38 +7012,36 @@ export default function App() {
 	      const pendingRole = getStoredPendingRole();
 
       if (storedProfileId) {
-        if (hasGoogleAuthSession(session) && pendingRole) {
-          const nextRole = pendingRole === 'lecturer' ? 'lecturer' : 'student';
-          setSelectedLandingRole(nextRole);
+        try {
+          const storedProfile = await getProfileById(storedProfileId, { claimLegacy: true });
+          if (!alive) return;
+          const nextRole = pendingRole || getProfileRole(storedProfile);
+          setSelectedLandingRole(pendingRole || '');
           setProfileFormRole(nextRole);
           changeActiveRole(nextRole);
-
-          try {
-            const storedProfile = await getProfileById(storedProfileId, { claimLegacy: true });
-            if (!alive) return;
-            setProfileId(storedProfile.id);
-            setProfile(storedProfile);
-            const profileLecturerSession = lecturerSessionFromProfile({ ...storedProfile, role: nextRole });
-	            if (profileLecturerSession) {
-	              setLecturerSession(profileLecturerSession);
-	              storeLecturerSession(profileLecturerSession);
-	            }
-	            if (navigateAfterSignIn) {
-	              clearPendingRole();
-	              navigate(isProfileCompleteForRole({ ...storedProfile, role: nextRole }, nextRole)
-	                ? (nextRole === 'lecturer' ? 'lecturer' : 'my-classes')
-	                : 'profile');
-	            }
-	          } catch {
-	            if (!alive) return;
-	            if (navigateAfterSignIn) navigate('profile');
-	          }
-	        }
+          setProfileId(storedProfile.id);
+          setProfile(storedProfile);
+          const profileLecturerSession = lecturerSessionFromProfile({ ...storedProfile, role: nextRole });
+          if (profileLecturerSession) {
+            setLecturerSession(profileLecturerSession);
+            storeLecturerSession(profileLecturerSession);
+          }
+          if (navigateAfterSignIn && hasGoogleAuthSession(session)) {
+            clearPendingRole();
+            navigate(nextRole === 'lecturer' ? 'lecturer' : 'my-classes');
+          }
+        } catch {
+          if (!alive) return;
+          if (navigateAfterSignIn && hasGoogleAuthSession(session)) navigate('profile');
+        }
 	        return;
       }
 
       try {
-        const ownedProfile = await getMyProfile();
+        let ownedProfile = await getMyProfile();
+        if (!ownedProfile?.id && hasGoogleAuthSession(session)) {
+          ownedProfile = await getProfileByContactEmail(getAuthSessionEmail(session)).catch(() => null);
+        }
         if (!alive) return;
         if (!ownedProfile?.id) {
 	          if (hasGoogleAuthSession(session)) {
@@ -7045,9 +7065,7 @@ export default function App() {
 	        }
 	        if (navigateAfterSignIn && hasGoogleAuthSession(session)) {
 	          clearPendingRole();
-	          navigate(isProfileCompleteForRole({ ...ownedProfile, role: nextRole }, nextRole)
-	            ? (nextRole === 'lecturer' ? 'lecturer' : 'my-classes')
-	            : 'profile');
+	          navigate(nextRole === 'lecturer' ? 'lecturer' : 'my-classes');
 	        }
 	      } catch {
 	        if (hasGoogleAuthSession(session)) {
@@ -7065,7 +7083,7 @@ export default function App() {
 	        if (!alive) return;
 	        setAuthSession(session);
 	        syncProfileForSession(session, {
-	          navigateAfterSignIn: Boolean(getStoredPendingRole()) && !getStoredLoggedOut(),
+	          navigateAfterSignIn: hasGoogleAuthSession(session) && !getStoredLoggedOut() && !getStoredInviteCode(),
 	        });
 	      })
 	      .catch(() => {});
@@ -7149,6 +7167,7 @@ export default function App() {
 	    setAuthSession(session);
 	    let ownedProfile = null;
 	    const storedProfileId = getStoredProfileId();
+	    const sessionEmail = getAuthSessionEmail(session);
 
 	    try {
 	      if (storedProfileId) {
@@ -7157,6 +7176,10 @@ export default function App() {
 
 	      if (!ownedProfile) {
 	        ownedProfile = await getMyProfile().catch(() => null);
+	      }
+
+	      if (!ownedProfile && sessionEmail) {
+	        ownedProfile = await getProfileByContactEmail(sessionEmail).catch(() => null);
 	      }
 	    } catch (err) {
 	      console.error('Could not restore Google profile session', err);
@@ -7178,13 +7201,8 @@ export default function App() {
 	      storeLecturerSession(profileLecturerSession);
 	    }
 
-	    if (isProfileCompleteForRole({ ...ownedProfile, role: nextRole }, nextRole)) {
-	      clearPendingRole();
-	      navigate(nextRole === 'lecturer' ? 'lecturer' : 'my-classes');
-	      return;
-	    }
-
-	    navigate('profile');
+	    clearPendingRole();
+	    navigate(nextRole === 'lecturer' ? 'lecturer' : 'my-classes');
 	  };
 
 	  const routeExistingGoogleSession = async (session, nextRole) => {
@@ -7416,8 +7434,9 @@ export default function App() {
 
       {view === 'profile' && (
 	        <ProfileForm
+	          key={`${profileFormRole}-${profileFormInitialData.id || authSession?.user?.id || 'new'}`}
 	          initialRole={profileFormRole}
-            initialData={googleProfileSeed}
+            initialData={profileFormInitialData}
 	          t={t}
 	          onSaved={(savedProfile) => {
             const savedRole = getProfileRole(savedProfile);
@@ -7567,7 +7586,6 @@ export default function App() {
           currentProfileId={profileId}
           currentRequestId={requestId}
           onOpenChat={openChat}
-          onOpenDiscover={() => navigate('discover')}
 	          onViewProfile={(id) => {
 	            setSelectedDiscoverProfileId(id);
 	            navigate('discover-profile');
