@@ -87,7 +87,38 @@ a {
 
 .top-actions {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.language-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 38px;
+  padding: 4px 6px;
+  border: 1px solid rgba(23, 59, 69, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #39505a;
+}
+
+.language-switch button {
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #39505a;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.language-switch button.active {
+  background: #173b45;
+  color: #ffffff;
 }
 
 .nav-badge {
@@ -154,6 +185,86 @@ a {
   border-radius: 8px;
   background: #fff8dd;
   color: #5d4215;
+}
+
+.auth-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  margin: 14px 0 22px;
+  padding: 16px;
+  border: 1px solid rgba(23, 59, 69, 0.14);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.google-button {
+  white-space: nowrap;
+}
+
+.landing-role-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 28px 0 18px;
+}
+
+.landing-role-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  min-height: 138px;
+  padding: 18px;
+  border: 1px solid rgba(23, 59, 69, 0.18);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #173b45;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 12px 30px rgba(29, 36, 51, 0.08);
+}
+
+.landing-role-card:hover {
+  transform: translateY(-1px);
+}
+
+.landing-role-card.selected {
+  border-color: rgba(198, 74, 59, 0.48);
+  background: #fff5f2;
+}
+
+.landing-role-card strong {
+  display: block;
+  color: #173b45;
+  font-size: 1.1rem;
+  font-weight: 900;
+}
+
+.landing-role-card small {
+  display: block;
+  margin-top: 6px;
+  color: #4f6068;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.landing-auth-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(23, 91, 86, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.landing-auth-card {
+  margin-top: 16px;
+}
+
+.inline-other-field {
+  margin-top: -10px;
 }
 
 .error-banner,
@@ -478,8 +589,12 @@ legend {
   gap: 4px;
 }
 
+.role-card strong {
+  color: #173b45;
+}
+
 .role-card small {
-  color: #66747d;
+  color: #4f6068;
   font-size: 0.9rem;
   font-weight: 650;
   line-height: 1.35;
@@ -487,7 +602,11 @@ legend {
 
 .role-card.selected {
   border-color: rgba(23, 91, 86, 0.42);
-  background: #edf7f3;
+  background: #e1f3ee;
+}
+
+.role-card.selected small {
+  color: #24474c;
 }
 
 .check-option {
@@ -3323,4 +3442,381 @@ button,
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.055);
+}
+
+.profile-panel .auth-card,
+.auth-card {
+  border: 1px solid rgba(23, 59, 69, 0.22);
+  background: #fffaf1;
+  color: #1d2433;
+  box-shadow: 0 14px 34px rgba(29, 36, 51, 0.14);
+}
+
+.profile-panel .auth-card h3,
+.profile-panel .auth-card p,
+.profile-panel .auth-card .note,
+.profile-panel .auth-card .field-helper {
+  color: #1d2433;
+}
+
+.profile-panel .auth-card .eyebrow {
+  color: #a3372d;
+}
+
+.profile-panel .google-button,
+.google-button {
+  border: 1px solid rgba(23, 59, 69, 0.24);
+  color: #173b45;
+  background: #ffffff;
+}
+
+.profile-panel .google-button:disabled,
+.google-button:disabled {
+  color: #5b6971;
+  background: #ece7dd;
+  opacity: 0.82;
+}
+
+/* Contrast hardening pass */
+h1,
+h2,
+h3,
+h4,
+p,
+span,
+small,
+strong,
+em,
+label,
+legend,
+dt,
+dd,
+button,
+input,
+textarea,
+select,
+option {
+  -webkit-text-fill-color: currentColor;
+}
+
+.intro h1,
+.intro h2,
+.intro h3,
+.intro p,
+.landing-mode .intro h1,
+.landing-mode .intro h2,
+.landing-mode .intro h3,
+.landing-mode .intro p {
+  color: #ffffff;
+}
+
+.landing-role-card,
+.landing-role-card strong,
+.landing-role-card small,
+.landing-role-card em,
+.landing-auth-card,
+.landing-auth-card h2,
+.landing-auth-card p,
+.landing-auth-card .note,
+.auth-card,
+.auth-card h3,
+.auth-card p,
+.auth-card .note,
+.auth-card .field-helper {
+  color: #17232c;
+}
+
+.landing-role-card {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: #f9fafb;
+}
+
+.landing-role-card.selected {
+  border-color: #ff3b42;
+  background: #fff1f2;
+  box-shadow: 0 0 0 3px rgba(255, 59, 66, 0.18), 0 18px 42px rgba(0, 0, 0, 0.34);
+}
+
+.landing-role-card em {
+  display: inline-flex;
+  width: max-content;
+  margin-top: 10px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  color: #ffffff;
+  background: #173b45;
+  font-size: 0.78rem;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.landing-auth-card {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: #fffaf1;
+}
+
+.form-shell,
+.profile-panel,
+.request-panel,
+.match-card,
+.discover-card,
+.connection-row,
+.thread-row,
+.chat-shell,
+.connect-modal,
+.confirmation,
+.empty-state,
+.request-list-row,
+.request-list-panel,
+.progress-panel,
+.request-summary-box,
+.inline-prompt,
+.conditional-box,
+.locked-box,
+.review-card {
+  color: #f8f8f5;
+}
+
+.form-shell input,
+.form-shell textarea,
+.form-shell select,
+.profile-panel input,
+.profile-panel textarea,
+.profile-panel select,
+.request-panel input,
+.request-panel textarea,
+.request-panel select,
+.connect-modal input,
+.connect-modal textarea,
+.connect-modal select,
+.chat-shell input,
+.chat-shell textarea,
+.chat-shell select {
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+  background: #1a1c22;
+}
+
+.form-shell input::placeholder,
+.form-shell textarea::placeholder,
+.profile-panel input::placeholder,
+.profile-panel textarea::placeholder,
+.request-panel input::placeholder,
+.request-panel textarea::placeholder,
+.connect-modal input::placeholder,
+.connect-modal textarea::placeholder {
+  color: #aeb3bd;
+}
+
+.check-option,
+.consent-box,
+.role-card {
+  border-color: rgba(255, 255, 255, 0.18);
+  color: #f8f8f5;
+  background: #17191f;
+}
+
+.check-option strong,
+.check-option span,
+.consent-box span,
+.role-card strong,
+.role-card small {
+  color: #f8f8f5;
+}
+
+.check-option.selected,
+.consent-box.selected,
+.role-card.selected {
+  border-color: rgba(255, 59, 66, 0.72);
+  color: #ffffff;
+  background: rgba(255, 59, 66, 0.17);
+}
+
+.secondary,
+.google-button {
+  border-color: rgba(23, 59, 69, 0.28);
+  color: #173b45;
+  background: #ffffff;
+}
+
+.secondary:hover,
+.google-button:hover {
+  color: #000000;
+  background: #f5f7f8;
+}
+
+.primary {
+  color: #ffffff;
+  background: #ff3b42;
+}
+
+.primary:disabled,
+.secondary:disabled,
+.google-button:disabled {
+  color: #5b6971;
+  background: #d8d8d8;
+  opacity: 0.92;
+}
+
+.language-switch {
+  color: #173b45;
+  background: #ffffff;
+}
+
+.language-switch button {
+  color: #173b45;
+}
+
+.language-switch button.active {
+  color: #ffffff;
+  background: #173b45;
+}
+
+@media (max-width: 720px) {
+  .landing-role-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Landing click/contrast refinement */
+.landing-mode .landing-role-grid {
+  width: min(620px, 100%);
+  margin: 18px auto 12px;
+}
+
+.landing-mode .landing-role-card {
+  min-height: 78px;
+  padding: 12px 14px;
+  gap: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  color: #17232c !important;
+  background: #ffffff !important;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.24);
+}
+
+.landing-mode .landing-role-card svg {
+  width: 18px;
+  height: 18px;
+  color: #ff3b42;
+}
+
+.landing-mode .landing-role-card strong {
+  color: #111827 !important;
+  font-size: 0.96rem;
+}
+
+.landing-mode .landing-role-card small {
+  margin-top: 4px;
+  color: #374151 !important;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.landing-mode .landing-role-card.selected {
+  border-color: #ff3b42;
+  background: #fff1f2 !important;
+  box-shadow: 0 0 0 3px rgba(255, 59, 66, 0.24), 0 14px 34px rgba(0, 0, 0, 0.3);
+}
+
+.landing-mode .landing-role-card em {
+  margin-top: 6px;
+  color: #ffffff !important;
+  background: #111827 !important;
+}
+
+.landing-mode .landing-auth-card {
+  width: min(620px, 100%);
+  margin: 16px auto 0;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  color: #111827 !important;
+  background: #fffaf1 !important;
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.28);
+}
+
+.landing-mode .landing-auth-card h2,
+.landing-mode .landing-auth-card p,
+.landing-mode .landing-auth-card .note {
+  color: #111827 !important;
+}
+
+.landing-mode .landing-auth-card .eyebrow {
+  color: #b91c1c !important;
+}
+
+.landing-mode .landing-auth-card .hero-actions {
+  margin-top: 8px;
+}
+
+.landing-mode .landing-auth-card .google-button {
+  border-color: #111827 !important;
+  color: #ffffff !important;
+  background: #111827 !important;
+  box-shadow: 0 12px 24px rgba(17, 24, 39, 0.24);
+}
+
+.landing-mode .landing-auth-card .google-button:hover {
+  color: #ffffff !important;
+  background: #000000 !important;
+}
+
+.landing-mode .landing-auth-card .secondary {
+  border-color: #d1d5db !important;
+  color: #111827 !important;
+  background: #ffffff !important;
+}
+
+.google-button,
+.secondary.google-button,
+.profile-panel .google-button,
+.auth-card .google-button {
+  border-color: #111827 !important;
+  color: #ffffff !important;
+  background: #111827 !important;
+  box-shadow: 0 12px 24px rgba(17, 24, 39, 0.22);
+}
+
+.google-button svg,
+.secondary.google-button svg,
+.profile-panel .google-button svg,
+.auth-card .google-button svg {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
+}
+
+.google-button:hover,
+.secondary.google-button:hover,
+.profile-panel .google-button:hover,
+.auth-card .google-button:hover {
+  color: #ffffff !important;
+  background: #000000 !important;
+}
+
+.google-button:disabled,
+.secondary.google-button:disabled,
+.profile-panel .google-button:disabled,
+.auth-card .google-button:disabled {
+  border-color: #6b7280 !important;
+  color: #f9fafb !important;
+  background: #6b7280 !important;
+}
+
+.validation-message {
+  color: #ffb3b7 !important;
+  font-size: 0.86rem;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
+.signed-in-line {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  margin: 8px 0 14px;
+  padding: 8px 10px;
+  border: 1px solid rgba(69, 232, 108, 0.34);
+  border-radius: 8px;
+  color: #c8ffd9 !important;
+  background: rgba(69, 232, 108, 0.12);
+  font-size: 0.92rem;
+  font-weight: 850;
 }
