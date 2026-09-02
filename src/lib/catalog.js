@@ -1,5 +1,29 @@
 export const contactTypes = ['email', 'instagram', 'messenger', 'url'];
 
+export const opportunityTypes = [
+  'Competition',
+  'Hackathon',
+  'Club Project',
+  'University Event',
+  'External Event',
+  'Personal Project',
+  'Other',
+];
+
+export const opportunityFields = [
+  'Design',
+  'Digital Media',
+  'Computer Science',
+  'Information Technology',
+  'Business',
+  'Marketing',
+  'Engineering',
+  'Data Science',
+  'Communication',
+  'Entrepreneurship',
+  'Other',
+];
+
 export const universityOptions = [
   { value: 'RMIT University', label: 'RMIT University' },
   {
@@ -9,6 +33,14 @@ export const universityOptions = [
   {
     value: 'University of Technology Ho Chi Minh City',
     label: 'University of Technology Ho Chi Minh City',
+  },
+  {
+    value: 'University of Information Technology',
+    label: 'University of Information Technology',
+  },
+  {
+    value: 'Foreign Trade University',
+    label: 'Foreign Trade University',
   },
 ];
 
@@ -21,7 +53,7 @@ export const schoolOptions = [
 export const majorsBySchool = {
   SCD: ['Digital Media', 'Design Studies', 'Professional Communication', 'Digital Film and Video'],
   TBS: ['Business', 'Marketing', 'Business Analytics'],
-  SSET: ['Information Technology', 'Software Engineering', 'Computer Science'],
+  SSET: ['Information Technology', 'Software Engineering', 'Computer Science', 'Data Science', 'Engineering'],
 };
 
 export const coursesBySchool = {
@@ -34,11 +66,13 @@ export const coursesBySchool = {
   ],
   TBS: [
     { name: 'Integrated Marketing Campaign', code: 'MKTG2301' },
+    { name: 'Consumer Behaviour', code: 'MKTG2308' },
     { name: 'Market Research', code: 'MKTG2305' },
     { name: 'Data Storytelling', code: 'BUSM2655' },
   ],
   SSET: [
     { name: 'Web Programming', code: 'COSC2430' },
+    { name: 'Software Engineering', code: 'COSC2440' },
     { name: 'Service Design', code: 'ISYS2101' },
     { name: 'Creative Coding', code: 'COSC2818' },
   ],
@@ -154,6 +188,15 @@ export const skillsByMajor = {
     'Algorithms',
     'Data Analysis',
     'Web Development',
+  ],
+  'Data Science': [
+    'Python',
+    'Data Analysis',
+    'Data Visualization',
+    'Machine Learning',
+    'Dashboard Design',
+    'SQL',
+    'Research',
   ],
   Engineering: [
     'CAD',
@@ -360,6 +403,18 @@ export const academicCatalog = schoolOptions.map((school) => ({
 
 export const academicData = {
   'RMIT University': {
+    schools: academicCatalog,
+  },
+  'University of Economics Ho Chi Minh City': {
+    schools: academicCatalog,
+  },
+  'University of Technology Ho Chi Minh City': {
+    schools: academicCatalog,
+  },
+  'University of Information Technology': {
+    schools: academicCatalog,
+  },
+  'Foreign Trade University': {
     schools: academicCatalog,
   },
 };
