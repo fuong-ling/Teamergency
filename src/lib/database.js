@@ -305,6 +305,26 @@ export const joinDemoClassByCode = async ({ profileId, classCode, networkStatus 
 
 export const joinClassById = async ({ profileId, classItem, networkStatus }) => {
   const { client } = await getAuthenticatedClient();
+  const rpcResult = await client.rpc('join_class_by_id', {
+    current_profile: profileId,
+    target_class: classItem.id,
+    preferred_teammate_status: networkStatus || null,
+  });
+
+  if (!rpcResult.error) {
+    if (!rpcResult.data?.length) {
+      throw new Error('Class membership could not be saved.');
+    }
+    return {
+      ...rpcResult.data[0],
+      class_data: rpcResult.data[0].class_data || classItem,
+    };
+  }
+
+  if (!isMissingSchemaFeature(rpcResult.error)) {
+    throw rpcResult.error;
+  }
+
   const { data, error } = await client
     .from('class_members')
     .upsert({
