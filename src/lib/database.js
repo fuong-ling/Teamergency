@@ -15,6 +15,13 @@ const getAuthenticatedClient = async () => {
   return { client, session };
 };
 
+const visibleDemoClassCodes = new Set(['200206']);
+
+const filterVisibleDemoDashboards = (rows = []) =>
+  (rows || []).filter((row) => visibleDemoClassCodes.has(String(
+    row.class_code || row.join_code || row.lecturer_access_code || '',
+  ).trim()));
+
 const isMissingSchemaFeature = (error) => {
   const message = String(error?.message || '').toLowerCase();
   return ['PGRST202', 'PGRST204', '42703'].includes(error?.code)
@@ -29,6 +36,7 @@ const getProfileExtraPayload = (profileData = {}) => ({
   availability: profileData.availability || [],
   preferred_active_time: profileData.preferred_active_time || null,
   work_styles: profileData.work_styles || [],
+  subscription_status: profileData.subscription_status || 'free',
 });
 
 export const createProfile = async (profileData) => {
@@ -62,6 +70,7 @@ export const createProfile = async (profileData) => {
       availability,
       preferred_active_time,
       work_styles,
+      subscription_status,
       ...legacyPayload
     } = payload;
     const fallback = await client
@@ -282,7 +291,7 @@ export const getDemoLecturerDashboards = async ({ university, lecturerId }) => {
     p_lecturer_id: lecturerId,
   });
 
-  if (!v2.error) return v2.data || [];
+  if (!v2.error) return filterVisibleDemoDashboards(v2.data || []);
   if (!isMissingSchemaFeature(v2.error)) throw v2.error;
 
   const result = await client.rpc('get_demo_lecturer_dashboards', {
@@ -290,20 +299,21 @@ export const getDemoLecturerDashboards = async ({ university, lecturerId }) => {
     p_lecturer_id: lecturerId,
   });
 
-  if (!result.error) return result.data || [];
+  if (!result.error) return filterVisibleDemoDashboards(result.data || []);
 
   if (!isMissingSchemaFeature(result.error)) {
     throw result.error;
   }
 
   const dashboards = await Promise.all(
-    ['200206', '676767', '88889999'].map((code) =>
+    ['200206'].map((code) =>
       getLecturerDashboardByCode(code).catch(() => null),
     ),
   );
 
   return dashboards
     .filter(Boolean)
+    .filter((row) => visibleDemoClassCodes.has(String(row.class_code || row.join_code || row.lecturer_access_code || '').trim()))
     .filter((row) => !university || (row.university || 'RMIT University') === university);
 };
 
@@ -891,6 +901,26 @@ export const updateTeamRequest = async (requestId, profileId, requestData) => {
   }
 
   return data[0];
+};
+
+export const pinTeamRequestFor48Hours = async (requestId, profileId) => {
+  const { client } = await getAuthenticatedClient();
+  const pinnedUntil = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+
+  const { data, error } = await client
+    .from('team_requests')
+    .update({ pinned_until: pinnedUntil })
+    .eq('id', requestId)
+    .eq('profile_id', profileId)
+    .select('*')
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data?.id) {
+    throw new Error('Request was not pinned.');
+  }
+
+  return data;
 };
 
 export const cancelTeamRequest = async (requestId, profileId) => {

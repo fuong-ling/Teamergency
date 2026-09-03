@@ -44,6 +44,8 @@ export const universityOptions = [
   },
 ];
 
+export const OTHER_UNIVERSITY_VALUE = '__other_university__';
+
 export const schoolOptions = [
   { value: 'SCD', label: 'School of Communication & Design (SCD)' },
   { value: 'TBS', label: 'The Business School (TBS)' },
