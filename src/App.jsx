@@ -60,6 +60,7 @@ import {
   listFriends,
   listProfileReviews,
   openLecturerStudentThread,
+  pinTeamRequestFor48Hours,
   respondConnectionRequest,
   resetDemoConnection,
   reopenTeamRequest,
@@ -95,6 +96,7 @@ import {
   getSchoolsForUniversity,
   getSkillsForSchool,
   majorsBySchool,
+  OTHER_UNIVERSITY_VALUE,
   opportunityFields,
   opportunityTypes,
   requirementOptions,
@@ -132,6 +134,8 @@ import { languages, translate } from './lib/i18n';
 
 const classDayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
+const hiddenLegacyDemoClassCodes = ['676767', '88889999'];
+
 const networkStatusOptions = [
 	  {
 	    value: 'already_have_team',
@@ -147,7 +151,7 @@ const networkStatusOptions = [
 	  },
 	];
 
-const demoClassCodes = ['200206', '676767', '88889999'];
+const demoClassCodes = ['200206'];
 
 const demoLecturerAccounts = [
   {
@@ -226,6 +230,8 @@ const emptyProfile = {
   role: 'student',
   full_name: '',
   university: 'RMIT University',
+  university_choice: 'RMIT University',
+  custom_university: '',
   school: '',
   major: '',
   skills: [],
@@ -240,8 +246,9 @@ const emptyProfile = {
 	  academic_field: '',
 	  lecturer_contact_method: 'Email',
 	  lecturer_contact_detail: '',
-	  student_id: '',
-	  is_available: true,
+  student_id: '',
+  is_available: true,
+  subscription_status: 'free',
   consent_public_visibility: false,
 };
 
@@ -252,6 +259,10 @@ const createProfileFormState = (initialRole = 'student', initialData = {}) => {
     ...initialData,
     role,
     university: initialData.university || emptyProfile.university,
+    university_choice: getUniversityChoice(initialData.university || emptyProfile.university),
+    custom_university: getUniversityChoice(initialData.university || emptyProfile.university) === OTHER_UNIVERSITY_VALUE
+      ? initialData.university || ''
+      : '',
     school: initialData.school || '',
     major: role === 'lecturer' ? 'Lecturer' : initialData.major || '',
     skills: Array.isArray(initialData.skills) ? initialData.skills : [],
@@ -261,6 +272,7 @@ const createProfileFormState = (initialRole = 'student', initialData = {}) => {
     lecturer_contact_method: initialData.lecturer_contact_method || 'Email',
     lecturer_contact_detail: initialData.lecturer_contact_detail || initialData.contact_value || '',
     student_id: initialData.student_id || '',
+    subscription_status: initialData.subscription_status || 'free',
     short_bio: initialData.short_bio || '',
     consent_public_visibility: initialData.consent_public_visibility ?? Boolean(initialData.id),
   };
@@ -505,6 +517,47 @@ const schoolLabel = (value) =>
 const universityLabel = (value) =>
   universityOptions.find((university) => university.value === value)?.label || value || 'RMIT University';
 
+const isKnownUniversity = (value = '') =>
+  universityOptions.some((university) => university.value === value);
+
+const isRmitUniversity = (value = '') =>
+  normalizeFilterValue(value) === normalizeFilterValue('RMIT University')
+  || normalizeFilterValue(value) === normalizeFilterValue('RMIT University Vietnam');
+
+const getUniversityChoice = (value = '') => {
+  if (!value) return 'RMIT University';
+  return isKnownUniversity(value) ? value : OTHER_UNIVERSITY_VALUE;
+};
+
+const resolveProfileUniversity = (form = {}) =>
+  form.university_choice === OTHER_UNIVERSITY_VALUE
+    ? String(form.custom_university || '').trim()
+    : form.university_choice || form.university || 'RMIT University';
+
+const isOtherUniversityForm = (form = {}) =>
+  !isRmitUniversity(resolveProfileUniversity(form));
+
+const getFormSchoolValue = (form = {}) =>
+  isOtherUniversityForm(form) ? String(form.school || '').trim() || 'Other' : String(form.school || '').trim();
+
+const subscriptionTier = (profile = {}) =>
+  String(profile?.subscription_status || profile?.subscription || 'free').trim().toLowerCase();
+
+const isPremiumProfile = (profile = {}) =>
+  ['paid', 'premium'].includes(subscriptionTier(profile));
+
+const subscriptionLabel = (profile = {}, t = translate.bind(null, 'en')) =>
+  isPremiumProfile(profile) ? t('premium.premium') : t('premium.free');
+
+const isRequestPinned = (request = {}) =>
+  Boolean(request?.pinned_until && new Date(request.pinned_until).getTime() > Date.now());
+
+const sortRequestsByVisibility = (requests = []) =>
+  [...requests].sort((a, b) =>
+    Number(isRequestPinned(b)) - Number(isRequestPinned(a))
+    || new Date(b.created_at || 0) - new Date(a.created_at || 0),
+  );
+
 const isProfileOwnershipError = (error) =>
   String(error?.message || '').includes('Profile ownership required');
 
@@ -660,6 +713,11 @@ const getCourseFilterValue = (request) =>
 
 const normalizeFilterValue = (value) => String(value || '').trim().toLowerCase();
 
+const arrayOverlapCount = (left = [], right = []) => {
+  const rightSet = new Set((right || []).map(normalizeFilterValue).filter(Boolean));
+  return (left || []).map(normalizeFilterValue).filter((item) => rightSet.has(item)).length;
+};
+
 const getCourseFilterValues = (request) =>
   [...new Set([
     request?.course_code,
@@ -711,6 +769,40 @@ const getTeamProgress = (request, progress = {}) => {
     remaining,
     complete: found >= total,
     percent: total ? Math.min(100, (found / total) * 100) : 0,
+  };
+};
+
+const addConnectedTeammateToProgress = (request, progress = {}, candidateRequest = {}, connection = {}) => {
+  const teammateProfile = candidateRequest.profile || candidateRequest;
+  const teammateId = candidateRequest.profile_id || teammateProfile.id;
+  if (!request?.id || !teammateId || connection?.status !== 'accepted') return progress;
+
+  const teammates = Array.isArray(progress.teammates) ? progress.teammates : [];
+  if (teammates.some((teammate) => teammate.profile_id === teammateId || teammate.id === teammateId)) {
+    return progress;
+  }
+
+  const metrics = getTeamProgress(request, progress);
+  const nextMatchedCount = metrics.matchedCount + 1;
+  const nextFoundCount = Math.min(metrics.total, metrics.existingMembers + nextMatchedCount);
+
+  return {
+    ...progress,
+    found_count: nextFoundCount,
+    matched_count: nextMatchedCount,
+    existing_members: metrics.existingMembers,
+    total_team_size: metrics.total,
+    teammates: [
+      ...teammates,
+      {
+        profile_id: teammateId,
+        full_name: teammateProfile.full_name,
+        major: teammateProfile.major || candidateRequest.major,
+        skills: teammateProfile.skills || [],
+        is_demo: Boolean(teammateProfile.is_demo),
+        connection_id: connection.id,
+      },
+    ],
   };
 };
 
@@ -865,6 +957,7 @@ const hasGoogleAuthSession = (session) =>
 const profileRequiredLabels = {
   full_name: 'profile.fullName',
   university: 'profile.university',
+  custom_university: 'profile.universityName',
   school: 'profile.department',
   major: 'profile.major',
   skills: 'profile.skills',
@@ -877,18 +970,26 @@ const profileRequiredLabels = {
   lecturer_contact_detail: 'profile.contactDetail',
 };
 
-const getProfileRequiredFields = (role) =>
-  role === 'lecturer'
-    ? ['full_name', 'university', 'school', 'academic_field', 'lecturer_id', 'lecturer_contact_detail']
-    : ['full_name', 'university', 'school', 'major', 'student_id', 'skills', 'contact_value', 'short_bio'];
+const getProfileRequiredFields = (form = {}) => {
+  const role = form.role === 'lecturer' ? 'lecturer' : 'student';
+  if (role === 'lecturer') {
+    return ['full_name', 'university', 'school', 'academic_field', 'lecturer_id', 'lecturer_contact_detail'];
+  }
+
+  const base = ['full_name', 'university', 'major', 'student_id', 'skills', 'contact_value', 'short_bio'];
+  return isOtherUniversityForm(form) ? base : ['full_name', 'university', 'school', 'major', 'student_id', 'skills', 'contact_value', 'short_bio'];
+};
 
 const getProfileFieldErrors = (form, t = translate.bind(null, 'en')) => {
   const role = form.role === 'lecturer' ? 'lecturer' : 'student';
   const isFilled = (field) => {
+    if (field === 'university') {
+      return Boolean(resolveProfileUniversity(form));
+    }
     const value = field === 'skills' ? getProfileSkillsFromForm(form) : form[field];
     return Array.isArray(value) ? value.length > 0 : Boolean(String(value || '').trim());
   };
-  return getProfileRequiredFields(role).reduce((errors, field) => {
+  return getProfileRequiredFields({ ...form, role }).reduce((errors, field) => {
     if (!isFilled(field)) {
       const specificKey = `validation.${field}`;
       errors[field] = t(specificKey) === specificKey
@@ -992,6 +1093,10 @@ const PillList = ({ items }) => (
 
 const DemoBadge = () => <span className="demo-badge">DEMO</span>;
 
+const PremiumBadge = ({ t = translate.bind(null, 'en') }) => (
+  <span className="premium-badge">{t('premium.badge')}</span>
+);
+
 const displayName = (name) => String(name || '').replace(/\s*\(Demo\)\s*$/i, '').trim();
 
 const displayInitial = (name) => displayName(name).slice(0, 1) || '?';
@@ -1011,41 +1116,45 @@ const getConnectionState = (connection, currentProfileId) => {
   return connection.status;
 };
 
-const connectionStateLabel = (state) => {
-  if (state === 'accepted') return 'Connected';
-  if (state === 'sent_pending') return 'Request Sent';
-  if (state === 'received_pending') return 'Respond to Request';
-  if (state === 'pending') return 'Pending';
+const connectionStateLabel = (state, t = translate.bind(null, 'en')) => {
+  if (state === 'accepted') return t('connections.connectedStatus');
+  if (state === 'sent_pending') return t('connections.requestSent');
+  if (state === 'received_pending') return t('common.respondRequest');
+  if (state === 'pending') return t('connections.pendingStatus');
   return '';
 };
 
 const connectionRelationshipLabel = (connection) =>
   connection?.relationship_type === 'teammate' ? 'Teammate' : 'Friend';
 
-const connectedButtonLabel = (connection) =>
-  connection?.status === 'accepted'
-    ? `Connected · ${connectionRelationshipLabel(connection)}`
-    : 'Connected';
+const localizedConnectionRelationshipLabel = (connection, t = translate.bind(null, 'en')) =>
+  connection?.relationship_type === 'teammate' ? t('connections.teammate') : t('connections.friend');
 
-const connectionStatusLabel = (status, tab) => {
-  if (tab === 'received' && status === 'pending') return 'Needs response';
-  if (tab === 'sent' && status === 'pending') return 'Pending';
-  if (tab === 'connected' && status === 'accepted') return 'Accepted';
-  if (tab === 'declined' && status === 'unmatched') return 'Connection ended';
-  if (tab === 'declined') return 'Declined';
+const connectedButtonLabel = (connection, t = translate.bind(null, 'en')) =>
+  connection?.status === 'accepted'
+    ? `${t('connections.connectedStatus')} · ${localizedConnectionRelationshipLabel(connection, t)}`
+    : t('connections.connectedStatus');
+
+const connectionStatusLabel = (status, tab, t = translate.bind(null, 'en')) => {
+  if (tab === 'received' && status === 'pending') return t('connections.needsResponse');
+  if (tab === 'sent' && status === 'pending') return t('connections.pendingStatus');
+  if (tab === 'connected' && status === 'accepted') return t('connections.acceptedStatus');
+  if (tab === 'declined' && status === 'unmatched') return t('connections.connectionEnded');
+  if (tab === 'declined') return t('connections.declinedStatus');
   return titleCase(status);
 };
 
-const ConnectionStateBadge = ({ state }) => {
-  const label = connectionStateLabel(state);
+const ConnectionStateBadge = ({ state, t = translate.bind(null, 'en') }) => {
+  const label = connectionStateLabel(state, t);
   if (!label) return null;
   return <span className={`status-badge ${state}`}>{state === 'accepted' ? '✓ ' : ''}{label}</span>;
 };
 
-const ConnectionRelationshipBadge = ({ connection }) => {
+const ConnectionRelationshipBadge = ({ connection, t = translate.bind(null, 'en') }) => {
   if (connection?.status !== 'accepted') return null;
-  const relationship = connectionRelationshipLabel(connection);
-  return <span className={`status-badge ${relationship.toLowerCase()}`}>{relationship}</span>;
+  const relationship = localizedConnectionRelationshipLabel(connection, t);
+  const tone = connection?.relationship_type === 'teammate' ? 'teammate' : 'friend';
+  return <span className={`status-badge ${tone}`}>{relationship}</span>;
 };
 
 const PortfolioReference = ({ request }) => {
@@ -1073,7 +1182,7 @@ const PortfolioReference = ({ request }) => {
   );
 };
 
-const CheckboxGrid = ({ options, selected, onToggle, columns = 'auto' }) => (
+const CheckboxGrid = ({ options, selected, onToggle, columns = 'auto', labelFor = (option) => option }) => (
   <div className={`checkbox-grid ${columns}`}>
     {options.map((option) => (
       <label className={selected.includes(option) ? 'check-option selected' : 'check-option'} key={option}>
@@ -1082,7 +1191,7 @@ const CheckboxGrid = ({ options, selected, onToggle, columns = 'auto' }) => (
           checked={selected.includes(option)}
           onChange={() => onToggle(option)}
         />
-        <span>{option}</span>
+        <span>{labelFor(option)}</span>
       </label>
     ))}
   </div>
@@ -1234,8 +1343,22 @@ function DemoSimulationPanel({ connection, accepting, onAccept, onStartChat, onV
   return null;
 }
 
-const StepRail = ({ step }) => {
-  const steps = ['Profile', 'Request', 'Matches', 'Connect'];
+const optionTranslationKey = (prefix, option = '') =>
+  `${prefix}.${String(option).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')}`;
+
+const localizedOption = (option, prefix, t = translate.bind(null, 'en')) => {
+  const key = optionTranslationKey(prefix, option);
+  const label = t(key);
+  return label === key ? option : label;
+};
+
+const StepRail = ({ step, t = translate.bind(null, 'en') }) => {
+  const steps = [
+    t('steps.profile'),
+    t('steps.request'),
+    t('steps.matches'),
+    t('steps.connect'),
+  ];
 
   return (
     <div className="step-rail" aria-label="Teamergency flow">
@@ -1278,10 +1401,10 @@ function Home({
   return (
     <main className="home-grid">
       <section className="intro">
-        <p className="eyebrow">{t('home.titleA')}</p>
         <h1>
-          <span className="hero-line">{t('home.titleB')}</span>
+          <span className="hero-line">{t('home.titleA')}</span>
         </h1>
+        <p className="hero-tagline">{t('home.titleB')}</p>
         <p className="lead">
           {t('home.lead')}
         </p>
@@ -1360,6 +1483,10 @@ function JoinClassPage({ profile, profileId, onCreateProfile, onJoined, t = tran
     }
 
 	    const normalizedCode = joinCode.trim();
+      if (hiddenLegacyDemoClassCodes.includes(normalizedCode)) {
+        setError(t('join.invalidCode'));
+        return;
+      }
 	    setLoading(true);
 	    try {
 	      let foundClass = null;
@@ -2574,8 +2701,10 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
   const [fieldErrors, setFieldErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const isLecturer = form.role === 'lecturer';
-  const profileSkillOptions = mergeOptionSets(getSkillsForSchool(form.school), form.skills);
-  const profileSchoolOptions = getSchoolsForUniversity(form.university);
+  const resolvedUniversity = resolveProfileUniversity(form);
+  const usesOtherUniversity = isOtherUniversityForm(form);
+  const profileSkillOptions = mergeOptionSets(usesOtherUniversity ? getAllSkills() : getSkillsForSchool(form.school), form.skills);
+  const profileSchoolOptions = getSchoolsForUniversity(resolvedUniversity);
 
   useEffect(() => {
     setForm(createProfileFormState(initialRole, initialData));
@@ -2596,6 +2725,28 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
       skills: filterSkillsForSchool(current.skills, value),
     }));
     setFieldErrors((current) => ({ ...current, school: '', major: '', skills: '' }));
+  };
+
+  const updateUniversityChoice = (value) => {
+    setForm((current) => ({
+      ...current,
+      university_choice: value,
+      custom_university: value === OTHER_UNIVERSITY_VALUE ? current.custom_university : '',
+      university: value === OTHER_UNIVERSITY_VALUE ? current.custom_university : value,
+      school: isRmitUniversity(value) ? current.school : '',
+      major: isRmitUniversity(value) ? current.major : '',
+      skills: isRmitUniversity(value) ? filterSkillsForSchool(current.skills, current.school) : current.skills,
+    }));
+    setFieldErrors((current) => ({ ...current, university: '', school: '', major: '' }));
+  };
+
+  const updateCustomUniversity = (value) => {
+    setForm((current) => ({
+      ...current,
+      custom_university: value,
+      university: value,
+    }));
+    setFieldErrors((current) => ({ ...current, university: '' }));
   };
 
   const toggleProfileSkill = (skill) => {
@@ -2630,8 +2781,8 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
       const role = isLecturer ? 'lecturer' : 'student';
       const profilePayload = {
         full_name: form.full_name.trim(),
-        university: form.university || 'RMIT University',
-        school: form.school.trim(),
+        university: resolvedUniversity || 'RMIT University',
+        school: getFormSchoolValue(form),
         major: isLecturer ? 'Lecturer' : form.major.trim(),
         skills: isLecturer ? ['Teaching'] : skills,
         avatar_url: form.avatar_url || null,
@@ -2652,6 +2803,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
 	        lecturer_contact_method: isLecturer ? form.lecturer_contact_method : null,
 	        lecturer_contact_detail: isLecturer ? form.lecturer_contact_detail.trim() : null,
 	        student_id: isLecturer ? null : form.student_id.trim() || null,
+        subscription_status: form.subscription_status || 'free',
 	      };
       let profile;
       try {
@@ -2674,7 +2826,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
 
   return (
     <main className="screen">
-      <StepRail step={0} />
+      <StepRail step={0} t={t} />
       <form className="form-shell" onSubmit={submit}>
         <div className="form-heading">
           <UserRound size={28} />
@@ -2694,21 +2846,42 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
           </label>
           <label>
 	            {t('profile.university')}
-            <select value={form.university} onChange={(event) => updateField('university', event.target.value)} required>
+            <select value={form.university_choice} onChange={(event) => updateUniversityChoice(event.target.value)} required>
               {universityOptions.map((university) => (
                 <option value={university.value} key={university.value}>{university.label}</option>
               ))}
+              <option value={OTHER_UNIVERSITY_VALUE}>{t('profile.otherUniversity')}</option>
             </select>
             <FieldError message={fieldErrors.university} />
           </label>
+          {usesOtherUniversity && (
+            <label>
+              {t('profile.universityName')}
+              <input
+                value={form.custom_university}
+                onChange={(event) => updateCustomUniversity(event.target.value)}
+                placeholder={t('profile.universityNamePlaceholder')}
+                required
+              />
+              <FieldError message={fieldErrors.university} />
+            </label>
+          )}
           <label>
 	            {isLecturer ? t('profile.department') : t('profile.school')}
-            <select value={form.school} onChange={(event) => updateSchool(event.target.value)} required>
-	              <option value="">{isLecturer ? t('profile.selectDepartment') : t('profile.selectSchool')}</option>
-              {profileSchoolOptions.map((school) => (
-                <option value={school.value} key={school.value}>{school.label}</option>
-              ))}
-            </select>
+            {usesOtherUniversity ? (
+              <input
+                value={form.school === 'Other' ? '' : form.school}
+                onChange={(event) => updateField('school', event.target.value)}
+                placeholder={t('profile.departmentPlaceholder')}
+              />
+            ) : (
+              <select value={form.school} onChange={(event) => updateSchool(event.target.value)} required>
+                <option value="">{isLecturer ? t('profile.selectDepartment') : t('profile.selectSchool')}</option>
+                {profileSchoolOptions.map((school) => (
+                  <option value={school.value} key={school.value}>{school.label}</option>
+                ))}
+              </select>
+            )}
             <FieldError message={fieldErrors.school} />
           </label>
 	          {isLecturer ? (
@@ -2773,12 +2946,21 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
 	            <>
 	              <label>
 		                {t('profile.major')}
-	                <select value={form.major} onChange={(event) => updateField('major', event.target.value)} required>
-	                  <option value="">{t('profile.major')}</option>
-                  {(majorsBySchool[form.school] || []).map((major) => (
-                    <option value={major} key={major}>{major}</option>
-                  ))}
-	                </select>
+	                {usesOtherUniversity ? (
+	                  <input
+	                    value={form.major}
+	                    onChange={(event) => updateField('major', event.target.value)}
+	                    placeholder={t('profile.majorFieldPlaceholder')}
+	                    required
+	                  />
+	                ) : (
+	                  <select value={form.major} onChange={(event) => updateField('major', event.target.value)} required>
+	                    <option value="">{t('profile.major')}</option>
+	                    {(majorsBySchool[form.school] || []).map((major) => (
+	                      <option value={major} key={major}>{major}</option>
+	                    ))}
+	                  </select>
+	                )}
                     <FieldError message={fieldErrors.major} />
 	              </label>
 	              <label>
@@ -2799,6 +2981,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
                   options={profileSkillOptions}
                   selected={form.skills}
                   onToggle={toggleProfileSkill}
+                  labelFor={(option) => localizedOption(option, 'options.skill', t)}
                 />
                 {form.skills.includes('Other') && (
                   <input
@@ -2814,9 +2997,20 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
                     options={workStyleOptions}
                     selected={form.work_styles}
                     onToggle={(style) => updateField('work_styles', toggleValue(form.work_styles, style))}
+                    labelFor={(option) => localizedOption(option, 'options.workStyle', t)}
                   />
                 </fieldset>
             </>
+          )}
+          {!isLecturer && (
+            <label>
+              {t('premium.subscription')}
+              <select value={form.subscription_status} onChange={(event) => updateField('subscription_status', event.target.value)}>
+                <option value="free">{t('premium.free')}</option>
+                <option value="premium">{t('premium.premium')}</option>
+              </select>
+              <span className="field-helper">{t('premium.demoHelper')}</span>
+            </label>
           )}
 	          {!isLecturer && (
 	            <>
@@ -2879,7 +3073,7 @@ function ProfileSaved({ profile, onContinue, t = translate.bind(null, 'en') }) {
 
   return (
     <main className="screen compact">
-      <StepRail step={1} />
+      <StepRail step={1} t={t} />
       <section className="confirmation">
         <CheckCircle2 size={42} />
 	        <p className="eyebrow">{t('profile.saved')}</p>
@@ -3192,7 +3386,7 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
 
   return (
     <main className="screen">
-      <StepRail step={1} />
+      <StepRail step={1} t={t} />
       <form className="form-shell" onSubmit={submit}>
         <button className="ghost" type="button" onClick={onBack}>
           <ArrowLeft size={18} />
@@ -3313,6 +3507,7 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
               options={requestSkillOptions}
               selected={form.skills_needed}
               onToggle={toggleSkill}
+              labelFor={(option) => localizedOption(option, 'options.skill', t)}
             />
             {form.skills_needed.includes('Other') && (
               <input
@@ -3353,6 +3548,7 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
               options={workStyleOptions}
               selected={form.work_styles}
               onToggle={toggleWorkStyle}
+              labelFor={(option) => localizedOption(option, 'options.workStyle', t)}
             />
           </fieldset>
           <fieldset className="wide">
@@ -3362,10 +3558,11 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
               options={requirementOptions}
               selected={form.requirements_selected}
               onToggle={toggleRequirement}
+              labelFor={(option) => localizedOption(option, 'options.requirement', t)}
             />
             {form.requirements_selected.includes('Minimum GPA') && (
               <label>
-                Minimum GPA
+                {localizedOption('Minimum GPA', 'options.requirement', t)}
                 <input
                   min="0"
                   max="4"
@@ -3464,15 +3661,15 @@ function MatchCard({ request, connectionState, onView, onConnect, connecting, t 
   const canConnect = connectionState === 'none' && !connecting;
 
   return (
-    <article className="match-card">
+    <article className={isPremiumProfile(request.profile) || isRequestPinned(request) ? 'match-card premium-card' : 'match-card'}>
       <div className="score">
         <Sparkles size={18} />
-        {request.matchScore}% Match
+        {t('matches.matchPercent', { score: request.matchScore })}
       </div>
       {request.ruleBasedScore !== undefined && request.ruleBasedScore !== request.matchScore && (
         <p className="note">{t('matches.standardScore')}: {request.ruleBasedScore}%</p>
       )}
-      <h3>{displayName(request.profile.full_name)} {request.profile.is_demo && <DemoBadge />}</h3>
+      <h3>{displayName(request.profile.full_name)} {request.profile.is_demo && <DemoBadge />} {isPremiumProfile(request.profile) && <PremiumBadge t={t} />}</h3>
       <p>{universityLabel(request.profile.university)} | {schoolLabel(request.profile.school)} | {request.profile.major}</p>
       <p className="note">{reviewSummaryLabel(request.profile, null, t)}</p>
       <div className="match-meta">
@@ -3512,7 +3709,7 @@ function MatchCard({ request, connectionState, onView, onConnect, connecting, t 
           <span>{joinList(request.aiGaps)}</span>
         </div>
       )}
-      <ConnectionStateBadge state={connectionState} />
+      <ConnectionStateBadge state={connectionState} t={t} />
       <div className="hero-actions">
         <button className="secondary" onClick={() => onView(request.id, request.matchScore)}>
           {t('common.viewProfile')}
@@ -3559,7 +3756,7 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
 
     listMyTeamRequests(currentProfileId)
       .then(async (requests) => {
-        const activeRequests = requests.filter((request) => request.status === 'looking');
+        const activeRequests = sortRequestsByVisibility(requests.filter((request) => request.status === 'looking'));
         const progressEntries = await Promise.all(
           activeRequests.map(async (request) => {
             try {
@@ -3721,18 +3918,34 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
     }));
 
     try {
-      const connection = await sendConnectionRequest({
+      let connection = await sendConnectionRequest({
         senderProfileId: currentProfileId,
         receiverProfileId: request.profile_id,
         senderTeamRequestId: currentRequest.id,
         introMessage: `Hi ${displayName(request.profile?.full_name)}, your teammate search looks like a good match for mine. Want to connect?`,
       });
+      if (currentRequest.class_id && request.profile?.is_demo) {
+        connection = await simulateDemoAcceptance(connection.id, currentProfileId);
+      }
+      let updatedProgress = await getTeamRequestProgress(currentRequest.id, currentProfileId)
+        .catch(() => state.progressById[currentRequest.id] || { found_count: 0, teammates: [] });
+      if (currentRequest.class_id && request.profile?.is_demo) {
+        updatedProgress = addConnectedTeammateToProgress(currentRequest, updatedProgress, request, connection);
+      }
       setState((current) => ({
         ...current,
         sendingProfileId: '',
+        progressById: {
+          ...current.progressById,
+          [currentRequest.id]: updatedProgress,
+        },
         connectionsByProfile: {
           ...current.connectionsByProfile,
-          [request.profile_id]: connection,
+          [request.profile_id]: {
+            ...connection,
+            sender_profile_id: currentProfileId,
+            receiver_profile_id: request.profile_id,
+          },
         },
       }));
     } catch (err) {
@@ -3748,7 +3961,7 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
 
   return (
     <main className="screen results">
-      <StepRail step={2} />
+      <StepRail step={2} t={t} />
       <div className="results-header">
         <div>
 	          <p className="eyebrow">{isClassRequest ? t('matches.recommended') : t('matches.results')}</p>
@@ -4005,9 +4218,9 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
             const connectionState = getConnectionState(connection, currentProfileId);
 
             return (
-              <article className="discover-card" key={profile.id}>
+              <article className={isPremiumProfile(profile) ? 'discover-card premium-card' : 'discover-card'} key={profile.id}>
                 <div className="avatar">{displayInitial(profile.full_name)}</div>
-                <h3>{displayName(profile.full_name)} {profile.is_demo && <DemoBadge />}</h3>
+                <h3>{displayName(profile.full_name)} {profile.is_demo && <DemoBadge />} {isPremiumProfile(profile) && <PremiumBadge t={t} />}</h3>
                 <p>{universityLabel(profile.university)}</p>
                 <p>{schoolLabel(profile.school)}</p>
                 <p>{profile.major}</p>
@@ -4020,8 +4233,8 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
                   <strong>{t('matches.skillsHave')}</strong>
                   <span>{joinList(profile.skills)}</span>
                 </div>
-                <ConnectionStateBadge state={connectionState} />
-                <ConnectionRelationshipBadge connection={connection} />
+                <ConnectionStateBadge state={connectionState} t={t} />
+                <ConnectionRelationshipBadge connection={connection} t={t} />
                 <div className="hero-actions">
                   <button
                     className="secondary"
@@ -4037,7 +4250,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
                   ) : connectionState === 'accepted' ? (
                     <button className="connected-button" disabled>
                       <CheckCircle2 size={18} />
-                      {connectedButtonLabel(connection)}
+                      {connectedButtonLabel(connection, t)}
                     </button>
                   ) : connectionState === 'sent_pending' ? (
                     <button className="secondary" onClick={() => onOpenProfile(profile.id)}>{t('connections.requestSent')}</button>
@@ -4074,7 +4287,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
   );
 }
 
-function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat, onOpenConnections, t = translate.bind(null, 'en') }) {
+function DiscoverProfileDetail({ profileId, currentProfileId, currentProfile, onBack, onOpenChat, onOpenConnections, t = translate.bind(null, 'en') }) {
   const [state, setState] = useState({
     loading: true,
     error: '',
@@ -4230,7 +4443,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
       <section className="profile-panel standalone">
         <div className="avatar">{displayInitial(profile.full_name)}</div>
         <p className="eyebrow">{t('matches.discoverProfile')}</p>
-        <h2>{displayName(profile.full_name)} {profile.is_demo && <DemoBadge />}</h2>
+        <h2>{displayName(profile.full_name)} {profile.is_demo && <DemoBadge />} {isPremiumProfile(profile) && <PremiumBadge t={t} />}</h2>
         <p>{profile.short_bio || t('matches.noBio')}</p>
         <dl>
           <div><dt>{t('profile.school')}</dt><dd>{schoolLabel(profile.school)}</dd></div>
@@ -4248,7 +4461,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
             </dd>
           </div>
         </dl>
-        <ReviewsSection profile={profile} reviews={state.reviews} t={t} />
+        <ReviewsSection profile={profile} reviews={state.reviews} viewerProfile={currentProfile} t={t} />
         {state.activeRequest && (
           <div className="request-summary-box">
             <p className="eyebrow">{t('matches.lookingTeammate')}</p>
@@ -4284,9 +4497,9 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
           <div className="stacked-actions">
             <button className="connected-button" disabled>
               <CheckCircle2 size={18} />
-              {connectedButtonLabel(state.connection)}
+              {connectedButtonLabel(state.connection, t)}
             </button>
-            <ConnectionRelationshipBadge connection={state.connection} />
+            <ConnectionRelationshipBadge connection={state.connection} t={t} />
             <button className="primary link-button" onClick={() => onOpenChat(state.connection.id)}>
               <MessageCircle size={18} />
 	              {t('common.message')}
@@ -4340,23 +4553,27 @@ function DiscoverProfileDetail({ profileId, currentProfileId, onBack, onOpenChat
   );
 }
 
-function ReviewsSection({ reviews = [], profile, title = 'Existing Reviews', t = translate.bind(null, 'en') }) {
+function ReviewsSection({ reviews = [], profile, title = '', viewerProfile = null, t = translate.bind(null, 'en') }) {
+  const canReadFullReviews = profile?.id === viewerProfile?.id || isPremiumProfile(viewerProfile);
+
   return (
     <section className="request-summary-box">
-      <p className="eyebrow">{title}</p>
+      <p className="eyebrow">{title || t('profile.reviews')}</p>
       <h3>{reviewSummaryLabel(profile, reviews, t)}</h3>
       {reviews.length === 0 ? (
-        <p className="note">No teammate reviews yet.</p>
+        <p className="note">{t('profile.noReviews')}</p>
+      ) : !canReadFullReviews ? (
+        <p className="note">{t('premium.upgradeReviews')}</p>
       ) : (
         <div className="review-list">
           {reviews.map((review) => (
             <article className="review-card" key={review.id}>
-              {review.is_demo && <span className="status-badge pending">Demo Review</span>}
+              {review.is_demo && <span className="status-badge pending">DEMO</span>}
               <strong>{'★'.repeat(review.rating)}{'☆'.repeat(5 - review.rating)}</strong>
               {review.review_text && <p>"{review.review_text}"</p>}
-              {review.course_name && <span>Course: {review.course_name}</span>}
-              {review.review_context && <span>Reviewed after: {review.review_context}</span>}
-              <span>{review.reviewer_name || 'A teammate'}</span>
+              {review.course_name && <span>{t('class.course')}: {review.course_name}</span>}
+              {review.review_context && <span>{t('profile.reviewContext')}: {review.review_context}</span>}
+              <span>{review.reviewer_name || t('profile.aTeammate')}</span>
             </article>
           ))}
         </div>
@@ -4514,6 +4731,7 @@ function MatchUsefulnessPanel({ request, currentProfileId, teamComplete }) {
 function ProfileDetail({
   requestId,
   currentProfileId,
+  currentProfile,
   currentRequestId,
   matchScore,
   onBack,
@@ -4730,9 +4948,9 @@ function ProfileDetail({
         <div className="stacked-actions">
           <button className="connected-button" disabled>
             <CheckCircle2 size={18} />
-            {connectedButtonLabel(connection)}
+            {connectedButtonLabel(connection, t)}
           </button>
-          <ConnectionRelationshipBadge connection={connection} />
+          <ConnectionRelationshipBadge connection={connection} t={t} />
           <button className="primary link-button" onClick={() => onOpenChat(connection.id)}>
 	            <MessageCircle size={18} />
 	            {t('common.message')}
@@ -4758,7 +4976,7 @@ function ProfileDetail({
         <div className="profile-panel">
           <div className="avatar">{displayInitial(profile.full_name)}</div>
 	          <p className="eyebrow">{t('matches.profileData')}</p>
-	          <h2>{displayName(profile.full_name)} {profile.is_demo && <DemoBadge />}</h2>
+	          <h2>{displayName(profile.full_name)} {profile.is_demo && <DemoBadge />} {isPremiumProfile(profile) && <PremiumBadge t={t} />}</h2>
 	          <p>{profile.short_bio || t('matches.noBio')}</p>
 	          <dl>
 	            <div><dt>{t('profile.university')}</dt><dd>{universityLabel(profile.university)}</dd></div>
@@ -4783,7 +5001,7 @@ function ProfileDetail({
           {state.actionError && <p className="error">{state.actionError}</p>}
           {state.actionSuccess && <p className="success">{state.actionSuccess}</p>}
           {renderConnectionAction()}
-          <ReviewsSection profile={profile} reviews={state.reviews} t={t} />
+          <ReviewsSection profile={profile} reviews={state.reviews} viewerProfile={currentProfile} t={t} />
           {profile.is_demo && (
             <DemoSimulationPanel
               connection={connection}
@@ -4800,7 +5018,7 @@ function ProfileDetail({
 	          <p className="eyebrow">{t('matches.lookingTeammate')}</p>
           <h3>{getCourseDisplay(request)}</h3>
           <dl>
-	            {typeof matchScore === 'number' && <div><dt>{t('matches.matchScore')}</dt><dd>{matchScore}% Match</dd></div>}
+	            {typeof matchScore === 'number' && <div><dt>{t('matches.matchScore')}</dt><dd>{t('matches.matchPercent', { score: matchScore })}</dd></div>}
 	            <div><dt>{t('profile.school')}</dt><dd>{schoolLabel(request.school || profile.school)}</dd></div>
 	            <div><dt>{t('profile.major')}</dt><dd>{request.major || profile.major}</dd></div>
 	            <div><dt>{t('matches.classSession')}</dt><dd>{getLocalizedSessionDisplay(request, t)}</dd></div>
@@ -4850,6 +5068,7 @@ function CurrentRequest({
   onBack,
   onOpenChat,
 	  onViewProfile,
+    onOpenProfile,
 	  onSelectRequest,
 	  onViewRecommended,
 	  onCreateNew,
@@ -4859,6 +5078,10 @@ function CurrentRequest({
     loading: true,
     error: '',
     requests: [],
+    collabProfiles: [],
+    collabRequestsByProfile: {},
+    collabConnectionsByProfile: {},
+    collabSendingProfileId: '',
     progressById: {},
     selectedId: requestId || '',
     editingRequest: null,
@@ -4877,9 +5100,33 @@ function CurrentRequest({
       return () => { alive = false; };
     }
 
-    listMyTeamRequests(currentProfileId)
-      .then(async (requests) => {
-        const standaloneRequests = requests.filter((request) => !request.class_id);
+    Promise.all([
+      listMyTeamRequests(currentProfileId),
+      getDiscoverProfiles().catch(() => []),
+      getActiveTeamRequests().catch(() => []),
+    ])
+      .then(async ([requests, profiles, activeRequests]) => {
+        const standaloneRequests = sortRequestsByVisibility(requests.filter((request) => !request.class_id));
+        const visibleProfiles = (profiles || [])
+          .filter((candidate) => getProfileRole(candidate) === 'student')
+          .filter((candidate) => candidate.id !== currentProfileId);
+        const collabRequestsByProfile = (activeRequests || [])
+          .filter((request) => request.profile_id !== currentProfileId)
+          .filter((request) => !request.class_id)
+          .filter((request) => request.request_scope === 'open_opportunity' || request.opportunity_name)
+          .reduce((map, request) => {
+            map[request.profile_id] = [...(map[request.profile_id] || []), request];
+            return map;
+          }, {});
+        const connectionEntries = await Promise.all(
+          visibleProfiles.map(async (candidate) => {
+            try {
+              return [candidate.id, await getConnectionBetween(currentProfileId, candidate.id)];
+            } catch {
+              return [candidate.id, null];
+            }
+          }),
+        );
         const progressEntries = await Promise.all(
           standaloneRequests.map(async (request) => {
             try {
@@ -4903,6 +5150,9 @@ function CurrentRequest({
             loading: false,
             error: '',
             requests: standaloneRequests,
+            collabProfiles: visibleProfiles,
+            collabRequestsByProfile,
+            collabConnectionsByProfile: Object.fromEntries(connectionEntries),
             progressById: Object.fromEntries(progressEntries),
             selectedId: nextSelectedId,
             saving: false,
@@ -5012,6 +5262,31 @@ function CurrentRequest({
     }
   };
 
+  const pinRequest = async (request) => {
+    if (!request || !isPremiumProfile(profile)) return;
+    setState((current) => ({ ...current, saving: true, error: '', success: '' }));
+
+    try {
+      const updated = await pinTeamRequestFor48Hours(request.id, currentProfileId);
+      setState((current) => ({
+        ...current,
+        saving: false,
+        requests: sortRequestsByVisibility(current.requests.map((item) =>
+          item.id === updated.id ? { ...item, ...updated } : item,
+        )),
+        selectedId: updated.id,
+        success: t('premium.pinSuccess'),
+      }));
+    } catch (err) {
+      console.error('Pin request failed', err);
+      setState((current) => ({
+        ...current,
+        saving: false,
+        error: t('premium.pinFail'),
+      }));
+    }
+  };
+
   const selectRequest = (request) => {
     setState((current) => ({
       ...current,
@@ -5021,6 +5296,118 @@ function CurrentRequest({
       success: '',
       error: '',
     }));
+  };
+
+  const getCandidateCollabRequests = (candidate) =>
+    state.collabRequestsByProfile[candidate.id] || [];
+
+  const collabProfileScore = (candidate, request = null) => {
+    if (!candidate) return 0;
+    const candidateRequests = getCandidateCollabRequests(candidate);
+    const skillMatches = arrayOverlapCount(candidate.skills, request?.skills_needed || profile?.skills || []);
+
+    if (!request) {
+      return Math.min(100, 36 + skillMatches * 10 + (candidateRequests.length ? 8 : 0));
+    }
+
+    const requestName = normalizeFilterValue(request.opportunity_name || request.course_name || request.course);
+    const requestType = normalizeFilterValue(request.opportunity_type || request.course_code);
+    const requestField = normalizeFilterValue(request.opportunity_field || request.major);
+    const sameCompetition = candidateRequests.some((candidateRequest) =>
+      requestName && normalizeFilterValue(candidateRequest.opportunity_name || candidateRequest.course_name || candidateRequest.course) === requestName,
+    );
+    const sameType = candidateRequests.some((candidateRequest) =>
+      requestType && normalizeFilterValue(candidateRequest.opportunity_type || candidateRequest.course_code) === requestType,
+    );
+    const sameField = requestField && (
+      normalizeFilterValue(candidate.major) === requestField
+      || candidateRequests.some((candidateRequest) =>
+        normalizeFilterValue(candidateRequest.opportunity_field || candidateRequest.major) === requestField,
+      )
+    );
+    const complementaryNeeds = Math.max(
+      ...candidateRequests.map((candidateRequest) => arrayOverlapCount(profile?.skills || [], candidateRequest.skills_needed || [])),
+      0,
+    );
+    const hasCapacity = candidateRequests.some((candidateRequest) =>
+      Number(candidateRequest.team_status?.remaining_members ?? candidateRequest.members_needed ?? 0) > 0,
+    );
+
+    return Math.min(
+      100,
+      30
+        + (sameCompetition ? 24 : 0)
+        + (sameType ? 8 : 0)
+        + (sameField ? 14 : 0)
+        + skillMatches * 10
+        + complementaryNeeds * 8
+        + (hasCapacity ? 6 : 0),
+    );
+  };
+
+  const collabProfileReason = (candidate, request = null) => {
+    const reasons = [];
+    const candidateRequests = getCandidateCollabRequests(candidate);
+    const requestName = normalizeFilterValue(request?.opportunity_name || request?.course_name || request?.course);
+    if (requestName && candidateRequests.some((candidateRequest) =>
+      normalizeFilterValue(candidateRequest.opportunity_name || candidateRequest.course_name || candidateRequest.course) === requestName
+    )) {
+      reasons.push(t('opportunities.reasonCompetition'));
+    }
+    if (request && normalizeFilterValue(candidate.major) === normalizeFilterValue(request.opportunity_field || request.major)) {
+      reasons.push(t('opportunities.reasonField'));
+    }
+    if (arrayOverlapCount(candidate.skills, request?.skills_needed || profile?.skills || []) > 0) {
+      reasons.push(t('opportunities.reasonSkills'));
+    }
+    if (request && candidateRequests.some((candidateRequest) =>
+      arrayOverlapCount(profile?.skills || [], candidateRequest.skills_needed || []) > 0
+    )) {
+      reasons.push(t('opportunities.reasonComplement'));
+    }
+    if (request && candidateRequests.some((candidateRequest) =>
+      Number(candidateRequest.team_status?.remaining_members ?? candidateRequest.members_needed ?? 0) > 0
+    )) {
+      reasons.push(t('opportunities.reasonCapacity'));
+    }
+    return reasons.slice(0, 2).join(' ') || t('opportunities.reasonDefault');
+  };
+
+  const connectCollabProfile = async (candidate) => {
+    if (!candidate || !currentProfileId) return;
+    setState((current) => ({ ...current, collabSendingProfileId: candidate.id, error: '', success: '' }));
+
+    try {
+      let connection = await sendConnectionRequest({
+        senderProfileId: currentProfileId,
+        receiverProfileId: candidate.id,
+        senderTeamRequestId: selectedRequest?.status === 'looking' ? selectedRequest.id : null,
+        introMessage: `Hi ${displayName(candidate.full_name)}, I found your profile through Collabs and think we could work well together.`,
+      });
+      if (candidate.is_demo) {
+        connection = await simulateDemoAcceptance(connection.id, currentProfileId).catch(() => connection);
+      }
+      setState((current) => ({
+        ...current,
+        collabSendingProfileId: '',
+        success: t('connections.requestSent'),
+        collabConnectionsByProfile: {
+          ...current.collabConnectionsByProfile,
+          [candidate.id]: {
+            ...connection,
+            sender_profile_id: currentProfileId,
+            receiver_profile_id: candidate.id,
+          },
+        },
+      }));
+    } catch (err) {
+      console.error('Collab connect failed', err);
+      setState((current) => ({
+        ...current,
+        collabSendingProfileId: '',
+        error: t('connections.sendFail'),
+      }));
+    }
   };
 
   if (state.loading) {
@@ -5044,6 +5431,83 @@ function CurrentRequest({
     completed: state.requests.filter((request) => request.status === 'found'),
     cancelled: state.requests.filter((request) => request.status === 'cancelled'),
   };
+  const collabProfiles = [...state.collabProfiles]
+    .sort((a, b) => {
+      const requestForScoring = selectedRequest?.status === 'looking' ? selectedRequest : null;
+      return collabProfileScore(b, requestForScoring) - collabProfileScore(a, requestForScoring)
+        || Number(isPremiumProfile(b)) - Number(isPremiumProfile(a));
+    })
+    .slice(0, selectedRequest?.status === 'looking' ? 8 : 12);
+
+  const renderCollabProfiles = (request = null) => (
+    <section className="request-panel standalone collab-discovery-panel">
+      <div className="results-header compact-header">
+        <div>
+          <p className="eyebrow">{request ? t('opportunities.targeted') : t('opportunities.browseProfiles')}</p>
+          <h2>{t('opportunities.subtitle')}</h2>
+          <p>{request ? t('matches.viewRecommended') : t('opportunities.profileIntroDetail')}</p>
+        </div>
+        <button className="primary" onClick={onCreateNew}>
+          <Plus size={18} />
+          {t('opportunities.new')}
+        </button>
+      </div>
+      {collabProfiles.length === 0 ? (
+        <section className="empty-state inline-empty">
+          <p>{t('opportunities.noProfiles')}</p>
+        </section>
+      ) : (
+        <div className="discover-grid compact-discover-grid">
+          {collabProfiles.map((candidate) => {
+            const connection = state.collabConnectionsByProfile[candidate.id];
+            const connectionState = getConnectionState(connection, currentProfileId);
+            return (
+              <article className={isPremiumProfile(candidate) ? 'discover-card premium-card' : 'discover-card'} key={candidate.id}>
+                <div className="avatar">{displayInitial(candidate.full_name)}</div>
+                <h3>{displayName(candidate.full_name)} {candidate.is_demo && <DemoBadge />} {isPremiumProfile(candidate) && <PremiumBadge t={t} />}</h3>
+                <p>{universityLabel(candidate.university)}</p>
+                <p>{schoolLabel(candidate.school)} | {candidate.major}</p>
+                <p className="note">{reviewSummaryLabel(candidate, null, t)}</p>
+                <div className="score inline-score">
+                  <Sparkles size={16} />
+                  {t('matches.matchPercent', { score: collabProfileScore(candidate, request) })}
+                </div>
+                <div className="mini-detail">
+                  <strong>{t('matches.skillsHave')}</strong>
+                  <span>{joinList(candidate.skills)}</span>
+                </div>
+                <div className="mini-detail">
+                  <strong>{t('matches.why')}</strong>
+                  <span>{collabProfileReason(candidate, request)}</span>
+                </div>
+                <ConnectionStateBadge state={connectionState} t={t} />
+                <div className="hero-actions">
+                  <button className="secondary" onClick={() => onOpenProfile?.(candidate.id)}>
+                    {t('common.viewProfile')}
+                  </button>
+                  {connectionState === 'none' ? (
+                    <button
+                      className="primary"
+                      onClick={() => connectCollabProfile(candidate)}
+                      disabled={state.collabSendingProfileId === candidate.id}
+                    >
+                      <UserPlus size={18} />
+                      {state.collabSendingProfileId === candidate.id ? t('matches.sending') : t('common.connect')}
+                    </button>
+                  ) : (
+                    <button className="connected-button" disabled>
+                      <CheckCircle2 size={18} />
+                      {connectedButtonLabel(connection, t)}
+                    </button>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
 
   const RequestRow = ({ request }) => {
     const requestProgress = state.progressById[request.id] || { found_count: 0 };
@@ -5051,9 +5515,13 @@ function CurrentRequest({
     const isSelected = selectedRequest?.id === request.id;
 
     return (
-      <article className={isSelected ? 'request-list-row selected' : 'request-list-row'}>
+      <article className={[
+        'request-list-row',
+        isSelected ? 'selected' : '',
+        (isPremiumProfile(request.profile || profile) || isRequestPinned(request)) ? 'premium-card' : '',
+      ].filter(Boolean).join(' ')}>
         <div>
-          <h3>{getCourseDisplay(request)}</h3>
+          <h3>{getCourseDisplay(request)} {isPremiumProfile(request.profile || profile) && <PremiumBadge t={t} />} {isRequestPinned(request) && <span className="premium-badge pinned">{t('premium.pinned')}</span>}</h3>
           <p>{getLocalizedSessionDisplay(request, t)} | {requestStatusLabel(request.status, t)}</p>
           <p className="note">
             {progressSummary(requestMetrics, t)}
@@ -5066,6 +5534,12 @@ function CurrentRequest({
             <Pencil size={18} />
             {t('common.editRequest')}
           </button>
+          {request.status === 'looking' && isPremiumProfile(profile) && !isRequestPinned(request) && (
+            <button className="secondary" onClick={() => pinRequest(request)} disabled={state.saving}>
+              <Sparkles size={18} />
+              {t('premium.pin')}
+            </button>
+          )}
           {request.status === 'looking' && (
             <button className="secondary quiet-action" onClick={() => setState((current) => ({ ...current, cancelTarget: request, success: '', error: '' }))}>
               <Trash2 size={18} />
@@ -5124,15 +5598,21 @@ function CurrentRequest({
 
   if (!selectedRequest) {
     return (
-      <main className="screen compact">
-	        <section className="empty-state">
-	          <p>{t('opportunities.none')}</p>
-	          <p className="note">{t('opportunities.emptyIntro')}</p>
+      <main className="screen">
+        <button className="ghost" type="button" onClick={onBack}>
+          <ArrowLeft size={18} />
+          {t('common.back')}
+        </button>
+        <section className="empty-state">
+          <h2>{t('opportunities.title')}</h2>
+	          <p>{t('opportunities.profileIntro')}</p>
+	          <p className="note">{t('opportunities.profileIntroDetail')}</p>
 	          <button className="primary" onClick={onCreateNew}>
 	            <Plus size={18} />
 	            {t('opportunities.new')}
           </button>
         </section>
+        {renderCollabProfiles(null)}
       </main>
     );
   }
@@ -5156,6 +5636,8 @@ function CurrentRequest({
         </button>
       </div>
 
+      {renderCollabProfiles(request.status === 'looking' ? request : null)}
+
       <div className="request-management-grid">
         <section className="request-list-panel">
           <RequestSection title={t('common.active')} requests={groupedRequests.active} />
@@ -5165,7 +5647,7 @@ function CurrentRequest({
 
       <section className="request-panel standalone">
 	        <p className="eyebrow">{t('opportunities.selected')}</p>
-	        <h2>{getCourseDisplay(request)}</h2>
+	        <h2>{getCourseDisplay(request)} {isPremiumProfile(profile) && <PremiumBadge t={t} />} {isRequestPinned(request) && <span className="premium-badge pinned">{t('premium.pinned')}</span>}</h2>
 	        <dl>
 	          <div><dt>{t('request.opportunityType')}</dt><dd>{request.opportunity_type || request.course_code || t('common.notSpecified')}</dd></div>
 	          <div><dt>{t('request.field')}</dt><dd>{request.opportunity_field || request.major || t('common.notSpecified')}</dd></div>
@@ -5185,10 +5667,19 @@ function CurrentRequest({
 	              {t('matches.viewRecommended')}
 	            </button>
 	          )}
-	          <button className="secondary" onClick={() => setState((current) => ({ ...current, editingRequest: request, success: '', error: '' }))}>
-	            <Pencil size={18} />
-	            {t('common.editRequest')}
+          <button className="secondary" onClick={() => setState((current) => ({ ...current, editingRequest: request, success: '', error: '' }))}>
+            <Pencil size={18} />
+            {t('common.editRequest')}
           </button>
+          {request.status === 'looking' && isPremiumProfile(profile) && !isRequestPinned(request) && (
+            <button className="secondary" onClick={() => pinRequest(request)} disabled={state.saving}>
+              <Sparkles size={18} />
+              {t('premium.pin')}
+            </button>
+          )}
+          {request.status === 'looking' && !isPremiumProfile(profile) && (
+            <p className="note inline-note">{t('premium.pinUpgrade')}</p>
+          )}
           {request.status === 'looking' && (
             <button className="secondary quiet-action" onClick={() => setState((current) => ({ ...current, cancelTarget: request, success: '', error: '' }))}>
               <Trash2 size={18} />
@@ -5618,7 +6109,7 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
                 <p className="eyebrow">
                   {tab === 'received' && t('connections.receivedFrom', { name: displayName(request.teammate_full_name) })}
                   {tab === 'sent' && t('connections.sentTo', { name: displayName(request.teammate_full_name) })}
-                  {tab === 'connected' && `${connectionRelationshipLabel(request)} · ${t('connections.connectedWith', { name: displayName(request.teammate_full_name) })}`}
+                  {tab === 'connected' && `${localizedConnectionRelationshipLabel(request, t)} · ${t('connections.connectedWith', { name: displayName(request.teammate_full_name) })}`}
                   {tab === 'declined' && (
                     request.status === 'unmatched'
                       ? t('connections.endedWith', { name: displayName(request.teammate_full_name) })
@@ -5636,7 +6127,7 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
                 {request.sender_team_request_id && state.currentRequest && (
                   <div className="score inline-score">
                     <Sparkles size={16} />
-                    {calculateMatchScore(state.currentRequest.profile, state.currentRequest, {
+                    {t('matches.matchPercent', { score: calculateMatchScore(state.currentRequest.profile, state.currentRequest, {
                       school: request.teammate_school,
                       major: request.teammate_major,
                       course: request.course,
@@ -5651,7 +6142,7 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
                         major: request.teammate_major,
                         skills: request.teammate_skills,
                       },
-                    })}% Match
+                    }) })}
                   </div>
                 )}
                 <div className="connection-context">
@@ -5666,8 +6157,8 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
                 </div>
               </div>
               <div className="connection-actions">
-                <span className={`status-badge ${request.status}`}>{connectionStatusLabel(request.status, tab)}</span>
-                {request.status === 'accepted' && <ConnectionRelationshipBadge connection={request} />}
+                <span className={`status-badge ${request.status}`}>{connectionStatusLabel(request.status, tab, t)}</span>
+                {request.status === 'accepted' && <ConnectionRelationshipBadge connection={request} t={t} />}
                 {tab === 'received' && (
                   <>
                     <button
@@ -6009,17 +6500,17 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
     <main className="screen">
       <div className="results-header">
         <div>
-          <p className="eyebrow">Friends</p>
-          <h2>Discover connections</h2>
+          <p className="eyebrow">{t('connections.friends')}</p>
+          <h2>{t('connections.discoverFriends')}</h2>
         </div>
       </div>
-      {!currentProfileId && <section className="empty-state"><p>Create a profile before adding Friends.</p></section>}
-      {state.loading && currentProfileId && <p className="loading">Loading friends...</p>}
+      {!currentProfileId && <section className="empty-state"><p>{t('connections.needProfile')}</p></section>}
+      {state.loading && currentProfileId && <p className="loading">{t('connections.loadingFriends')}</p>}
       {state.error && <p className="error">{state.error}</p>}
       {state.success && <p className="success">{state.success}</p>}
       {!state.loading && currentProfileId && state.friends.length === 0 && (
         <section className="empty-state">
-          <p>No Friends yet. Discover students and connect for networking.</p>
+          <p>{t('connections.noneFriends')}</p>
         </section>
       )}
       {!state.loading && state.friends.length > 0 && (
@@ -6036,18 +6527,18 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
               <div className="avatar">{displayInitial(friend.teammate_full_name)}</div>
               <h3>
                 {displayName(friend.teammate_full_name)} {friend.teammate_is_demo && <DemoBadge />}
-                {hasSuitableOption && <span className="status-badge suitable">Suitable</span>}
+                {hasSuitableOption && <span className="status-badge suitable">{t('connections.suitable')}</span>}
               </h3>
               <p>{universityLabel(friend.teammate_university)}</p>
               <p>{schoolLabel(friend.teammate_school)} | {friend.teammate_major}</p>
               <div className="mini-detail">
-                <strong>Skills they have</strong>
+                <strong>{t('matches.skills')}</strong>
                 <span>{joinList(friend.teammate_skills)}</span>
               </div>
               <div className="hero-actions">
                 <button
                   className="primary match-plus-button"
-                  title="Choose one of your active team requests and add this friend as a teammate."
+                  title={t('connections.matchPlusTitle')}
                   onClick={() => openMatchPlus(friend, matchOptions)}
                 >
                   <Sparkles size={18} />
@@ -6055,17 +6546,17 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
                 </button>
                 <button className="primary" onClick={() => onOpenChat(friend.connection_id)}>
                   <MessageCircle size={18} />
-                  Message
+                  {t('common.message')}
                 </button>
                 <button className="secondary" onClick={() => onViewProfile(friend.teammate_profile_id)}>
-                  View Profile
+                  {t('common.viewProfile')}
                 </button>
                 <button className="secondary quiet-action" onClick={() => setState((current) => ({ ...current, removeTarget: friend }))}>
-                  Remove Friend
+                  {t('connections.removeFriend')}
                 </button>
               </div>
-              {!canMatch && <p className="note">Match+ will ask you which active team request to use.</p>}
-              {canMatch && !hasSuitableOption && <p className="note">No suitability label yet, but you can still match them if they fit your team.</p>}
+              {!canMatch && <p className="note">{t('connections.matchPlusNeedsRequest')}</p>}
+              {canMatch && !hasSuitableOption && <p className="note">{t('connections.matchPlusStillAllowed')}</p>}
                   </>
                 );
               })()}
@@ -6075,30 +6566,30 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
       )}
       {state.matchTarget && (
         <div className="modal-backdrop" role="presentation">
-          <section className="connect-modal" role="dialog" aria-modal="true" aria-label="Match plus confirmation">
+          <section className="connect-modal" role="dialog" aria-modal="true" aria-label={t('connections.matchPlusConfirmLabel')}>
             <div className="modal-header">
               <div>
                 <p className="eyebrow">Match+</p>
-                <h2>Match with {displayName(state.matchTarget.teammate_full_name)}?</h2>
+                <h2>{t('connections.matchWith', { name: displayName(state.matchTarget.teammate_full_name) })}</h2>
               </div>
               <button
                 className="ghost"
                 onClick={() => setState((current) => ({ ...current, matchTarget: null, selectedMatchIndex: 0 }))}
                 type="button"
               >
-                Close
+                {t('common.close')}
               </button>
             </div>
             {(state.matchTarget.match_options || []).length > 0 && (
               <label>
-                Choose which team request this match is for
+                {t('connections.chooseMatchRequest')}
                 <select
                   value={state.selectedMatchIndex}
                   onChange={(event) => setState((current) => ({ ...current, selectedMatchIndex: Number(event.target.value) }))}
                 >
                   {state.matchTarget.match_options.map((option, index) => (
                     <option value={index} key={`${option.current_request_id}-${option.friend_request_id || 'friend-optional'}`}>
-                      {option.course_name || 'Course'} {option.course_code ? `(${option.course_code})` : ''} | {getSessionDisplay(option)}{option.is_suitable ? ' · Suitable' : ''}
+                      {option.course_name || t('class.course')} {option.course_code ? `(${option.course_code})` : ''} | {getSessionDisplay(option)}{option.is_suitable ? ` · ${t('connections.suitable')}` : ''}
                     </option>
                   ))}
                 </select>
@@ -6106,19 +6597,19 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
             )}
             {(state.matchTarget.match_options || []).length === 0 && (
               <div className="request-summary-box">
-                <p className="eyebrow">No active request found</p>
-                <h3>Create or reopen a team request first.</h3>
-                <p className="note">Match+ needs one of your active team requests so Teamergency knows which course/team this friend should count toward.</p>
+                <p className="eyebrow">{t('connections.noActiveRequest')}</p>
+                <h3>{t('connections.createOrReopen')}</h3>
+                <p className="note">{t('connections.matchPlusRequestHelper')}</p>
               </div>
             )}
             {(() => {
               const option = state.matchTarget.match_options?.[state.selectedMatchIndex] || state.matchTarget.match_options?.[0];
               return option ? (
                 <div className="request-summary-box">
-                  <p className="eyebrow">{option.is_suitable ? 'Suitable for this request' : 'Your selected request'}</p>
-                  <h3>{option.course_name || 'Selected course'} {option.course_code ? `(${option.course_code})` : ''}</h3>
+                  <p className="eyebrow">{option.is_suitable ? t('connections.suitableForRequest') : t('connections.selectedRequest')}</p>
+                  <h3>{option.course_name || t('connections.selectedCourse')} {option.course_code ? `(${option.course_code})` : ''}</h3>
                   <p>{getSessionDisplay(option)}</p>
-                  {!option.is_suitable && <p className="note">Teamergency does not see a strong automatic signal yet. You can still choose this friend if they fit your team.</p>}
+                  {!option.is_suitable && <p className="note">{t('connections.weakSignal')}</p>}
                 </div>
               ) : null;
             })()}
@@ -6128,14 +6619,14 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
                 onClick={() => setState((current) => ({ ...current, matchTarget: null, selectedMatchIndex: 0 }))}
                 type="button"
               >
-                Cancel
+                {t('common.cancel')}
               </button>
               <button
                 className="primary match-plus-button"
                 onClick={confirmMatchPlus}
                 disabled={state.saving || !(state.matchTarget.match_options || []).length}
               >
-                {state.saving ? 'Matching...' : 'Confirm Match'}
+                {state.saving ? t('connections.matching') : t('connections.confirmMatch')}
               </button>
             </div>
           </section>
@@ -6143,21 +6634,21 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
       )}
       {state.removeTarget && (
         <div className="modal-backdrop" role="presentation">
-          <section className="connect-modal" role="dialog" aria-modal="true" aria-label="Remove friend confirmation">
+          <section className="connect-modal" role="dialog" aria-modal="true" aria-label={t('connections.removeFriendConfirmLabel')}>
             <div className="modal-header">
               <div>
-                <p className="eyebrow">Remove Friend</p>
-                <h2>Remove {displayName(state.removeTarget.teammate_full_name)} from your friends?</h2>
+                <p className="eyebrow">{t('connections.removeFriend')}</p>
+                <h2>{t('connections.removeFriendQuestion', { name: displayName(state.removeTarget.teammate_full_name) })}</h2>
               </div>
-              <button className="ghost" onClick={() => setState((current) => ({ ...current, removeTarget: null }))} type="button">Close</button>
+              <button className="ghost" onClick={() => setState((current) => ({ ...current, removeTarget: null }))} type="button">{t('common.close')}</button>
             </div>
-            <p className="note">This only ends the Discover friendship. It does not delete old messages.</p>
+            <p className="note">{t('connections.removeFriendHelper')}</p>
             <div className="hero-actions">
               <button className="secondary" onClick={() => setState((current) => ({ ...current, removeTarget: null }))} type="button">
-                Cancel
+                {t('common.cancel')}
               </button>
               <button className="primary danger-action" onClick={() => removeFriend()} disabled={state.saving}>
-                {state.saving ? 'Removing...' : 'Remove Friend'}
+                {state.saving ? t('connections.removingFriend') : t('connections.removeFriend')}
               </button>
             </div>
           </section>
@@ -6516,8 +7007,10 @@ function MyProfile({
   const editingAsLecturer = form.role === 'lecturer';
   const authEmail = getAuthSessionEmail(authSession);
   const signedInWithGoogle = hasGoogleAuthSession(authSession);
-  const profileSkillOptions = mergeOptionSets(getSkillsForSchool(form.school), form.skills);
-  const profileSchoolOptions = getSchoolsForUniversity(form.university);
+  const resolvedUniversity = resolveProfileUniversity(form);
+  const usesOtherUniversity = isOtherUniversityForm(form);
+  const profileSkillOptions = mergeOptionSets(usesOtherUniversity ? getAllSkills() : getSkillsForSchool(form.school), form.skills);
+  const profileSchoolOptions = getSchoolsForUniversity(resolvedUniversity);
 
   useEffect(() => {
     let alive = true;
@@ -6560,16 +7053,20 @@ function MyProfile({
   }, [lecturerSession?.university, lecturerSession?.lecturerId]);
 
   const startEdit = () => {
-    const school = schoolOptions.some((option) => option.value === profile.school) ? profile.school : '';
+    const school = schoolOptions.some((option) => option.value === profile.school) ? profile.school : profile.school || '';
     const roleForEdit = currentRole;
     setForm({
       role: roleForEdit,
       full_name: profile.full_name || '',
       university: profile.university || 'RMIT University',
+      university_choice: getUniversityChoice(profile.university || 'RMIT University'),
+      custom_university: getUniversityChoice(profile.university || 'RMIT University') === OTHER_UNIVERSITY_VALUE
+        ? profile.university || ''
+        : '',
       school,
       major: roleForEdit === 'lecturer'
         ? 'Lecturer'
-        : school && majorsBySchool[school]?.includes(profile.major) ? profile.major : '',
+        : school && majorsBySchool[school]?.includes(profile.major) ? profile.major : profile.major || '',
       skills: profile.skills || [],
       other_skill: '',
       contact_type: profile.contact_type || 'email',
@@ -6584,6 +7081,7 @@ function MyProfile({
 	      lecturer_contact_detail: profile.lecturer_contact_detail || profile.contact_value || '',
 	      student_id: profile.student_id || '',
 	      is_available: profile.is_available ?? true,
+      subscription_status: profile.subscription_status || 'free',
       consent_public_visibility: profile.consent_public_visibility ?? true,
     });
     setMessage('');
@@ -6602,6 +7100,22 @@ function MyProfile({
       major: majorsBySchool[value]?.includes(current.major) ? current.major : '',
       skills: filterSkillsForSchool(current.skills, value),
     }));
+  };
+
+  const updateUniversityChoice = (value) => {
+    setForm((current) => ({
+      ...current,
+      university_choice: value,
+      custom_university: value === OTHER_UNIVERSITY_VALUE ? current.custom_university : '',
+      university: value === OTHER_UNIVERSITY_VALUE ? current.custom_university : value,
+      school: isRmitUniversity(value) ? current.school : '',
+      major: isRmitUniversity(value) ? current.major : '',
+      skills: isRmitUniversity(value) ? filterSkillsForSchool(current.skills, current.school) : current.skills,
+    }));
+  };
+
+  const updateCustomUniversity = (value) => {
+    setForm((current) => ({ ...current, custom_university: value, university: value }));
   };
 
   const toggleProfileSkill = (skill) => {
@@ -6641,11 +7155,11 @@ function MyProfile({
     const skills = getProfileSkillsFromForm(form);
 
 	    if (editingAsLecturer) {
-	      if (!form.full_name || !form.school || !form.academic_field || !form.lecturer_id || !form.lecturer_contact_detail) {
+	      if (!form.full_name || !resolveProfileUniversity(form) || !getFormSchoolValue(form) || !form.academic_field || !form.lecturer_id || !form.lecturer_contact_detail) {
 	        setError("Please fill in your lecturer profile's required fields.");
 	        return;
 	      }
-    } else if (!form.full_name || !form.school || !form.major || skills.length === 0 || !form.contact_value || !form.short_bio) {
+    } else if (!form.full_name || !resolveProfileUniversity(form) || (!usesOtherUniversity && !form.school) || !form.major || skills.length === 0 || !form.contact_value || !form.short_bio) {
       setError("Please fill in your profile's required fields.");
       return;
     }
@@ -6655,8 +7169,8 @@ function MyProfile({
     try {
       const updated = await updateProfile(profile.id, {
         full_name: form.full_name.trim(),
-        university: form.university || 'RMIT University',
-        school: form.school.trim(),
+        university: resolveProfileUniversity(form) || 'RMIT University',
+        school: getFormSchoolValue(form),
         major: editingAsLecturer ? 'Lecturer' : form.major.trim(),
         skills: editingAsLecturer ? ['Teaching'] : skills,
         avatar_url: form.avatar_url || null,
@@ -6676,6 +7190,7 @@ function MyProfile({
 	        lecturer_contact_method: editingAsLecturer ? form.lecturer_contact_method : null,
 	        lecturer_contact_detail: editingAsLecturer ? form.lecturer_contact_detail.trim() : null,
 	        student_id: editingAsLecturer ? null : form.student_id.trim() || null,
+        subscription_status: form.subscription_status || 'free',
 	      });
       onProfileUpdated(updated);
       setEditing(false);
@@ -6713,20 +7228,40 @@ function MyProfile({
                   </label>
                   <label>
                     {t('profile.university')}
-                    <select value={form.university} onChange={(event) => updateField('university', event.target.value)} required>
+                    <select value={form.university_choice} onChange={(event) => updateUniversityChoice(event.target.value)} required>
                       {universityOptions.map((university) => (
                         <option value={university.value} key={university.value}>{university.label}</option>
                       ))}
+                      <option value={OTHER_UNIVERSITY_VALUE}>{t('profile.otherUniversity')}</option>
                     </select>
                   </label>
+                  {usesOtherUniversity && (
+                    <label>
+                      {t('profile.universityName')}
+                      <input
+                        value={form.custom_university}
+                        onChange={(event) => updateCustomUniversity(event.target.value)}
+                        placeholder={t('profile.universityNamePlaceholder')}
+                        required
+                      />
+                    </label>
+                  )}
                   <label>
                     {editingAsLecturer ? t('profile.department') : t('profile.school')}
-                    <select value={form.school} onChange={(event) => updateSchool(event.target.value)} required>
-                      <option value="">{editingAsLecturer ? t('profile.selectDepartment') : t('profile.selectSchool')}</option>
-                      {profileSchoolOptions.map((school) => (
-                        <option value={school.value} key={school.value}>{school.label}</option>
-                      ))}
-                    </select>
+                    {usesOtherUniversity ? (
+                      <input
+                        value={form.school === 'Other' ? '' : form.school}
+                        onChange={(event) => updateField('school', event.target.value)}
+                        placeholder={t('profile.departmentPlaceholder')}
+                      />
+                    ) : (
+                      <select value={form.school} onChange={(event) => updateSchool(event.target.value)} required>
+                        <option value="">{editingAsLecturer ? t('profile.selectDepartment') : t('profile.selectSchool')}</option>
+                        {profileSchoolOptions.map((school) => (
+                          <option value={school.value} key={school.value}>{school.label}</option>
+                        ))}
+                      </select>
+                    )}
                   </label>
 	                  {editingAsLecturer ? (
 	                    <>
@@ -6786,12 +7321,21 @@ function MyProfile({
 	                    <>
                       <label>
                         {t('profile.major')}
-                        <select value={form.major} onChange={(event) => updateField('major', event.target.value)} required>
-                          <option value="">{t('profile.major')}</option>
-                          {(majorsBySchool[form.school] || []).map((major) => (
-                            <option value={major} key={major}>{major}</option>
-                          ))}
-                        </select>
+                        {usesOtherUniversity ? (
+                          <input
+                            value={form.major}
+                            onChange={(event) => updateField('major', event.target.value)}
+                            placeholder={t('profile.majorFieldPlaceholder')}
+                            required
+                          />
+                        ) : (
+                          <select value={form.major} onChange={(event) => updateField('major', event.target.value)} required>
+                            <option value="">{t('profile.major')}</option>
+                            {(majorsBySchool[form.school] || []).map((major) => (
+                              <option value={major} key={major}>{major}</option>
+                            ))}
+                          </select>
+                        )}
 	                      </label>
 	                      <label>
 	                        {t('profile.studentId')}
@@ -6808,6 +7352,7 @@ function MyProfile({
                           options={profileSkillOptions}
                           selected={form.skills}
                           onToggle={toggleProfileSkill}
+                          labelFor={(option) => localizedOption(option, 'options.skill', t)}
                         />
                         {form.skills.includes('Other') && (
                           <input
@@ -6823,8 +7368,17 @@ function MyProfile({
                           options={workStyleOptions}
                           selected={form.work_styles}
                           onToggle={(style) => updateField('work_styles', toggleValue(form.work_styles, style))}
+                          labelFor={(option) => localizedOption(option, 'options.workStyle', t)}
                         />
                       </fieldset>
+                      <label>
+                        {t('premium.subscription')}
+                        <select value={form.subscription_status} onChange={(event) => updateField('subscription_status', event.target.value)}>
+                          <option value="free">{t('premium.free')}</option>
+                          <option value="premium">{t('premium.premium')}</option>
+                        </select>
+                        <span className="field-helper">{t('premium.demoHelper')}</span>
+                      </label>
                     </>
                   )}
 	                  {!editingAsLecturer && (
@@ -6871,6 +7425,7 @@ function MyProfile({
                 <h2>{displayName(profile.full_name)}</h2>
                 <dl>
 	                  <div><dt>{t('profile.role')}</dt><dd>{t('profile.student')}</dd></div>
+                    <div><dt>{t('premium.subscription')}</dt><dd>{subscriptionLabel(profile, t)} {isPremiumProfile(profile) && <PremiumBadge t={t} />}</dd></div>
                   <div><dt>{t('profile.university')}</dt><dd>{universityLabel(profile.university)}</dd></div>
                   <div><dt>{t('profile.school')}</dt><dd>{schoolLabel(profile.school)}</dd></div>
                   <div><dt>{t('profile.major')}</dt><dd>{profile.major}</dd></div>
@@ -6889,6 +7444,7 @@ function MyProfile({
                     profile={profile}
                     reviews={reviewsState.reviews}
                     title={t('profile.reviewsAboutYou')}
+                    viewerProfile={profile}
                     t={t}
                   />
                 )}
@@ -7544,6 +8100,7 @@ export default function App() {
       {view === 'profile-detail' && selectedRequestId && (
         <ProfileDetail
           currentProfileId={profileId}
+          currentProfile={profile}
           currentRequestId={requestId}
           matchScore={selectedMatchScore}
           requestId={selectedRequestId}
@@ -7565,6 +8122,10 @@ export default function App() {
             setSelectedRequestId(id);
             setSelectedMatchScore(null);
             navigate('profile-detail');
+          }}
+          onOpenProfile={(id) => {
+            setSelectedDiscoverProfileId(id);
+            navigate('discover-profile');
           }}
 		          onSelectRequest={selectCurrentRequest}
 		          onViewRecommended={openMatchesForRequest}
@@ -7621,6 +8182,7 @@ export default function App() {
         <DiscoverProfileDetail
           profileId={selectedDiscoverProfileId}
           currentProfileId={profileId}
+          currentProfile={profile}
           onBack={() => goBack('discover')}
           onOpenChat={openChat}
           onOpenConnections={() => navigate('connections')}
