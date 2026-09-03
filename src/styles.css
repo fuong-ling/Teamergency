@@ -1117,6 +1117,45 @@ select:focus {
   vertical-align: middle;
 }
 
+.premium-badge {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  margin-left: 6px;
+  padding: 3px 8px;
+  border: 1px solid rgba(255, 207, 122, 0.5);
+  border-radius: 999px;
+  color: #2d1c00;
+  background: #ffcf7a;
+  font-size: 0.72rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.premium-badge.pinned {
+  color: #ffffff;
+  background: #c64a3b;
+  border-color: #ff8b72;
+}
+
+.premium-card {
+  border-color: rgba(255, 207, 122, 0.7) !important;
+  box-shadow: 0 0 0 1px rgba(255, 207, 122, 0.18), 0 18px 46px rgba(29, 36, 51, 0.12) !important;
+}
+
+.collab-discovery-panel {
+  margin-bottom: 22px;
+}
+
+.compact-discover-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.inline-note {
+  align-self: center;
+  margin: 0;
+}
+
 .demo-simulation {
   display: grid;
   gap: 10px;
@@ -3819,4 +3858,641 @@ option {
   background: rgba(69, 232, 108, 0.12);
   font-size: 0.92rem;
   font-weight: 850;
+}
+
+/* Final landing polish for the role-first entry screen */
+.landing-mode .topbar {
+  min-height: 78px;
+}
+
+.landing-mode .logo-button {
+  min-height: 52px;
+  font-size: clamp(2.05rem, 3.4vw, 3rem);
+  line-height: 1;
+}
+
+.landing-mode .intro {
+  padding-top: 56px;
+}
+
+.landing-mode .intro .eyebrow {
+  font-size: 1rem;
+}
+
+.landing-mode .intro h1 {
+  max-width: 1120px;
+  font-size: clamp(3.5rem, 6.2vw, 5.9rem);
+  line-height: 1.04;
+}
+
+.landing-mode .lead {
+  max-width: 980px;
+  margin-top: 28px;
+}
+
+.landing-mode .landing-role-grid {
+  width: min(680px, 100%);
+  gap: 12px;
+}
+
+.landing-mode .landing-role-card {
+  min-height: 88px;
+  padding: 14px 16px;
+}
+
+.landing-mode .landing-auth-card {
+  width: min(680px, 100%);
+}
+
+@media (max-width: 720px) {
+  .landing-mode .logo-button {
+    font-size: 2rem;
+  }
+
+  .landing-mode .intro h1 {
+    font-size: clamp(2.8rem, 14vw, 4.2rem);
+  }
+
+  .compact-discover-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Reference-inspired navy/blue/red visual theme */
+:root {
+  --tm-bg: #050b18;
+  --tm-bg-2: #071124;
+  --tm-surface: #091225;
+  --tm-surface-2: #0d1930;
+  --tm-surface-3: #101e38;
+  --tm-input: #081327;
+  --tm-line: rgba(124, 151, 196, 0.28);
+  --tm-line-strong: rgba(89, 129, 205, 0.48);
+  --tm-text: #f5f7fb;
+  --tm-text-soft: #c8d1e4;
+  --tm-muted: #92a0bb;
+  --tm-faint: #71809a;
+  --tm-blue: #2f6bff;
+  --tm-blue-2: #2563eb;
+  --tm-red: #ef3340;
+  --tm-red-2: #ff4655;
+  --tm-green: #44d782;
+  --tm-yellow: #ffd166;
+  --tm-shadow: 0 20px 70px rgba(0, 0, 0, 0.34);
+  color: var(--tm-text);
+  background: var(--tm-bg);
+}
+
+body {
+  color: var(--tm-text);
+  background: var(--tm-bg);
+}
+
+.app,
+.landing-mode {
+  color: var(--tm-text);
+  background:
+    radial-gradient(circle at 18% 12%, rgba(47, 107, 255, 0.25), transparent 28rem),
+    radial-gradient(circle at 84% 22%, rgba(239, 51, 64, 0.20), transparent 30rem),
+    radial-gradient(circle at 50% 90%, rgba(37, 99, 235, 0.11), transparent 34rem),
+    linear-gradient(180deg, var(--tm-bg) 0%, var(--tm-bg-2) 48%, #030712 100%) !important;
+}
+
+.topbar,
+.landing-mode .topbar {
+  border: 1px solid rgba(117, 148, 207, 0.28) !important;
+  background: rgba(5, 11, 24, 0.88) !important;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(22px);
+}
+
+.logo-button,
+.landing-mode .logo-button {
+  color: var(--tm-text) !important;
+}
+
+.brand-logo span:first-child,
+.brand-blue {
+  color: var(--tm-blue) !important;
+}
+
+.brand-logo span:nth-child(2) {
+  color: var(--tm-text) !important;
+  background: linear-gradient(90deg, var(--tm-blue), var(--tm-red));
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.brand-logo span:last-child,
+.brand-red {
+  color: var(--tm-red) !important;
+}
+
+.screen,
+.home-grid,
+.landing-mode .home-grid {
+  color: var(--tm-text);
+  background: transparent !important;
+}
+
+.intro,
+.landing-mode .intro {
+  color: var(--tm-text);
+  background:
+    linear-gradient(135deg, rgba(47, 107, 255, 0.10), transparent 34%),
+    linear-gradient(315deg, rgba(239, 51, 64, 0.10), transparent 34%),
+    rgba(5, 11, 24, 0.16) !important;
+}
+
+.intro .eyebrow,
+.eyebrow {
+  color: var(--tm-red-2) !important;
+}
+
+.intro h1,
+.landing-mode .intro h1,
+h1,
+h2,
+h3,
+h4 {
+  color: var(--tm-text) !important;
+}
+
+.lead,
+p,
+label,
+legend,
+dt,
+dd {
+  color: var(--tm-text-soft);
+}
+
+.note,
+.field-helper,
+small,
+.mini-detail span,
+.unavailable-text {
+  color: var(--tm-muted) !important;
+}
+
+.text-link,
+.link-button {
+  color: #8fb2ff !important;
+}
+
+.form-shell,
+.profile-panel,
+.request-panel,
+.match-card,
+.discover-card,
+.connection-row,
+.thread-row,
+.chat-shell,
+.connect-modal,
+.confirmation,
+.empty-state,
+.request-list-row,
+.request-list-panel,
+.progress-panel,
+.request-summary-box,
+.inline-prompt,
+.conditional-box,
+.locked-box,
+.review-card,
+.filter-panel,
+.flow-panel,
+.auth-card,
+.landing-auth-card,
+.landing-role-card,
+.option-section,
+.request-switcher-panel,
+.message-window,
+.message-compose,
+.demo-fallback-section,
+.warning-prompt {
+  border-color: var(--tm-line) !important;
+  color: var(--tm-text) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.010)),
+    var(--tm-surface-2) !important;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.24);
+}
+
+.landing-role-card {
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+.landing-role-card.selected,
+.check-option.selected,
+.consent-box.selected,
+.role-card.selected,
+.request-list-row.selected {
+  border-color: rgba(47, 107, 255, 0.86) !important;
+  background:
+    linear-gradient(135deg, rgba(47, 107, 255, 0.20), rgba(239, 51, 64, 0.08)),
+    var(--tm-surface-3) !important;
+  box-shadow: 0 0 0 1px rgba(47, 107, 255, 0.22), 0 18px 54px rgba(47, 107, 255, 0.13) !important;
+}
+
+.landing-role-card strong,
+.landing-role-card small,
+.landing-auth-card h2,
+.landing-auth-card p,
+.landing-auth-card .note,
+.auth-card h3,
+.auth-card p,
+.auth-card .note,
+.auth-card .field-helper,
+.check-option strong,
+.check-option span,
+.consent-box span,
+.role-card strong,
+.role-card small,
+.discover-card h3,
+.match-card h3,
+.request-list-row h3,
+.request-summary-box h3,
+.profile-panel h2,
+.profile-panel h3,
+.form-shell h2,
+.form-shell h3 {
+  color: var(--tm-text) !important;
+}
+
+.landing-role-card small,
+.landing-auth-card .note,
+.auth-card .note {
+  color: var(--tm-text-soft) !important;
+}
+
+.landing-role-card em,
+.status-badge,
+.demo-badge,
+.premium-badge,
+.suggestion-chip,
+.pill-list span,
+.connection-context,
+.inline-score,
+.nav-badge {
+  border: 1px solid rgba(47, 107, 255, 0.38);
+  color: #dce7ff !important;
+  background: rgba(47, 107, 255, 0.15) !important;
+}
+
+.premium-badge,
+.premium-card {
+  border-color: rgba(255, 96, 112, 0.56) !important;
+}
+
+.premium-badge,
+.premium-badge.pinned {
+  color: #fff4c8 !important;
+  background: linear-gradient(135deg, rgba(47, 107, 255, 0.34), rgba(239, 51, 64, 0.30)) !important;
+  box-shadow: 0 0 24px rgba(239, 51, 64, 0.16);
+}
+
+.premium-card {
+  background:
+    linear-gradient(var(--tm-surface-2), var(--tm-surface-2)) padding-box,
+    linear-gradient(135deg, rgba(47, 107, 255, 0.74), rgba(239, 51, 64, 0.72)) border-box !important;
+  border: 1px solid transparent !important;
+  box-shadow: 0 18px 58px rgba(47, 107, 255, 0.12), 0 0 36px rgba(239, 51, 64, 0.08) !important;
+}
+
+.primary {
+  border: 1px solid rgba(101, 141, 255, 0.48) !important;
+  color: #ffffff !important;
+  background: linear-gradient(135deg, var(--tm-blue), var(--tm-blue-2)) !important;
+  box-shadow: 0 14px 34px rgba(47, 107, 255, 0.26) !important;
+}
+
+.primary:hover {
+  background: linear-gradient(135deg, #4e82ff, var(--tm-blue)) !important;
+  box-shadow: 0 18px 42px rgba(47, 107, 255, 0.34) !important;
+}
+
+.secondary,
+.ghost,
+.google-button,
+.disabled-contact {
+  border: 1px solid var(--tm-line) !important;
+  color: var(--tm-text) !important;
+  background: rgba(13, 25, 48, 0.78) !important;
+  box-shadow: none !important;
+}
+
+.secondary:hover,
+.ghost:hover,
+.google-button:hover {
+  color: #ffffff !important;
+  border-color: rgba(47, 107, 255, 0.66) !important;
+  background: rgba(47, 107, 255, 0.18) !important;
+}
+
+.google-button,
+.landing-mode .landing-auth-card .google-button {
+  border-color: rgba(255, 255, 255, 0.22) !important;
+  color: #ffffff !important;
+  background: #050b18 !important;
+}
+
+.danger-action,
+.quiet-action.danger-action,
+.primary.danger-action,
+.match-plus-button {
+  border-color: rgba(239, 51, 64, 0.62) !important;
+  color: #ffffff !important;
+  background: linear-gradient(135deg, var(--tm-red-2), #c41628) !important;
+  box-shadow: 0 14px 36px rgba(239, 51, 64, 0.24) !important;
+}
+
+.quiet-action {
+  color: #ffb7c0 !important;
+  border-color: rgba(239, 51, 64, 0.32) !important;
+  background: rgba(239, 51, 64, 0.08) !important;
+}
+
+.primary:disabled,
+.secondary:disabled,
+.google-button:disabled,
+.disabled-contact,
+.compact-disabled {
+  cursor: not-allowed !important;
+  color: #b6bfd2 !important;
+  background: rgba(113, 128, 154, 0.22) !important;
+  border-color: rgba(113, 128, 154, 0.34) !important;
+  box-shadow: none !important;
+  opacity: 0.78;
+}
+
+input,
+textarea,
+select,
+.form-shell input,
+.form-shell textarea,
+.form-shell select,
+.profile-panel input,
+.profile-panel textarea,
+.profile-panel select,
+.request-panel input,
+.request-panel textarea,
+.request-panel select,
+.connect-modal input,
+.connect-modal textarea,
+.connect-modal select,
+.chat-shell input,
+.chat-shell textarea,
+.chat-shell select {
+  border: 1px solid var(--tm-line) !important;
+  color: var(--tm-text) !important;
+  background: var(--tm-input) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #8f9db8 !important;
+  opacity: 1;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: rgba(47, 107, 255, 0.86) !important;
+  box-shadow: 0 0 0 3px rgba(47, 107, 255, 0.16) !important;
+}
+
+option {
+  color: var(--tm-text);
+  background: var(--tm-surface);
+}
+
+.language-switch {
+  border-color: var(--tm-line) !important;
+  color: var(--tm-text-soft) !important;
+  background: rgba(9, 18, 37, 0.92) !important;
+}
+
+.language-switch button {
+  color: var(--tm-text-soft) !important;
+}
+
+.language-switch button.active {
+  color: #ffffff !important;
+  background: var(--tm-blue) !important;
+}
+
+.nav-outline,
+.top-actions .ghost {
+  border-color: transparent !important;
+  color: var(--tm-text-soft) !important;
+  background: transparent !important;
+}
+
+.top-actions .ghost:hover,
+.top-actions .ghost.active {
+  color: #ffffff !important;
+  background: rgba(47, 107, 255, 0.16) !important;
+}
+
+.banner,
+.success,
+.success-simulation {
+  border-color: rgba(68, 215, 130, 0.36) !important;
+  color: #d9ffe8 !important;
+  background: rgba(68, 215, 130, 0.12) !important;
+}
+
+.error,
+.error-banner,
+.validation-message {
+  border-color: rgba(239, 51, 64, 0.44) !important;
+  color: #ffc6cc !important;
+  background: rgba(239, 51, 64, 0.12) !important;
+}
+
+.validation-message {
+  display: inline-flex;
+  width: fit-content;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.warning-prompt,
+.locked-box {
+  border-color: rgba(255, 209, 102, 0.40) !important;
+  color: #ffedb2 !important;
+  background: rgba(255, 209, 102, 0.10) !important;
+}
+
+.avatar,
+.brand-mark {
+  color: #ffffff !important;
+  background: linear-gradient(135deg, var(--tm-blue), var(--tm-red)) !important;
+}
+
+.progress-track {
+  background: rgba(113, 128, 154, 0.22) !important;
+}
+
+.progress-fill {
+  background: linear-gradient(90deg, var(--tm-blue), var(--tm-red)) !important;
+}
+
+.status-badge.active,
+.status-badge.looking,
+.looking {
+  color: #dce7ff !important;
+  background: rgba(47, 107, 255, 0.16) !important;
+  border-color: rgba(47, 107, 255, 0.42) !important;
+}
+
+.status-badge.complete,
+.status-badge.accepted,
+.accepted,
+.complete,
+.status-badge.suitable {
+  color: #d9ffe8 !important;
+  background: rgba(68, 215, 130, 0.14) !important;
+  border-color: rgba(68, 215, 130, 0.42) !important;
+}
+
+.status-badge.cancelled,
+.status-badge.declined,
+.cancelled,
+.declined,
+.unmatched {
+  color: #ffc6cc !important;
+  background: rgba(239, 51, 64, 0.12) !important;
+  border-color: rgba(239, 51, 64, 0.38) !important;
+}
+
+.message-bubble {
+  color: var(--tm-text) !important;
+  background: rgba(16, 30, 56, 0.92) !important;
+  border-color: var(--tm-line) !important;
+}
+
+.message-bubble.mine {
+  color: #ffffff !important;
+  background: linear-gradient(135deg, rgba(47, 107, 255, 0.95), rgba(37, 99, 235, 0.88)) !important;
+}
+
+.segmented,
+.request-management-grid,
+.status-grid,
+.role-grid,
+.checkbox-grid,
+.day-grid,
+.discover-grid,
+.match-grid {
+  color: var(--tm-text);
+}
+
+.segmented button,
+.day,
+.check-option,
+.consent-box,
+.role-card {
+  border-color: var(--tm-line) !important;
+  color: var(--tm-text-soft) !important;
+  background: rgba(9, 18, 37, 0.72) !important;
+}
+
+.segmented button.active,
+.day.selected,
+.check-option.selected {
+  color: #ffffff !important;
+  border-color: rgba(47, 107, 255, 0.72) !important;
+  background: rgba(47, 107, 255, 0.20) !important;
+}
+
+.signed-in-line {
+  border-color: rgba(68, 215, 130, 0.38) !important;
+  color: #d9ffe8 !important;
+  background: rgba(68, 215, 130, 0.12) !important;
+}
+
+@media (max-width: 720px) {
+  .landing-mode .landing-auth-card,
+  .landing-mode .landing-role-grid {
+    width: 100%;
+  }
+}
+
+/* High-specificity landing overrides to remove the old light cards */
+.landing-mode .landing-role-card,
+.landing-mode .landing-auth-card {
+  border-color: var(--tm-line-strong) !important;
+  color: var(--tm-text) !important;
+  background:
+    linear-gradient(135deg, rgba(47, 107, 255, 0.12), rgba(239, 51, 64, 0.055)),
+    var(--tm-surface-2) !important;
+  box-shadow: 0 18px 54px rgba(0, 0, 0, 0.32) !important;
+}
+
+.landing-mode .landing-role-card.selected {
+  border-color: rgba(47, 107, 255, 0.88) !important;
+  background:
+    linear-gradient(135deg, rgba(47, 107, 255, 0.28), rgba(239, 51, 64, 0.12)),
+    var(--tm-surface-3) !important;
+  box-shadow: 0 0 0 1px rgba(47, 107, 255, 0.34), 0 18px 58px rgba(47, 107, 255, 0.18) !important;
+}
+
+.landing-mode .landing-role-card strong,
+.landing-mode .landing-role-card small,
+.landing-mode .landing-auth-card h2,
+.landing-mode .landing-auth-card p,
+.landing-mode .landing-auth-card .note {
+  color: var(--tm-text) !important;
+}
+
+.landing-mode .landing-role-card small,
+.landing-mode .landing-auth-card .note {
+  color: var(--tm-text-soft) !important;
+}
+
+.landing-mode .landing-auth-card .secondary {
+  border-color: var(--tm-line) !important;
+  color: var(--tm-text) !important;
+  background: rgba(9, 18, 37, 0.84) !important;
+}
+
+.landing-mode .landing-auth-card .secondary:hover {
+  border-color: rgba(47, 107, 255, 0.66) !important;
+  color: #ffffff !important;
+  background: rgba(47, 107, 255, 0.18) !important;
+}
+
+.intro h1,
+.landing-mode .intro h1,
+.hero-line {
+  overflow-wrap: normal !important;
+  word-break: normal !important;
+  hyphens: none !important;
+}
+
+.hero-tagline {
+  max-width: 760px;
+  margin: 0;
+  color: var(--tm-text) !important;
+  font-size: clamp(1.45rem, 3vw, 2.6rem);
+  font-weight: 800;
+  line-height: 1.08;
+}
+
+@media (max-width: 720px) {
+  .landing-mode .intro h1 {
+    width: 100%;
+    max-width: 330px;
+    font-size: 2.45rem;
+    line-height: 1.08;
+  }
+
+  .intro h1 {
+    overflow-wrap: normal !important;
+    word-break: normal !important;
+  }
 }
