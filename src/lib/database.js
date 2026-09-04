@@ -15,6 +15,55 @@ const getAuthenticatedClient = async () => {
   return { client, session };
 };
 
+const getAnalyticsEnvironment = () =>
+  import.meta.env.VITE_PRODUCT_ANALYTICS_ENV || import.meta.env.MODE || 'development';
+
+const cleanAnalyticsMetadata = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, item]) => item !== undefined && typeof item !== 'function')
+      .map(([key, item]) => [key, item instanceof Date ? item.toISOString() : item]),
+  );
+};
+
+export const trackProductEvent = async (
+  eventName,
+  {
+    profileId = null,
+    entityType = null,
+    entityId = null,
+    metadata = {},
+    environment = getAnalyticsEnvironment(),
+    dedupeKey = null,
+  } = {},
+) => {
+  if (!eventName) return null;
+
+  try {
+    const { client, session } = await getAuthenticatedClient();
+    const { data, error } = await client.rpc('track_product_event', {
+      p_event_name: eventName,
+      p_profile_id: profileId || null,
+      p_anonymous_user_id: session?.user?.id || null,
+      p_entity_type: entityType || null,
+      p_entity_id: entityId || null,
+      p_metadata: cleanAnalyticsMetadata(metadata),
+      p_environment: environment || 'development',
+      p_dedupe_key: dedupeKey || null,
+    });
+
+    if (error) throw error;
+    return data || null;
+  } catch (error) {
+    if (import.meta.env.DEV) {
+      console.warn('Product analytics event was not recorded', eventName, error);
+    }
+    return null;
+  }
+};
+
 const visibleDemoClassCodes = new Set(['200206']);
 
 const filterVisibleDemoDashboards = (rows = []) =>
