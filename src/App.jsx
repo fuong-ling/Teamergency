@@ -70,6 +70,7 @@ import {
   sendLecturerReminder,
   saveClassTeamStatus,
   simulateDemoAcceptance,
+  trackProductEvent,
   unmatchConnectionRequest,
   updateProfile,
   updatePendingConnectionMessage,
@@ -2815,6 +2816,14 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
         console.error('Existing profile could not be updated; creating an owned Google profile instead.', updateError);
         profile = await createProfile(profilePayload);
       }
+      const profileEventName = form.id && profile.id === form.id ? 'profile_updated' : 'profile_created';
+      void trackProductEvent(profileEventName, {
+        profileId: profile.id,
+        entityType: 'profile',
+        entityId: profile.id,
+        metadata: { role },
+        dedupeKey: profileEventName === 'profile_created' ? `profile_created:${profile.id}` : null,
+      });
       storeProfileId(profile.id);
       onSaved(profile);
     } catch (err) {
@@ -3371,6 +3380,18 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
         onUpdated?.(updatedRequest);
       } else {
         const createdRequest = await createTeamRequest(profile.id, payload);
+        void trackProductEvent('request_created', {
+          profileId: profile.id,
+          entityType: 'team_request',
+          entityId: createdRequest.id,
+          metadata: {
+            request_scope: payload.request_scope,
+            class_id: payload.class_id,
+            total_team_size: payload.total_team_size,
+            teammates_needed_initial: payload.teammates_needed_initial,
+          },
+          dedupeKey: `request_created:${createdRequest.id}`,
+        });
         storeCurrentRequest(createdRequest.id, createdRequest.editToken);
         onCreated(createdRequest);
       }
@@ -3736,6 +3757,7 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
     progressById: {},
     connectionsByProfile: {},
   });
+  const matchesViewedTrackedRef = useRef(new Set());
 
   useEffect(() => {
     let alive = true;
@@ -3857,6 +3879,41 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
     };
   }, [requestId, currentProfileId]);
 
+  useEffect(() => {
+    const currentRequest = state.data?.currentRequest;
+    if (!currentProfileId || !currentRequest?.id) return;
+
+    const trackingKey = `${currentProfileId}:${currentRequest.id}`;
+    if (matchesViewedTrackedRef.current.has(trackingKey)) return;
+    matchesViewedTrackedRef.current.add(trackingKey);
+
+    const aiMatchCount = (state.data.matches || []).filter((match) => match.aiFallbackUsed === false).length;
+    void trackProductEvent('matches_viewed', {
+      profileId: currentProfileId,
+      entityType: 'team_request',
+      entityId: currentRequest.id,
+      metadata: {
+        match_count: state.data.matches?.length || 0,
+        ai_match_count: aiMatchCount,
+        request_scope: currentRequest.request_scope || (currentRequest.class_id ? 'class' : 'open_opportunity'),
+      },
+      dedupeKey: `matches_viewed:${trackingKey}`,
+    });
+
+    if (aiMatchCount > 0) {
+      void trackProductEvent('ai_matching_used', {
+        profileId: currentProfileId,
+        entityType: 'team_request',
+        entityId: currentRequest.id,
+        metadata: {
+          ai_match_count: aiMatchCount,
+          match_count: state.data.matches?.length || 0,
+        },
+        dedupeKey: `ai_matching_used:${trackingKey}`,
+      });
+    }
+  }, [currentProfileId, state.data?.currentRequest?.id]);
+
   if (state.activeLoading) {
     return <main className="screen compact"><p className="loading">{t('matches.loading')}</p></main>;
   }
@@ -3908,6 +3965,24 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
     }
   };
 
+  const viewMatchProfile = (candidateRequestId, score) => {
+    const candidate = visibleMatches.find((match) => match.id === candidateRequestId);
+    if (candidate?.profile_id) {
+      void trackProductEvent('match_profile_viewed', {
+        profileId: currentProfileId,
+        entityType: 'profile',
+        entityId: candidate.profile_id,
+        metadata: {
+          candidate_request_id: candidate.id,
+          current_request_id: currentRequest.id,
+          match_score: score,
+        },
+        dedupeKey: `match_profile_viewed:${currentProfileId}:${currentRequest.id}:${candidate.profile_id}`,
+      });
+    }
+    onViewProfile(candidateRequestId, score);
+  };
+
   const sendMatchConnect = async (request) => {
     if (!currentProfileId || !currentRequest?.id) return;
 
@@ -3923,6 +3998,17 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
         receiverProfileId: request.profile_id,
         senderTeamRequestId: currentRequest.id,
         introMessage: `Hi ${displayName(request.profile?.full_name)}, your teammate search looks like a good match for mine. Want to connect?`,
+      });
+      void trackProductEvent('connection_requested', {
+        profileId: currentProfileId,
+        entityType: 'connection',
+        entityId: connection.id,
+        metadata: {
+          receiver_profile_id: request.profile_id,
+          sender_team_request_id: currentRequest.id,
+          source: 'matches',
+        },
+        dedupeKey: connection.id ? `connection_requested:${connection.id}` : null,
       });
       if (currentRequest.class_id && request.profile?.is_demo) {
         connection = await simulateDemoAcceptance(connection.id, currentProfileId);
@@ -4016,7 +4102,7 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
               request={request}
               connectionState={getConnectionState(state.connectionsByProfile[request.profile_id], currentProfileId)}
               key={request.id}
-              onView={onViewProfile}
+              onView={viewMatchProfile}
               onConnect={sendMatchConnect}
               connecting={state.sendingProfileId === request.profile_id}
               t={t}
@@ -4041,6 +4127,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
     modalError: '',
   });
   const [filters, setFilters] = useState({ university: '', school: '', major: '', course: '', skill: '' });
+  const discoveryOpenTrackedRef = useRef(false);
 
   useEffect(() => {
     let alive = true;
@@ -4086,6 +4173,16 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
     };
   }, [currentProfileId]);
 
+  useEffect(() => {
+    if (discoveryOpenTrackedRef.current) return;
+    discoveryOpenTrackedRef.current = true;
+    void trackProductEvent('discovery_opened', {
+      profileId: currentProfileId,
+      metadata: { source: 'discover' },
+      dedupeKey: currentProfileId ? `discovery_opened:${currentProfileId}` : null,
+    });
+  }, [currentProfileId]);
+
   const requestsByProfile = state.activeRequests.reduce((map, request) => {
     map[request.profile_id] = [...(map[request.profile_id] || []), request];
     return map;
@@ -4106,6 +4203,20 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
     ? majorsBySchool[filters.school] || []
     : [...new Set(Object.values(majorsBySchool).flat())];
   const discoverSkillOptions = getAllSkills().filter((skill) => skill !== 'Other');
+  const updateDiscoveryFilters = (nextFilters, filterName) => {
+    const changed = filters[filterName] !== nextFilters[filterName];
+    setFilters(nextFilters);
+    if (!changed) return;
+
+    void trackProductEvent('discovery_filtered', {
+      profileId: currentProfileId,
+      metadata: {
+        filter_name: filterName,
+        has_value: Boolean(nextFilters[filterName]),
+        active_filter_count: Object.values(nextFilters).filter(Boolean).length,
+      },
+    });
+  };
 
   const sendDiscoverConnect = async (introMessage) => {
     if (!state.modalProfile) return;
@@ -4117,6 +4228,16 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
         receiverProfileId: state.modalProfile.id,
         senderTeamRequestId: null,
         introMessage,
+      });
+      void trackProductEvent('connection_requested', {
+        profileId: currentProfileId,
+        entityType: 'connection',
+        entityId: connection.id,
+        metadata: {
+          receiver_profile_id: state.modalProfile.id,
+          source: 'discover',
+        },
+        dedupeKey: connection.id ? `connection_requested:${connection.id}` : null,
       });
       setState((current) => ({
         ...current,
@@ -4151,7 +4272,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
           {t('profile.university')}
           <select
             value={filters.university}
-            onChange={(event) => setFilters((current) => ({ ...current, university: event.target.value }))}
+            onChange={(event) => updateDiscoveryFilters({ ...filters, university: event.target.value }, 'university')}
           >
             <option value="">{t('discover.allUniversities')}</option>
             {universityOptions.map((university) => (
@@ -4163,7 +4284,12 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
           {t('profile.school')}
           <select
             value={filters.school}
-            onChange={(event) => setFilters({ school: event.target.value, major: '', course: '', skill: filters.skill })}
+            onChange={(event) => updateDiscoveryFilters({
+              ...filters,
+              school: event.target.value,
+              major: '',
+              course: '',
+            }, 'school')}
           >
             <option value="">{t('discover.allSchools')}</option>
             {schoolOptions.map((school) => (
@@ -4173,7 +4299,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
         </label>
         <label>
           {t('profile.major')}
-          <select value={filters.major} onChange={(event) => setFilters((current) => ({ ...current, major: event.target.value }))}>
+          <select value={filters.major} onChange={(event) => updateDiscoveryFilters({ ...filters, major: event.target.value }, 'major')}>
             <option value="">{t('discover.allMajors')}</option>
             {availableMajors.map((major) => (
               <option value={major} key={major}>{major}</option>
@@ -4182,7 +4308,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
         </label>
         <label>
           {t('class.course')}
-          <select value={filters.course} onChange={(event) => setFilters((current) => ({ ...current, course: event.target.value }))}>
+          <select value={filters.course} onChange={(event) => updateDiscoveryFilters({ ...filters, course: event.target.value }, 'course')}>
             <option value="">{t('discover.allCourses')}</option>
             {discoverCourseOptions.map((course) => (
               <option value={course.code} key={course.code}>{formatCourseOption(course)}</option>
@@ -4191,7 +4317,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
         </label>
         <label>
           {t('profile.skills')}
-          <select value={filters.skill} onChange={(event) => setFilters((current) => ({ ...current, skill: event.target.value }))}>
+          <select value={filters.skill} onChange={(event) => updateDiscoveryFilters({ ...filters, skill: event.target.value }, 'skill')}>
             <option value="">{t('discover.allSkills')}</option>
             {discoverSkillOptions.map((skill) => (
               <option value={skill} key={skill}>{skill}</option>
@@ -4303,6 +4429,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, currentProfile, on
     unmatchOpen: false,
     unmatchSaving: false,
   });
+  const profileViewTrackedRef = useRef(new Set());
 
   useEffect(() => {
     let alive = true;
@@ -4317,6 +4444,20 @@ function DiscoverProfileDetail({ profileId, currentProfileId, currentProfile, on
         const activeRequest = activeRequests.find((request) => request.profile_id === profile.id) || null;
         if (alive) {
           setState((current) => ({ ...current, loading: false, error: '', profile, activeRequest, connection, reviews }));
+          const trackingKey = `${currentProfileId || 'anonymous'}:${profile.id}:discover`;
+          if (profile.id !== currentProfileId && !profileViewTrackedRef.current.has(trackingKey)) {
+            profileViewTrackedRef.current.add(trackingKey);
+            void trackProductEvent('profile_viewed', {
+              profileId: currentProfileId,
+              entityType: 'profile',
+              entityId: profile.id,
+              metadata: {
+                source: 'discover',
+                has_active_request: Boolean(activeRequest?.id),
+              },
+              dedupeKey: `profile_viewed:${trackingKey}`,
+            });
+          }
         }
       })
       .catch(() => {
@@ -4363,6 +4504,16 @@ function DiscoverProfileDetail({ profileId, currentProfileId, currentProfile, on
         receiverProfileId: profile.id,
         senderTeamRequestId: null,
         introMessage,
+      });
+      void trackProductEvent('connection_requested', {
+        profileId: currentProfileId,
+        entityType: 'connection',
+        entityId: connection.id,
+        metadata: {
+          receiver_profile_id: profile.id,
+          source: 'discover_profile',
+        },
+        dedupeKey: connection.id ? `connection_requested:${connection.id}` : null,
       });
       setState((current) => ({
         ...current,
@@ -4600,13 +4751,25 @@ function TeammateFeedbackPanel({ connection, currentProfileId, reviewedProfileId
     setError('');
 
     try {
-      await createReview({
+      const review = await createReview({
         reviewerProfileId: currentProfileId,
         reviewedProfileId,
         connectionId: connection.id,
         teamRequestId,
         rating: Number(reviewRating),
         reviewText,
+      });
+      void trackProductEvent('review_submitted', {
+        profileId: currentProfileId,
+        entityType: 'review',
+        entityId: review.id,
+        metadata: {
+          connection_id: connection.id,
+          reviewed_profile_id: reviewedProfileId,
+          team_request_id: teamRequestId,
+          rating: Number(reviewRating),
+        },
+        dedupeKey: review.id ? `review_submitted:${review.id}` : null,
       });
       setMessage('Teammate review saved.');
     } catch (err) {
@@ -4677,12 +4840,22 @@ function MatchUsefulnessPanel({ request, currentProfileId, teamComplete }) {
     setError('');
 
     try {
-      await createMatchFeedback({
+      const feedback = await createMatchFeedback({
         connectionId: null,
         teamRequestId: request.id,
         reviewerProfileId: currentProfileId,
         score: Number(rating),
         feedbackText,
+      });
+      void trackProductEvent('match_feedback_submitted', {
+        profileId: currentProfileId,
+        entityType: 'match_feedback',
+        entityId: feedback.id,
+        metadata: {
+          team_request_id: request.id,
+          rating: Number(rating),
+        },
+        dedupeKey: feedback.id ? `match_feedback_submitted:${feedback.id}` : null,
       });
       setMessage('Match usefulness rating saved.');
     } catch (err) {
@@ -4753,6 +4926,7 @@ function ProfileDetail({
     unmatchOpen: false,
     unmatchSaving: false,
   });
+  const detailViewTrackedRef = useRef(new Set());
 
   useEffect(() => {
     let alive = true;
@@ -4773,6 +4947,36 @@ function ProfileDetail({
             connection,
             reviews,
           }));
+          const profileTrackingKey = `${currentProfileId || 'anonymous'}:${request.profile.id}:match:${request.id}`;
+          if (request.profile.id !== currentProfileId && !detailViewTrackedRef.current.has(profileTrackingKey)) {
+            detailViewTrackedRef.current.add(profileTrackingKey);
+            void trackProductEvent('profile_viewed', {
+              profileId: currentProfileId,
+              entityType: 'profile',
+              entityId: request.profile.id,
+              metadata: {
+                source: 'match_detail',
+                team_request_id: request.id,
+                current_request_id: currentRequestId || null,
+              },
+              dedupeKey: `profile_viewed:${profileTrackingKey}`,
+            });
+          }
+          const requestTrackingKey = `${currentProfileId || 'anonymous'}:${request.id}`;
+          if (!detailViewTrackedRef.current.has(requestTrackingKey)) {
+            detailViewTrackedRef.current.add(requestTrackingKey);
+            void trackProductEvent('request_viewed', {
+              profileId: currentProfileId,
+              entityType: 'team_request',
+              entityId: request.id,
+              metadata: {
+                source: 'match_detail',
+                owner_profile_id: request.profile_id,
+                current_request_id: currentRequestId || null,
+              },
+              dedupeKey: `request_viewed:${requestTrackingKey}`,
+            });
+          }
         }
       })
       .catch(() => {
@@ -4822,6 +5026,17 @@ function ProfileDetail({
         receiverProfileId: profile.id,
         senderTeamRequestId: currentRequestId || null,
         introMessage,
+      });
+      void trackProductEvent('connection_requested', {
+        profileId: currentProfileId,
+        entityType: 'connection',
+        entityId: created.id,
+        metadata: {
+          receiver_profile_id: profile.id,
+          sender_team_request_id: currentRequestId || null,
+          source: 'match_detail',
+        },
+        dedupeKey: created.id ? `connection_requested:${created.id}` : null,
       });
       setState((current) => ({
         ...current,
@@ -5091,6 +5306,7 @@ function CurrentRequest({
     dismissedComplete: false,
     dismissedReopen: false,
   });
+  const requestViewTrackedRef = useRef(new Set());
 
   const loadRequests = () => {
     let alive = true;
@@ -5181,12 +5397,41 @@ function CurrentRequest({
     return loadRequests();
   }, [requestId, currentProfileId]);
 
+  useEffect(() => {
+    if (!currentProfileId || state.loading || !state.selectedId) return;
+    const selectedRequest = state.requests.find((request) => request.id === state.selectedId);
+    if (!selectedRequest?.id) return;
+
+    const trackingKey = `${currentProfileId}:${selectedRequest.id}:current-request`;
+    if (requestViewTrackedRef.current.has(trackingKey)) return;
+    requestViewTrackedRef.current.add(trackingKey);
+
+    void trackProductEvent('request_viewed', {
+      profileId: currentProfileId,
+      entityType: 'team_request',
+      entityId: selectedRequest.id,
+      metadata: {
+        source: 'current_request',
+        request_scope: selectedRequest.request_scope || (selectedRequest.class_id ? 'class' : 'open_opportunity'),
+        status: selectedRequest.status,
+      },
+      dedupeKey: `request_viewed:${trackingKey}`,
+    });
+  }, [currentProfileId, state.loading, state.selectedId, state.requests]);
+
   const markFound = async () => {
     setState((current) => ({ ...current, saving: true, error: '', success: '' }));
 
     try {
       const updated = await markTeamRequestFound(state.selectedId, {
         editToken: getStoredRequestEditToken(),
+      });
+      void trackProductEvent('request_completed', {
+        profileId: currentProfileId,
+        entityType: 'team_request',
+        entityId: updated.id,
+        metadata: { source: 'current_request' },
+        dedupeKey: updated.id ? `request_completed:${updated.id}` : null,
       });
       setState((current) => ({
         ...current,
@@ -5383,6 +5628,17 @@ function CurrentRequest({
         receiverProfileId: candidate.id,
         senderTeamRequestId: selectedRequest?.status === 'looking' ? selectedRequest.id : null,
         introMessage: `Hi ${displayName(candidate.full_name)}, I found your profile through Collabs and think we could work well together.`,
+      });
+      void trackProductEvent('connection_requested', {
+        profileId: currentProfileId,
+        entityType: 'connection',
+        entityId: connection.id,
+        metadata: {
+          receiver_profile_id: candidate.id,
+          sender_team_request_id: selectedRequest?.status === 'looking' ? selectedRequest.id : null,
+          source: 'open_opportunities',
+        },
+        dedupeKey: connection.id ? `connection_requested:${connection.id}` : null,
       });
       if (candidate.is_demo) {
         connection = await simulateDemoAcceptance(connection.id, currentProfileId).catch(() => connection);
@@ -5904,6 +6160,15 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
         receiverProfileId: currentProfileId,
         status,
       });
+      if (status === 'accepted' || status === 'declined') {
+        void trackProductEvent(status === 'accepted' ? 'connection_accepted' : 'connection_declined', {
+          profileId: currentProfileId,
+          entityType: 'connection',
+          entityId: connectionId,
+          metadata: { source: 'connections' },
+          dedupeKey: `${status === 'accepted' ? 'connection_accepted' : 'connection_declined'}:${connectionId}`,
+        });
+      }
       await loadConnections();
     } catch {
       setState((current) => ({
@@ -6756,6 +7021,7 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
   });
   const [messageText, setMessageText] = useState('');
   const bottomRef = useRef(null);
+  const conversationOpenTrackedRef = useRef(new Set());
 
   const loadChat = async (quiet = false) => {
     if (!currentProfileId || !connectionId) return;
@@ -6787,6 +7053,20 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
         detail,
         messages: mergeMessagesById(current.messages, messages),
       }));
+      const trackingKey = `${currentProfileId}:${connectionId}`;
+      if (!quiet && !conversationOpenTrackedRef.current.has(trackingKey)) {
+        conversationOpenTrackedRef.current.add(trackingKey);
+        void trackProductEvent('conversation_opened', {
+          profileId: currentProfileId,
+          entityType: 'connection',
+          entityId: connectionId,
+          metadata: {
+            status: detail.status,
+            teammate_profile_id: detail.teammate_profile_id,
+          },
+          dedupeKey: `conversation_opened:${trackingKey}`,
+        });
+      }
     } catch {
       setState((current) => ({
         ...current,
@@ -6813,11 +7093,36 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
     setState((current) => ({ ...current, sending: true, error: '' }));
 
     try {
+      const firstMessageFromCurrentProfile = !state.messages.some((message) =>
+        message.sender_profile_id === currentProfileId
+      );
       const message = await sendChatMessage({
         connectionId,
         senderProfileId: currentProfileId,
         messageText: body,
       });
+      void trackProductEvent('message_sent', {
+        profileId: currentProfileId,
+        entityType: 'message',
+        entityId: message.id,
+        metadata: {
+          connection_id: connectionId,
+          current_request_id: currentRequestId || null,
+        },
+        dedupeKey: message.id ? `message_sent:${message.id}` : null,
+      });
+      if (firstMessageFromCurrentProfile) {
+        void trackProductEvent('first_message_sent', {
+          profileId: currentProfileId,
+          entityType: 'message',
+          entityId: message.id,
+          metadata: {
+            connection_id: connectionId,
+            current_request_id: currentRequestId || null,
+          },
+          dedupeKey: message.id ? `first_message_sent:${message.id}` : null,
+        });
+      }
       setMessageText('');
       setState((current) => ({
         ...current,
@@ -7192,6 +7497,14 @@ function MyProfile({
 	        student_id: editingAsLecturer ? null : form.student_id.trim() || null,
         subscription_status: form.subscription_status || 'free',
 	      });
+      void trackProductEvent('profile_updated', {
+        profileId: updated.id,
+        entityType: 'profile',
+        entityId: updated.id,
+        metadata: {
+          role: editingAsLecturer ? 'lecturer' : 'student',
+        },
+      });
       onProfileUpdated(updated);
       setEditing(false);
       setMessage('Profile updated successfully.');
