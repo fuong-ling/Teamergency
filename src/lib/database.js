@@ -88,11 +88,20 @@ const getProfileExtraPayload = (profileData = {}) => ({
   subscription_status: profileData.subscription_status || 'free',
 });
 
+const validProfileSchoolCodes = new Set(['SCD', 'TBS', 'SSET']);
+
+const normalizeProfileSchool = (school) => {
+  const value = String(school || '').trim();
+  return validProfileSchoolCodes.has(value) ? value : null;
+};
+
 export const createProfile = async (profileData) => {
   const { client, session } = await getAuthenticatedClient();
+  const normalizedSchool = normalizeProfileSchool(profileData.school);
   const payload = {
     ...profileData,
     ...getProfileExtraPayload(profileData),
+    school: normalizedSchool,
     role: profileData.role === 'lecturer' ? 'lecturer' : 'student',
     lecturer_title: profileData.role === 'lecturer' ? profileData.lecturer_title || null : null,
     is_demo: false,
@@ -233,10 +242,11 @@ export const updateProfile = async (profileId, profileData) => {
   }
 
   const role = profileData.role === 'lecturer' ? 'lecturer' : 'student';
+  const normalizedSchool = normalizeProfileSchool(profileData.school);
   let { data, error } = await client.rpc('update_profile_with_role_v2', {
     p_profile_id: profileId,
     p_university: profileData.university || 'RMIT University',
-    p_school: profileData.school,
+    p_school: normalizedSchool,
     p_major: profileData.major,
     p_full_name: profileData.full_name,
     p_skills: profileData.skills,
@@ -257,7 +267,7 @@ export const updateProfile = async (profileId, profileData) => {
     const roleFallback = await client.rpc('update_profile_with_role', {
       p_profile_id: profileId,
       p_university: profileData.university || 'RMIT University',
-      p_school: profileData.school,
+      p_school: normalizedSchool,
       p_major: profileData.major,
       p_full_name: profileData.full_name,
       p_skills: profileData.skills,
@@ -277,7 +287,7 @@ export const updateProfile = async (profileId, profileData) => {
     const fallback = await client.rpc('update_profile', {
       p_profile_id: profileId,
       p_university: profileData.university || 'RMIT University',
-      p_school: profileData.school,
+      p_school: normalizedSchool,
       p_major: profileData.major,
       p_full_name: profileData.full_name,
       p_skills: profileData.skills,
