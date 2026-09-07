@@ -4,19 +4,24 @@ import {
   ArrowRight,
   CheckCircle2,
   Clock3,
+  FileText,
   GraduationCap,
   MessageCircle,
+  Moon,
   Pencil,
   Plus,
   Search,
   SendHorizontal,
   Sparkles,
   Star,
+  Sun,
   Trash2,
+  Trophy,
   UserPlus,
   UserRound,
   UsersRound,
   Languages,
+  Zap,
   XCircle,
 } from 'lucide-react';
 import {
@@ -95,7 +100,7 @@ import {
   getRequestSkillOptions,
   getSessionsForCourse,
   getSchoolsForUniversity,
-  getSkillsForSchool,
+  getProfileSkillSuggestions,
   majorsBySchool,
   OTHER_UNIVERSITY_VALUE,
   opportunityFields,
@@ -113,6 +118,7 @@ import {
   getStoredClassId,
   getStoredActiveRole,
   getStoredLanguage,
+  getStoredLandingTheme,
   getStoredLecturerSession,
   getStoredLoggedOut,
   getStoredPendingRole,
@@ -124,6 +130,7 @@ import {
   storeCurrentRequest,
   storeActiveRole,
   storeClassId,
+  storeLandingTheme,
   storeLanguage,
   storeLecturerSession,
   storeLoggedOut,
@@ -515,6 +522,21 @@ const contactLabel = (value) => {
 const schoolLabel = (value) =>
   schoolOptions.find((school) => school.value === value)?.label || value || 'Not specified';
 
+const hasDisplaySchool = (value) => Boolean(String(value || '').trim());
+
+const formatSchoolMajorLine = (school, major, separator = ' | ') =>
+  [
+    hasDisplaySchool(school) ? schoolLabel(school) : '',
+    major,
+  ].filter(Boolean).join(separator);
+
+const formatProfileAcademicLine = (profile = {}, separator = ' | ') =>
+  [
+    universityLabel(profile.university),
+    hasDisplaySchool(profile.school) ? schoolLabel(profile.school) : '',
+    profile.major,
+  ].filter(Boolean).join(separator);
+
 const universityLabel = (value) =>
   universityOptions.find((university) => university.value === value)?.label || value || 'RMIT University';
 
@@ -536,10 +558,14 @@ const resolveProfileUniversity = (form = {}) =>
     : form.university_choice || form.university || 'RMIT University';
 
 const isOtherUniversityForm = (form = {}) =>
-  !isRmitUniversity(resolveProfileUniversity(form));
+  form.university_choice === OTHER_UNIVERSITY_VALUE
+  || (!form.university_choice && Boolean(resolveProfileUniversity(form)) && !isKnownUniversity(resolveProfileUniversity(form)));
+
+const isValidSchoolCode = (value = '') =>
+  schoolOptions.some((school) => school.value === String(value || '').trim());
 
 const getFormSchoolValue = (form = {}) =>
-  isOtherUniversityForm(form) ? String(form.school || '').trim() || 'Other' : String(form.school || '').trim();
+  isValidSchoolCode(form.school) ? String(form.school).trim() : null;
 
 const subscriptionTier = (profile = {}) =>
   String(profile?.subscription_status || profile?.subscription || 'free').trim().toLowerCase();
@@ -955,6 +981,15 @@ const getAuthSessionEmail = (session) =>
 const hasGoogleAuthSession = (session) =>
   Boolean(getAuthSessionEmail(session) && !session?.user?.is_anonymous);
 
+const getPreferredLandingTheme = () => {
+  const storedTheme = getStoredLandingTheme();
+  if (storedTheme) return storedTheme;
+  if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches) {
+    return 'dark';
+  }
+  return 'light';
+};
+
 const profileRequiredLabels = {
   full_name: 'profile.fullName',
   university: 'profile.university',
@@ -1015,14 +1050,6 @@ const isProfileCompleteForRole = (profile, role) => {
 
 const FieldError = ({ message }) =>
   message ? <span className="validation-message">{message}</span> : null;
-
-const filterSkillsForSchool = (skills, school) => {
-  const schoolSkills = new Set(getSkillsForSchool(school));
-  const knownSkills = new Set(getAllSkills());
-  return (skills || []).filter((skill) =>
-    skill === 'Other' || schoolSkills.has(skill) || !knownSkills.has(skill),
-  );
-};
 
 const mergeOptionSets = (...groups) =>
   [...new Set(groups.flat().filter(Boolean))];
@@ -1387,77 +1414,98 @@ function Home({
     {
       value: 'student',
       title: t('home.studentTitle'),
-      body: t('home.studentBody'),
       icon: GraduationCap,
+      accent: 'student',
     },
     {
       value: 'lecturer',
       title: t('home.lecturerTitle'),
-      body: t('home.lecturerBody'),
-      icon: UsersRound,
+      icon: UserRound,
+      accent: 'lecturer',
     },
+  ];
+  const featureItems = [
+    { label: t('home.featureClassmates'), icon: UsersRound, accent: 'blue' },
+    { label: t('home.featureTeams'), icon: FileText, accent: 'navy' },
+    { label: t('home.featureOpportunities'), icon: Trophy, accent: 'pink' },
+    { label: t('home.featureTogether'), icon: Zap, accent: 'red' },
   ];
   const email = getAuthSessionEmail(authSession);
 
   return (
-    <main className="home-grid">
-      <section className="intro">
-        <h1>
-          <span className="hero-line">{t('home.titleA')}</span>
+    <main className="home-grid landing-home">
+      <div className="landing-glow landing-glow-blue" aria-hidden="true" />
+      <div className="landing-glow landing-glow-red" aria-hidden="true" />
+      <section className="intro landing-hero">
+        <p className="eyebrow landing-eyebrow">{t('home.eyebrow')}</p>
+        <h1 className="landing-wordmark" aria-label={t('home.titleA')}>
+          <span className="brand-blue">TEAM</span><span className="brand-red">ERGENCY</span>
         </h1>
-        <p className="hero-tagline">{t('home.titleB')}</p>
-        <p className="lead">
-          {t('home.lead')}
-        </p>
+        <p className="hero-tagline landing-tagline">{t('home.titleB')}</p>
+
         <div className="landing-role-grid" aria-label={t('home.chooseRole')}>
           {roleCards.map((role) => {
             const Icon = role.icon;
+            const isSelected = activeRole === role.value;
             return (
               <button
-                className={activeRole === role.value ? 'landing-role-card selected' : 'landing-role-card'}
+                className={`landing-role-card ${role.accent}-role ${isSelected ? 'selected' : ''}`}
                 key={role.value}
                 type="button"
+                aria-pressed={isSelected}
                 onClick={() => onSelectRole(role.value)}
               >
-                <Icon size={24} />
-                <span>
-                  <strong>{role.title}</strong>
-                  <small>{role.body}</small>
-                  {activeRole === role.value && <em>{t('home.roleSelected')}</em>}
+                <span className="landing-role-icon">
+                  <Icon size={30} />
                 </span>
+                <span className="landing-role-copy">
+                  <strong>{role.title}</strong>
+                </span>
+                {isSelected && <em>{t('home.roleSelected')}</em>}
               </button>
             );
           })}
         </div>
-        {activeRole && (
-          <section className="landing-auth-card">
-            <div>
-	              <p className="eyebrow">{t('home.googleFirst')}</p>
-	              <h2>{t('profile.googleContinue')}</h2>
-	              <p className="note">
-	                {email
-	                  ? `${t('profile.googleSignedIn')} · ${email}`
-	                  : `${t('home.selectedRole')}: ${activeRole === 'lecturer' ? t('profile.lecturer') : t('profile.student')}`}
-	              </p>
-            </div>
-            <div className="hero-actions">
-              <button
-                className="primary google-button"
-                type="button"
-                onClick={() => onGoogleSignIn(activeRole)}
-                disabled={!hasSupabaseConfig || googleSigningIn}
-              >
-                <UserRound size={18} />
-                {googleSigningIn ? t('profile.googleSaving') : t('profile.googleContinue')}
-              </button>
-              <button className="secondary" type="button" onClick={() => onStartProfile(activeRole)}>
-                {t('home.continueDemo')}
-                <ArrowRight size={18} />
-              </button>
-            </div>
-            {!hasSupabaseConfig && <p className="field-helper">{t('profile.googleUnavailable')}</p>}
-          </section>
-        )}
+
+        <section className="landing-auth-card" aria-label={t('profile.googleContinue')}>
+          <button
+            className="primary google-button landing-google-button"
+            type="button"
+            onClick={() => onGoogleSignIn(activeRole)}
+            disabled={!activeRole || !hasSupabaseConfig || googleSigningIn}
+          >
+            <UserRound size={18} />
+            {googleSigningIn ? t('profile.googleSaving') : t('profile.googleContinue')}
+          </button>
+          {activeRole && (
+            <button className="secondary landing-demo-link" type="button" onClick={() => onStartProfile(activeRole)}>
+              {t('home.continueDemo')}
+              <ArrowRight size={16} />
+            </button>
+          )}
+          {(email || activeRole) && (
+            <p className="note">
+              {email
+                ? `${t('profile.googleSignedIn')} · ${email}`
+                : `${t('home.selectedRole')}: ${activeRole === 'lecturer' ? t('profile.lecturer') : t('profile.student')}`}
+            </p>
+          )}
+          {!hasSupabaseConfig && <p className="field-helper">{t('profile.googleUnavailable')}</p>}
+        </section>
+
+        <div className="landing-feature-row" aria-label="Teamergency features">
+          {featureItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <div className={`landing-feature ${item.accent}`} key={item.label}>
+                <span>
+                  <Icon size={20} />
+                </span>
+                <strong>{item.label}</strong>
+              </div>
+            );
+          })}
+        </div>
       </section>
     </main>
   );
@@ -2704,7 +2752,10 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
   const isLecturer = form.role === 'lecturer';
   const resolvedUniversity = resolveProfileUniversity(form);
   const usesOtherUniversity = isOtherUniversityForm(form);
-  const profileSkillOptions = mergeOptionSets(usesOtherUniversity ? getAllSkills() : getSkillsForSchool(form.school), form.skills);
+  const profileSkillOptions = mergeOptionSets(
+    getProfileSkillSuggestions({ major: form.major, school: form.school }),
+    form.skills,
+  );
   const profileSchoolOptions = getSchoolsForUniversity(resolvedUniversity);
 
   useEffect(() => {
@@ -2723,7 +2774,6 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
       ...current,
       school: value,
       major: majorsBySchool[value]?.includes(current.major) ? current.major : '',
-      skills: filterSkillsForSchool(current.skills, value),
     }));
     setFieldErrors((current) => ({ ...current, school: '', major: '', skills: '' }));
   };
@@ -2736,7 +2786,6 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
       university: value === OTHER_UNIVERSITY_VALUE ? current.custom_university : value,
       school: isRmitUniversity(value) ? current.school : '',
       major: isRmitUniversity(value) ? current.major : '',
-      skills: isRmitUniversity(value) ? filterSkillsForSchool(current.skills, current.school) : current.skills,
     }));
     setFieldErrors((current) => ({ ...current, university: '', school: '', major: '' }));
   };
@@ -2803,7 +2852,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
 	        academic_field: isLecturer ? form.academic_field.trim() : form.major.trim(),
 	        lecturer_contact_method: isLecturer ? form.lecturer_contact_method : null,
 	        lecturer_contact_detail: isLecturer ? form.lecturer_contact_detail.trim() : null,
-	        student_id: isLecturer ? null : form.student_id.trim() || null,
+	        student_id: isLecturer ? null : form.student_id || null,
         subscription_status: form.subscription_status || 'free',
 	      };
       let profile;
@@ -2875,6 +2924,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
               <FieldError message={fieldErrors.university} />
             </label>
           )}
+          {(isLecturer || !usesOtherUniversity) && (
           <label>
 	            {isLecturer ? t('profile.department') : t('profile.school')}
             {usesOtherUniversity ? (
@@ -2882,6 +2932,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
                 value={form.school === 'Other' ? '' : form.school}
                 onChange={(event) => updateField('school', event.target.value)}
                 placeholder={t('profile.departmentPlaceholder')}
+                required={isLecturer}
               />
             ) : (
               <select value={form.school} onChange={(event) => updateSchool(event.target.value)} required>
@@ -2893,6 +2944,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
             )}
             <FieldError message={fieldErrors.school} />
           </label>
+          )}
 	          {isLecturer ? (
 	            <>
 	              <label>
@@ -2977,7 +3029,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
 	                <input
 	                  value={form.student_id}
 	                  onChange={(event) => updateField('student_id', event.target.value)}
-	                  placeholder="s1234567"
+	                  placeholder="STU-123456"
                     required
 	                />
                     <FieldError message={fieldErrors.student_id} />
@@ -3432,7 +3484,7 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
         <div className="profile-strip">
           <GraduationCap size={20} />
           <span>{displayName(profile.full_name)}</span>
-          <span>{schoolLabel(profile.school)} | {profile.major}</span>
+          <span>{formatSchoolMajorLine(profile.school, profile.major)}</span>
         </div>
 
         <div className="form-grid">
@@ -3691,7 +3743,7 @@ function MatchCard({ request, connectionState, onView, onConnect, connecting, t 
         <p className="note">{t('matches.standardScore')}: {request.ruleBasedScore}%</p>
       )}
       <h3>{displayName(request.profile.full_name)} {request.profile.is_demo && <DemoBadge />} {isPremiumProfile(request.profile) && <PremiumBadge t={t} />}</h3>
-      <p>{universityLabel(request.profile.university)} | {schoolLabel(request.profile.school)} | {request.profile.major}</p>
+      <p>{formatProfileAcademicLine(request.profile)}</p>
       <p className="note">{reviewSummaryLabel(request.profile, null, t)}</p>
       <div className="match-meta">
         <span>{getCourseDisplay(request)}</span>
@@ -4348,7 +4400,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
                 <div className="avatar">{displayInitial(profile.full_name)}</div>
                 <h3>{displayName(profile.full_name)} {profile.is_demo && <DemoBadge />} {isPremiumProfile(profile) && <PremiumBadge t={t} />}</h3>
                 <p>{universityLabel(profile.university)}</p>
-                <p>{schoolLabel(profile.school)}</p>
+                {hasDisplaySchool(profile.school) && <p>{schoolLabel(profile.school)}</p>}
                 <p>{profile.major}</p>
 	                <p className="note">{reviewSummaryLabel(profile, null, t)}</p>
                 {requestsByProfile[profile.id]?.[0] && (
@@ -4596,9 +4648,9 @@ function DiscoverProfileDetail({ profileId, currentProfileId, currentProfile, on
         <p className="eyebrow">{t('matches.discoverProfile')}</p>
         <h2>{displayName(profile.full_name)} {profile.is_demo && <DemoBadge />} {isPremiumProfile(profile) && <PremiumBadge t={t} />}</h2>
         <p>{profile.short_bio || t('matches.noBio')}</p>
-        <dl>
-          <div><dt>{t('profile.school')}</dt><dd>{schoolLabel(profile.school)}</dd></div>
+          <dl>
           <div><dt>{t('profile.university')}</dt><dd>{universityLabel(profile.university)}</dd></div>
+          {hasDisplaySchool(profile.school) && <div><dt>{t('profile.school')}</dt><dd>{schoolLabel(profile.school)}</dd></div>}
           <div><dt>{t('profile.major')}</dt><dd>{profile.major}</dd></div>
           <div><dt>{t('matches.skillsHave')}</dt><dd>{joinList(profile.skills)}</dd></div>
           <div>
@@ -5195,7 +5247,7 @@ function ProfileDetail({
 	          <p>{profile.short_bio || t('matches.noBio')}</p>
 	          <dl>
 	            <div><dt>{t('profile.university')}</dt><dd>{universityLabel(profile.university)}</dd></div>
-	            <div><dt>{t('profile.school')}</dt><dd>{schoolLabel(profile.school)}</dd></div>
+	            {hasDisplaySchool(profile.school) && <div><dt>{t('profile.school')}</dt><dd>{schoolLabel(profile.school)}</dd></div>}
 	            <div><dt>{t('profile.major')}</dt><dd>{profile.major}</dd></div>
 	            <div><dt>{t('profile.reviews')}</dt><dd>{reviewSummaryLabel(profile, null, t)}</dd></div>
             <div>
@@ -5234,7 +5286,7 @@ function ProfileDetail({
           <h3>{getCourseDisplay(request)}</h3>
           <dl>
 	            {typeof matchScore === 'number' && <div><dt>{t('matches.matchScore')}</dt><dd>{t('matches.matchPercent', { score: matchScore })}</dd></div>}
-	            <div><dt>{t('profile.school')}</dt><dd>{schoolLabel(request.school || profile.school)}</dd></div>
+	            {hasDisplaySchool(request.school || profile.school) && <div><dt>{t('profile.school')}</dt><dd>{schoolLabel(request.school || profile.school)}</dd></div>}
 	            <div><dt>{t('profile.major')}</dt><dd>{request.major || profile.major}</dd></div>
 	            <div><dt>{t('matches.classSession')}</dt><dd>{getLocalizedSessionDisplay(request, t)}</dd></div>
 	            <div><dt>{t('request.skillsNeeded')}</dt><dd>{joinList(request.skills_needed)}</dd></div>
@@ -5722,7 +5774,7 @@ function CurrentRequest({
                 <div className="avatar">{displayInitial(candidate.full_name)}</div>
                 <h3>{displayName(candidate.full_name)} {candidate.is_demo && <DemoBadge />} {isPremiumProfile(candidate) && <PremiumBadge t={t} />}</h3>
                 <p>{universityLabel(candidate.university)}</p>
-                <p>{schoolLabel(candidate.school)} | {candidate.major}</p>
+                <p>{formatSchoolMajorLine(candidate.school, candidate.major)}</p>
                 <p className="note">{reviewSummaryLabel(candidate, null, t)}</p>
                 <div className="score inline-score">
                   <Sparkles size={16} />
@@ -6343,7 +6395,7 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
 	              <div className="avatar">{displayInitial(friend.teammate_full_name)}</div>
 	              <h3>{displayName(friend.teammate_full_name)} {friend.teammate_is_demo && <DemoBadge />}</h3>
 	              <p>{friend.teammate_university || 'RMIT University'}</p>
-	              <p>{schoolLabel(friend.teammate_school)} | {friend.teammate_major}</p>
+	              <p>{formatSchoolMajorLine(friend.teammate_school, friend.teammate_major)}</p>
 	              <div className="mini-detail">
 	                <strong>{t('connections.relationship')}</strong>
 	                <span>{t('connections.friendNotTeammate')}</span>
@@ -6382,7 +6434,7 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
                   )}
                 </p>
                 <h3>{displayName(request.teammate_full_name)} {(request.teammate_is_demo || request.teammate_full_name?.includes('(Demo)')) && <DemoBadge />}</h3>
-                <p>{schoolLabel(request.teammate_school)} | {request.teammate_major}</p>
+                <p>{formatSchoolMajorLine(request.teammate_school, request.teammate_major)}</p>
                 {getCourseFilterValue(request) ? (
                   <p>{getCourseDisplay(request)} | {getSessionDisplay(request)}</p>
                 ) : (
@@ -6795,7 +6847,7 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
                 {hasSuitableOption && <span className="status-badge suitable">{t('connections.suitable')}</span>}
               </h3>
               <p>{universityLabel(friend.teammate_university)}</p>
-              <p>{schoolLabel(friend.teammate_school)} | {friend.teammate_major}</p>
+              <p>{formatSchoolMajorLine(friend.teammate_school, friend.teammate_major)}</p>
               <div className="mini-detail">
                 <strong>{t('matches.skills')}</strong>
                 <span>{joinList(friend.teammate_skills)}</span>
@@ -7314,7 +7366,10 @@ function MyProfile({
   const signedInWithGoogle = hasGoogleAuthSession(authSession);
   const resolvedUniversity = resolveProfileUniversity(form);
   const usesOtherUniversity = isOtherUniversityForm(form);
-  const profileSkillOptions = mergeOptionSets(usesOtherUniversity ? getAllSkills() : getSkillsForSchool(form.school), form.skills);
+  const profileSkillOptions = mergeOptionSets(
+    getProfileSkillSuggestions({ major: form.major, school: form.school }),
+    form.skills,
+  );
   const profileSchoolOptions = getSchoolsForUniversity(resolvedUniversity);
 
   useEffect(() => {
@@ -7403,7 +7458,6 @@ function MyProfile({
       ...current,
       school: value,
       major: majorsBySchool[value]?.includes(current.major) ? current.major : '',
-      skills: filterSkillsForSchool(current.skills, value),
     }));
   };
 
@@ -7415,7 +7469,6 @@ function MyProfile({
       university: value === OTHER_UNIVERSITY_VALUE ? current.custom_university : value,
       school: isRmitUniversity(value) ? current.school : '',
       major: isRmitUniversity(value) ? current.major : '',
-      skills: isRmitUniversity(value) ? filterSkillsForSchool(current.skills, current.school) : current.skills,
     }));
   };
 
@@ -7494,7 +7547,7 @@ function MyProfile({
 	        academic_field: editingAsLecturer ? form.academic_field.trim() : form.major.trim(),
 	        lecturer_contact_method: editingAsLecturer ? form.lecturer_contact_method : null,
 	        lecturer_contact_detail: editingAsLecturer ? form.lecturer_contact_detail.trim() : null,
-	        student_id: editingAsLecturer ? null : form.student_id.trim() || null,
+	        student_id: editingAsLecturer ? null : form.student_id || null,
         subscription_status: form.subscription_status || 'free',
 	      });
       void trackProductEvent('profile_updated', {
@@ -7559,6 +7612,7 @@ function MyProfile({
                       />
                     </label>
                   )}
+                  {(editingAsLecturer || !usesOtherUniversity) && (
                   <label>
                     {editingAsLecturer ? t('profile.department') : t('profile.school')}
                     {usesOtherUniversity ? (
@@ -7566,6 +7620,7 @@ function MyProfile({
                         value={form.school === 'Other' ? '' : form.school}
                         onChange={(event) => updateField('school', event.target.value)}
                         placeholder={t('profile.departmentPlaceholder')}
+                        required={editingAsLecturer}
                       />
                     ) : (
                       <select value={form.school} onChange={(event) => updateSchool(event.target.value)} required>
@@ -7576,6 +7631,7 @@ function MyProfile({
                       </select>
                     )}
                   </label>
+                  )}
 	                  {editingAsLecturer ? (
 	                    <>
 	                      <label>
@@ -7655,7 +7711,7 @@ function MyProfile({
 	                        <input
 	                          value={form.student_id}
 	                          onChange={(event) => updateField('student_id', event.target.value)}
-	                          placeholder="s1234567"
+	                          placeholder="STU-123456"
 	                        />
 	                      </label>
 	                      <fieldset className="wide">
@@ -7740,7 +7796,7 @@ function MyProfile({
 	                  <div><dt>{t('profile.role')}</dt><dd>{t('profile.student')}</dd></div>
                     <div><dt>{t('premium.subscription')}</dt><dd>{subscriptionLabel(profile, t)} {isPremiumProfile(profile) && <PremiumBadge t={t} />}</dd></div>
                   <div><dt>{t('profile.university')}</dt><dd>{universityLabel(profile.university)}</dd></div>
-                  <div><dt>{t('profile.school')}</dt><dd>{schoolLabel(profile.school)}</dd></div>
+                  {hasDisplaySchool(profile.school) && <div><dt>{t('profile.school')}</dt><dd>{schoolLabel(profile.school)}</dd></div>}
                   <div><dt>{t('profile.major')}</dt><dd>{profile.major}</dd></div>
 	                  <div>
                     <dt>{t('profile.reviews')}</dt>
@@ -7775,7 +7831,7 @@ function MyProfile({
                 <dl>
                   <div><dt>{t('profile.role')}</dt><dd>{t('profile.lecturer')}</dd></div>
                   <div><dt>{t('profile.university')}</dt><dd>{universityLabel(profile.university)}</dd></div>
-                  <div><dt>{t('profile.department')}</dt><dd>{schoolLabel(profile.school)}</dd></div>
+                  {hasDisplaySchool(profile.school) && <div><dt>{t('profile.department')}</dt><dd>{schoolLabel(profile.school)}</dd></div>}
                   <div><dt>{t('profile.academicField')}</dt><dd>{profile.academic_field || t('common.notSpecified')}</dd></div>
                   <div><dt>{t('profile.lecturerId')}</dt><dd>{profile.lecturer_id || lecturerSession?.lecturerId || t('common.notSpecified')}</dd></div>
                   <div><dt>{t('profile.contact')}</dt><dd>{profile.lecturer_contact_detail || profile.contact_value || t('common.notSpecified')}</dd></div>
@@ -7816,6 +7872,7 @@ export default function App() {
   const [bootError, setBootError] = useState('');
   const [notificationCounts, setNotificationCounts] = useState({ connections: 0, messages: 0 });
   const [language, setLanguage] = useState(() => getStoredLanguage());
+  const [appTheme, setAppTheme] = useState(() => getPreferredLandingTheme());
   const [authSession, setAuthSession] = useState(null);
   const [googleSigningIn, setGoogleSigningIn] = useState(false);
   const t = useMemo(() => (key, values) => translate(language, key, values), [language]);
@@ -8032,6 +8089,14 @@ export default function App() {
 	    storeLanguage(normalized);
 	  };
 
+  const toggleAppTheme = () => {
+    setAppTheme((current) => {
+      const nextTheme = current === 'dark' ? 'light' : 'dark';
+      storeLandingTheme(nextTheme);
+      return nextTheme;
+    });
+  };
+
 	  const continueWithExistingGoogleSession = async (session, nextRole) => {
 	    setAuthSession(session);
 	    let ownedProfile = null;
@@ -8247,11 +8312,14 @@ export default function App() {
   };
 
   return (
-    <div className={view === 'home' ? 'app landing-mode' : 'app'}>
+    <div
+      className={`app theme-${appTheme}${view === 'home' ? ` landing-mode landing-${appTheme}` : ''}`}
+      data-theme={appTheme}
+    >
       <header className="topbar">
         <button className="logo-button" onClick={() => navigate('home')}>
           <span className="brand-logo">
-            <span>TEA</span><span>M</span><span>ERGENCY</span>
+            <span className="brand-blue">TEAM</span><span className="brand-red">ERGENCY</span>
           </span>
         </button>
 	        <div className="top-actions">
@@ -8268,9 +8336,18 @@ export default function App() {
 	              </button>
 	            ))}
 	          </div>
+            <button
+              className="theme-toggle"
+              type="button"
+              onClick={toggleAppTheme}
+              aria-label={appTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              title={appTheme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+            >
+              {appTheme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+            </button>
 	          {view === 'home' ? (
 	            <>
-	              <button className="ghost nav-outline" onClick={() => navigate('my-profile')}>{hasProfile ? t('nav.myProfile') : t('nav.logIn')}</button>
+	              <button className="ghost nav-outline" onClick={() => navigate('my-profile')}>{t('nav.myProfile')}</button>
 	            </>
 	          ) : (
 	            <>

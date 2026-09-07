@@ -426,8 +426,265 @@ export const getSchoolsForUniversity = (university) =>
 
 export const uniqueList = (items) => [...new Set(items.filter(Boolean))];
 
-export const getSkillsForMajor = (major) =>
-  uniqueList([...(skillsByMajor[major] || []), 'Other']);
+export const fallbackMajorSkills = [
+  'Research',
+  'Presentation',
+  'Communication',
+  'Teamwork',
+  'Project Management',
+  'Critical Thinking',
+  'Writing',
+  'Data Analysis',
+];
+
+export const majorSkillRecommendationGroups = [
+  {
+    keywords: ['business analytics', 'data science', 'data analytics', 'analytics', 'statistics'],
+    skills: [
+      'Python',
+      'SQL',
+      'Microsoft Excel',
+      'Data Analysis',
+      'Statistics',
+      'Data Visualization',
+      'Power BI',
+      'Tableau',
+      'Machine Learning',
+      'Research',
+      'Data Cleaning',
+    ],
+  },
+  {
+    keywords: [
+      'computer science',
+      'information technology',
+      'it',
+      'software engineering',
+      'computer engineering',
+      'web development',
+      'programming',
+    ],
+    skills: [
+      'HTML/CSS',
+      'JavaScript',
+      'TypeScript',
+      'React',
+      'Python',
+      'Java',
+      'SQL',
+      'Git/GitHub',
+      'Web Development',
+      'Database',
+      'API Development',
+      'Problem Solving',
+      'UI/UX',
+    ],
+  },
+  {
+    keywords: [
+      'economics',
+      'economy',
+      'business',
+      'finance',
+      'accounting',
+      'commerce',
+      'banking',
+      'international business',
+    ],
+    skills: [
+      'Research',
+      'Data Analysis',
+      'Microsoft Excel',
+      'Financial Analysis',
+      'Market Research',
+      'Business Analysis',
+      'Presentation',
+      'Report Writing',
+      'Critical Thinking',
+      'Project Management',
+      'Statistics',
+      'PowerPoint',
+    ],
+  },
+  {
+    keywords: ['marketing', 'digital marketing', 'advertising', 'communications', 'communication', 'public relations', 'pr'],
+    skills: [
+      'Social Media',
+      'Content Creation',
+      'Copywriting',
+      'Market Research',
+      'Branding',
+      'Digital Marketing',
+      'SEO',
+      'Analytics',
+      'Presentation',
+      'Adobe Photoshop',
+      'Canva',
+      'Campaign Planning',
+      'Content Strategy',
+    ],
+  },
+  {
+    keywords: ['digital media', 'media', 'multimedia', 'creative media', 'film', 'video'],
+    skills: [
+      'Photography',
+      'Videography',
+      'Video Editing',
+      'Adobe Premiere Pro',
+      'After Effects',
+      'Motion Graphics',
+      'Blender',
+      '3D Modelling',
+      'Content Creation',
+      'Creative Coding',
+      'Social Media',
+      'Storytelling',
+    ],
+  },
+  {
+    keywords: ['design', 'graphic design', 'communication design', 'visual communication', 'ux', 'ui', 'interaction design', 'product design'],
+    skills: [
+      'UI/UX',
+      'Figma',
+      'Adobe Photoshop',
+      'Adobe Illustrator',
+      'Adobe InDesign',
+      'Prototyping',
+      'User Research',
+      'Wireframing',
+      'Typography',
+      'Branding',
+      'Graphic Design',
+      'Design Thinking',
+    ],
+  },
+  {
+    keywords: ['architecture', 'interior design', 'interior architecture', 'built environment'],
+    skills: [
+      'AutoCAD',
+      'SketchUp',
+      'Revit',
+      'Rhino',
+      '3D Modelling',
+      'Adobe Photoshop',
+      'Adobe Illustrator',
+      'Rendering',
+      'Technical Drawing',
+      'Presentation',
+    ],
+  },
+  {
+    keywords: ['engineering', 'mechanical', 'electrical', 'electronic', 'civil', 'mechatronics', 'robotics'],
+    skills: [
+      'CAD',
+      'AutoCAD',
+      'SolidWorks',
+      'MATLAB',
+      'Technical Drawing',
+      'Problem Solving',
+      'Project Management',
+      'Research',
+      'Data Analysis',
+      'Prototyping',
+    ],
+  },
+  {
+    keywords: ['fashion', 'fashion design', 'textile', 'textiles'],
+    skills: [
+      'Adobe Illustrator',
+      'Adobe Photoshop',
+      'Fashion Illustration',
+      'Pattern Making',
+      'Sewing',
+      'Styling',
+      'Photography',
+      'Branding',
+      'Trend Research',
+    ],
+  },
+  {
+    keywords: ['psychology', 'sociology', 'social science', 'international studies'],
+    skills: [
+      'Research',
+      'Qualitative Research',
+      'Quantitative Research',
+      'Data Analysis',
+      'Academic Writing',
+      'Critical Thinking',
+      'Interviewing',
+      'Presentation',
+      'SPSS',
+    ],
+  },
+  {
+    keywords: ['hospitality', 'tourism', 'hotel management', 'event management'],
+    skills: [
+      'Communication',
+      'Event Planning',
+      'Customer Service',
+      'Project Management',
+      'Presentation',
+      'Marketing',
+      'Social Media',
+      'Teamwork',
+      'Microsoft Excel',
+    ],
+  },
+  {
+    keywords: ['law', 'legal'],
+    skills: [
+      'Legal Research',
+      'Research',
+      'Academic Writing',
+      'Critical Thinking',
+      'Presentation',
+      'Negotiation',
+      'Communication',
+      'Report Writing',
+    ],
+  },
+];
+
+const normalizeCatalogText = (value) =>
+  String(value || '')
+    .toLowerCase()
+    .replace(/[/_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const matchesMajorKeyword = (majorText, keyword) => {
+  const normalizedKeyword = normalizeCatalogText(keyword);
+  if (!normalizedKeyword) return false;
+  if (normalizedKeyword.length <= 2) {
+    return majorText.split(' ').includes(normalizedKeyword);
+  }
+  return majorText.includes(normalizedKeyword);
+};
+
+export const getSkillsForMajor = (major) => {
+  const normalizedMajor = normalizeCatalogText(major);
+  const exactSkills = skillsByMajor[major] || [];
+  if (!normalizedMajor && exactSkills.length === 0) {
+    return uniqueList([...fallbackMajorSkills, 'Other']);
+  }
+
+  const matchedGroup = majorSkillRecommendationGroups.find((group) =>
+    group.keywords.some((keyword) => matchesMajorKeyword(normalizedMajor, keyword)),
+  );
+
+  const skills = matchedGroup?.skills || (exactSkills.length ? exactSkills : fallbackMajorSkills);
+  return uniqueList([...skills, 'Other']);
+};
+
+export const getProfileSkillSuggestions = ({ major = '', school = '' } = {}) => {
+  const normalizedMajor = normalizeCatalogText(major);
+  if (normalizedMajor) {
+    return getSkillsForMajor(major);
+  }
+
+  const schoolSkills = skillsBySchool[school] || [];
+  return uniqueList([...(schoolSkills.length ? schoolSkills.slice(0, 12) : fallbackMajorSkills), 'Other']);
+};
 
 export const getSkillsForSchool = (school) =>
   uniqueList([...(skillsBySchool[school] || []), 'Other']);

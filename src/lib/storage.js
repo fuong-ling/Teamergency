@@ -7,6 +7,7 @@ const PENDING_ROLE_KEY = 'teamergencyPendingRole';
 const LOGGED_OUT_KEY = 'teamergencyLoggedOut';
 const LECTURER_SESSION_KEY = 'teamergencyDemoLecturerSession';
 const LANGUAGE_KEY = 'teamergencyLanguage';
+const LANDING_THEME_KEY = 'teamergencyLandingTheme';
 
 export const getStoredProfileId = () => localStorage.getItem(PROFILE_ID_KEY);
 
@@ -97,6 +98,15 @@ export const getStoredLanguage = () =>
 
 export const storeLanguage = (language) => {
   localStorage.setItem(LANGUAGE_KEY, language === 'vi' ? 'vi' : 'en');
+};
+
+export const getStoredLandingTheme = () => {
+  const theme = localStorage.getItem(LANDING_THEME_KEY);
+  return theme === 'light' || theme === 'dark' ? theme : '';
+};
+
+export const storeLandingTheme = (theme) => {
+  localStorage.setItem(LANDING_THEME_KEY, theme === 'dark' ? 'dark' : 'light');
 };
 
 export const createEditToken = () => {
