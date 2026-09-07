@@ -1410,6 +1410,7 @@ function Home({
   t = translate.bind(null, 'en'),
 }) {
   const activeRole = selectedRole === 'lecturer' ? 'lecturer' : selectedRole === 'student' ? 'student' : '';
+  const landingRef = useRef(null);
   const roleCards = [
     {
       value: 'student',
@@ -1432,10 +1433,65 @@ function Home({
   ];
   const email = getAuthSessionEmail(authSession);
 
+  useEffect(() => {
+    const root = landingRef.current;
+    if (!root || typeof window === 'undefined') return undefined;
+
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const coarsePointer = window.matchMedia?.('(pointer: coarse)').matches;
+    if (reducedMotion || coarsePointer) return undefined;
+
+    let animationFrame = 0;
+    let targetX = 50;
+    let targetY = 42;
+    let currentX = targetX;
+    let currentY = targetY;
+
+    const animateCursorGlow = () => {
+      currentX += (targetX - currentX) * 0.08;
+      currentY += (targetY - currentY) * 0.08;
+      root.style.setProperty('--landing-cursor-x', `${currentX}%`);
+      root.style.setProperty('--landing-cursor-y', `${currentY}%`);
+
+      if (Math.abs(targetX - currentX) > 0.04 || Math.abs(targetY - currentY) > 0.04) {
+        animationFrame = window.requestAnimationFrame(animateCursorGlow);
+      } else {
+        animationFrame = 0;
+      }
+    };
+
+    const moveCursorGlow = (event) => {
+      const rect = root.getBoundingClientRect();
+      targetX = Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100));
+      targetY = Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100));
+      root.classList.add('cursor-glow-active');
+      if (!animationFrame) {
+        animationFrame = window.requestAnimationFrame(animateCursorGlow);
+      }
+    };
+
+    const hideCursorGlow = () => {
+      root.classList.remove('cursor-glow-active');
+    };
+
+    root.addEventListener('pointermove', moveCursorGlow, { passive: true });
+    root.addEventListener('pointerleave', hideCursorGlow);
+
+    return () => {
+      root.removeEventListener('pointermove', moveCursorGlow);
+      root.removeEventListener('pointerleave', hideCursorGlow);
+      if (animationFrame) window.cancelAnimationFrame(animationFrame);
+    };
+  }, []);
+
   return (
-    <main className="home-grid landing-home">
-      <div className="landing-glow landing-glow-blue" aria-hidden="true" />
-      <div className="landing-glow landing-glow-red" aria-hidden="true" />
+    <main className="home-grid landing-home" ref={landingRef}>
+      <div className="landing-background" aria-hidden="true">
+        <div className="landing-aurora" />
+        <div className="landing-glow landing-glow-blue" />
+        <div className="landing-glow landing-glow-red" />
+        <div className="landing-cursor-glow" />
+      </div>
       <section className="intro landing-hero">
         <p className="eyebrow landing-eyebrow">{t('home.eyebrow')}</p>
         <h1 className="landing-wordmark" aria-label={t('home.titleA')}>
@@ -5747,6 +5803,20 @@ function CurrentRequest({
     })
     .slice(0, selectedRequest?.status === 'looking' ? 8 : 12);
 
+  const renderCollabHeader = () => (
+    <div className="results-header collabs-page-header">
+      <div>
+        <p className="eyebrow">{t('opportunities.title')}</p>
+        <h2>{t('opportunities.title')}</h2>
+        <p>{t('opportunities.profileIntro')}</p>
+      </div>
+      <button className="primary" onClick={onCreateNew}>
+        <Plus size={18} />
+        {t('opportunities.new')}
+      </button>
+    </div>
+  );
+
   const renderCollabProfiles = (request = null) => (
     <section className="request-panel standalone collab-discovery-panel">
       <div className="results-header compact-header">
@@ -5755,10 +5825,6 @@ function CurrentRequest({
           <h2>{t('opportunities.subtitle')}</h2>
           <p>{request ? t('matches.viewRecommended') : t('opportunities.profileIntroDetail')}</p>
         </div>
-        <button className="primary" onClick={onCreateNew}>
-          <Plus size={18} />
-          {t('opportunities.new')}
-        </button>
       </div>
       {collabProfiles.length === 0 ? (
         <section className="empty-state inline-empty">
@@ -5800,7 +5866,7 @@ function CurrentRequest({
                       disabled={state.collabSendingProfileId === candidate.id}
                     >
                       <UserPlus size={18} />
-                      {state.collabSendingProfileId === candidate.id ? t('matches.sending') : t('common.connect')}
+                      {state.collabSendingProfileId === candidate.id ? t('matches.sending') : t('matches.connect')}
                     </button>
                   ) : (
                     <button className="connected-button" disabled>
@@ -5906,20 +5972,12 @@ function CurrentRequest({
 
   if (!selectedRequest) {
     return (
-      <main className="screen">
+      <main className="screen collabs-screen">
         <button className="ghost" type="button" onClick={onBack}>
           <ArrowLeft size={18} />
           {t('common.back')}
         </button>
-        <section className="empty-state">
-          <h2>{t('opportunities.title')}</h2>
-	          <p>{t('opportunities.profileIntro')}</p>
-	          <p className="note">{t('opportunities.profileIntroDetail')}</p>
-	          <button className="primary" onClick={onCreateNew}>
-	            <Plus size={18} />
-	            {t('opportunities.new')}
-          </button>
-        </section>
+        {renderCollabHeader()}
         {renderCollabProfiles(null)}
       </main>
     );
@@ -5928,21 +5986,12 @@ function CurrentRequest({
   const request = selectedRequest;
 
   return (
-    <main className="screen">
+    <main className="screen collabs-screen">
       <button className="ghost" type="button" onClick={onBack}>
         <ArrowLeft size={18} />
         {t('common.back')}
       </button>
-      <div className="results-header">
-        <div>
-          <p className="eyebrow">{t('opportunities.title')}</p>
-          <h2>{t('opportunities.subtitle')}</h2>
-        </div>
-        <button className="primary" onClick={onCreateNew}>
-          <Plus size={18} />
-          {t('opportunities.new')}
-        </button>
-      </div>
+      {renderCollabHeader()}
 
       {renderCollabProfiles(request.status === 'looking' ? request : null)}
 
@@ -8311,9 +8360,23 @@ export default function App() {
     });
   };
 
+  const activeNavGroups = {
+    'my-classes': ['my-classes', 'join-class', 'class-detail'],
+    discover: ['discover', 'discover-profile'],
+    lecturer: ['lecturer'],
+    'current-request': ['current-request', 'request', 'matches', 'profile-detail', 'found'],
+    connections: ['connections', 'messages', 'chat'],
+    'my-profile': ['my-profile', 'profile', 'profile-saved'],
+  };
+  const navButtonClass = (targetView, extraClass = '') => [
+    'ghost',
+    extraClass,
+    activeNavGroups[targetView]?.includes(view) ? 'active' : '',
+  ].filter(Boolean).join(' ');
+
   return (
     <div
-      className={`app theme-${appTheme}${view === 'home' ? ` landing-mode landing-${appTheme}` : ''}`}
+      className={`app theme-${appTheme} view-${view}${view === 'home' ? ` landing-mode landing-${appTheme}` : ''}`}
       data-theme={appTheme}
     >
       <header className="topbar">
@@ -8347,17 +8410,17 @@ export default function App() {
             </button>
 	          {view === 'home' ? (
 	            <>
-	              <button className="ghost nav-outline" onClick={() => navigate('my-profile')}>{t('nav.myProfile')}</button>
+	              <button className={navButtonClass('my-profile', 'nav-outline')} onClick={() => navigate('my-profile')}>{t('nav.myProfile')}</button>
 	            </>
 	          ) : (
 	            <>
-	              {showStudentNavigation && <button className="ghost" onClick={() => navigate('my-classes')}>{t('nav.myClasses')}</button>}
-	              {showStudentNavigation && <button className="ghost" onClick={() => navigate('discover')}>{t('nav.discover')}</button>}
-	              {showLecturerNavigation && <button className="ghost" onClick={() => navigate('lecturer')}>{t('nav.lecturer')}</button>}
-	              {showStudentNavigation && profileId && <button className="ghost" onClick={() => navigate('current-request')}>{t('nav.openOpportunities')}</button>}
-	              {showStudentNavigation && <button className="ghost" onClick={() => navigate('connections')}>{t('nav.connections')}{notificationCounts.connections > 0 && <span className="nav-badge">{notificationCounts.connections}</span>}</button>}
-	              {showLecturerNavigation && <button className="ghost" onClick={() => navigate('messages')}>{t('nav.messages')}{notificationCounts.messages > 0 && <span className="nav-badge">{notificationCounts.messages}</span>}</button>}
-	              <button className="ghost" onClick={() => navigate('my-profile')}>{t('nav.myProfile')}</button>
+	              {showStudentNavigation && <button className={navButtonClass('my-classes')} onClick={() => navigate('my-classes')}>{t('nav.myClasses')}</button>}
+	              {showStudentNavigation && <button className={navButtonClass('discover')} onClick={() => navigate('discover')}>{t('nav.discover')}</button>}
+	              {showLecturerNavigation && <button className={navButtonClass('lecturer')} onClick={() => navigate('lecturer')}>{t('nav.lecturer')}</button>}
+	              {showStudentNavigation && profileId && <button className={navButtonClass('current-request')} onClick={() => navigate('current-request')}>{t('nav.openOpportunities')}</button>}
+	              {showStudentNavigation && <button className={navButtonClass('connections')} onClick={() => navigate('connections')}>{t('nav.connections')}{notificationCounts.connections > 0 && <span className="nav-badge">{notificationCounts.connections}</span>}</button>}
+	              {showLecturerNavigation && <button className={navButtonClass('connections')} onClick={() => navigate('messages')}>{t('nav.messages')}{notificationCounts.messages > 0 && <span className="nav-badge">{notificationCounts.messages}</span>}</button>}
+	              <button className={navButtonClass('my-profile')} onClick={() => navigate('my-profile')}>{t('nav.myProfile')}</button>
 	            </>
 	          )}
         </div>
