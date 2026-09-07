@@ -1633,25 +1633,27 @@ function JoinClassPage({ profile, profileId, onCreateProfile, onJoined, t = tran
       await getProfileById(profileId, { claimLegacy: true, ownedOnly: true });
       let membership;
 
-      try {
-        membership = await joinClassById({
+      if (preview.is_demo) {
+        membership = await joinDemoClassByCode({
           profileId,
-          classItem: preview,
+          classCode: preview.class_code || preview.demo_class_code || joinCode.trim(),
           networkStatus,
         });
-      } catch (directJoinError) {
-        console.error('Direct class join failed, trying code-based join fallback', directJoinError);
-        membership = preview.is_demo
-          ? await joinDemoClassByCode({
-              profileId,
-              classCode: preview.class_code || preview.demo_class_code || joinCode.trim(),
-              networkStatus,
-            })
-          : await joinClassByCode({
+      } else {
+        try {
+          membership = await joinClassById({
+            profileId,
+            classItem: preview,
+            networkStatus,
+          });
+        } catch (directJoinError) {
+          console.error('Direct class join failed, trying code-based join fallback', directJoinError);
+          membership = await joinClassByCode({
               profileId,
               joinCode: preview.join_code || preview.class_code || joinCode.trim(),
               networkStatus,
             });
+        }
       }
 
       const joinedClassId = membership.class_id || preview.id;
@@ -6380,6 +6382,7 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
     { id: 'received', label: t('connections.received'), rows: state.received },
     { id: 'sent', label: t('connections.sent'), rows: state.sent },
 	    { id: 'connected', label: t('connections.connected'), rows: state.connected },
+	    { id: 'messages', label: t('nav.messages') },
 	    { id: 'friends', label: t('connections.friends'), rows: state.friends },
 	    { id: 'declined', label: t('connections.declined'), rows: state.declined },
 	  ];
@@ -6392,6 +6395,7 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
 	    declined: t('connections.noneDeclined'),
 	  };
 	  const showingFriends = tab === 'friends';
+	  const showingMessages = tab === 'messages';
 
   return (
     <main className="screen">
@@ -6403,7 +6407,7 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
         <div className="segmented">
           {tabs.map((item) => (
             <button className={tab === item.id ? 'selected' : ''} onClick={() => setTab(item.id)} key={item.id}>
-              {item.label}{item.rows.length ? ` (${item.rows.length})` : ''}
+              {item.label}{item.rows?.length ? ` (${item.rows.length})` : ''}
             </button>
           ))}
         </div>
@@ -6420,11 +6424,22 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
 	      {state.actionError && <p className="error">{state.actionError}</p>}
 	      {state.actionSuccess && <p className="success">{state.actionSuccess}</p>}
 
-      {currentProfileId && !state.loading && activeRows.length === 0 && (
+      {currentProfileId && !state.loading && !showingMessages && activeRows.length === 0 && (
         <section className="empty-state">
           <p>{emptyCopy[tab]}</p>
         </section>
       )}
+
+	      {currentProfileId && !state.loading && showingMessages && (
+	        <MessagesList
+	          currentProfileId={currentProfileId}
+	          onOpenChat={onOpenChat}
+	          onViewProfile={onViewProfile}
+	          onNotificationsChanged={onNotificationsChanged}
+	          t={t}
+	          embedded
+	        />
+	      )}
 
 	      {currentProfileId && !state.loading && showingFriends && activeRows.length > 0 && (
 	        <div className="discover-grid">
@@ -7013,7 +7028,7 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
   );
 }
 
-function MessagesList({ currentProfileId, onOpenChat, onViewProfile, onNotificationsChanged, t = translate.bind(null, 'en') }) {
+function MessagesList({ currentProfileId, onOpenChat, onViewProfile, onNotificationsChanged, t = translate.bind(null, 'en'), embedded = false }) {
   const [state, setState] = useState({ loading: true, error: '', threads: [] });
 
   useEffect(() => {
@@ -7047,8 +7062,10 @@ function MessagesList({ currentProfileId, onOpenChat, onViewProfile, onNotificat
     };
   }, [currentProfileId]);
 
+  const Shell = embedded ? 'section' : 'main';
+
   return (
-    <main className="screen compact">
+    <Shell className={embedded ? 'messages-tab-panel' : 'screen compact'}>
       <div className="results-header">
         <div>
 	          <p className="eyebrow">{t('messages.title')}</p>
@@ -7093,7 +7110,7 @@ function MessagesList({ currentProfileId, onOpenChat, onViewProfile, onNotificat
           ))}
         </div>
       )}
-    </main>
+    </Shell>
   );
 }
 
