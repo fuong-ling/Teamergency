@@ -80,6 +80,12 @@ const isMissingSchemaFeature = (error) => {
     || message.includes('column');
 };
 
+const isClassProfileRestrictionError = (error) => {
+  const message = String(error?.message || '').toLowerCase();
+  return message.includes('class code not found for this profile')
+    || message.includes('does not match your current academic profile');
+};
+
 const getProfileExtraPayload = (profileData = {}) => ({
   avatar_url: profileData.avatar_url || null,
   availability: profileData.availability || [],
@@ -163,6 +169,10 @@ export const getProfileById = async (profileId, options = {}) => {
 
     if (claimError) throw claimError;
     if (claimed?.length) return claimed[0];
+  }
+
+  if (options.ownedOnly) {
+    throw new Error('This profile is not linked to the current sign-in session.');
   }
 
   const { data: publicData, error: publicError } = await client.rpc('get_public_profile', {
@@ -403,8 +413,17 @@ export const joinDemoClassByCode = async ({ profileId, classCode, networkStatus 
     preferred_teammate_status: networkStatus || null,
   });
 
-  if (error) throw error;
+  if (error) {
+    if (!isMissingSchemaFeature(error) && !isClassProfileRestrictionError(error)) throw error;
+
+    const classItem = await getClassByJoinCode(classCode);
+    if (!classItem) throw error;
+    return joinClassById({ profileId, classItem, networkStatus });
+  }
+
   if (!data?.length) {
+    const classItem = await getClassByJoinCode(classCode);
+    if (classItem) return joinClassById({ profileId, classItem, networkStatus });
     throw new Error('Demo class could not be joined.');
   }
 
@@ -1365,8 +1384,18 @@ export const getConnectionBetween = async (currentProfileId, teammateProfileId, 
   return data?.[0] || null;
 };
 
-export const getConnectionRequests = async (currentProfileId, direction) => {
-  const { client } = await getAuthenticatedClient();
+const uniqueConnectionRows = (rows) => {
+  const seen = new Set();
+  return rows.filter((row) => {
+    const key = row?.id;
+    if (!key) return true;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
+const listConnectionRequestRows = async (client, currentProfileId, direction) => {
   const { data, error } = await client.rpc('list_connection_requests', {
     current_profile: currentProfileId,
     direction,
@@ -1374,6 +1403,23 @@ export const getConnectionRequests = async (currentProfileId, direction) => {
 
   if (error) throw error;
   return data || [];
+};
+
+export const getConnectionRequests = async (currentProfileId, direction) => {
+  const { client } = await getAuthenticatedClient();
+  const rows = await listConnectionRequestRows(client, currentProfileId, direction);
+
+  if (direction === 'received' && rows.length === 0) {
+    const legacyRows = await listConnectionRequestRows(client, currentProfileId, 'incoming').catch(() => []);
+    return uniqueConnectionRows([...rows, ...legacyRows]);
+  }
+
+  if (direction === 'declined' && rows.length === 0) {
+    const legacyRows = await listConnectionRequestRows(client, currentProfileId, 'not_accepted').catch(() => []);
+    return uniqueConnectionRows([...rows, ...legacyRows]);
+  }
+
+  return rows;
 };
 
 export const respondConnectionRequest = async ({

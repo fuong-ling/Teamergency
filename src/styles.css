@@ -4731,7 +4731,7 @@ option {
 .app.landing-mode .landing-role-card {
   position: relative;
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr);
+  grid-template-columns: 60px minmax(0, 1fr);
   gap: 16px;
   min-height: 156px;
   align-items: center;
@@ -4789,12 +4789,17 @@ option {
 
 .app.landing-mode .landing-role-icon {
   display: inline-flex;
-  width: 56px;
-  height: 56px;
+  width: 60px;
+  height: 60px;
   align-items: center;
   justify-content: center;
   border-radius: 8px;
   background: var(--landing-soft-blue);
+}
+
+.app.landing-mode .landing-role-icon svg {
+  width: 30px;
+  height: 30px;
 }
 
 .app.landing-mode .lecturer-role .landing-role-icon {
@@ -5651,7 +5656,7 @@ option {
     linear-gradient(95deg, rgba(37, 99, 235, 0.34), rgba(124, 58, 237, 0.22) 48%, rgba(244, 63, 94, 0.30)),
     radial-gradient(circle at 30% 40%, rgba(37, 99, 235, 0.34), transparent 44%),
     radial-gradient(circle at 74% 54%, rgba(244, 63, 94, 0.30), transparent 46%);
-  animation: landingAuroraDrift 11s ease-in-out infinite alternate;
+  animation: landingAuroraDrift 8s ease-in-out infinite alternate;
   will-change: transform, opacity;
 }
 
@@ -5676,14 +5681,14 @@ option {
   top: 7%;
   left: max(18px, calc(50% - 610px));
   background: radial-gradient(circle, rgba(37, 99, 235, 0.48), rgba(37, 99, 235, 0.18) 48%, transparent 72%);
-  animation: landingFloatBlue 14s ease-in-out infinite;
+  animation: landingFloatBlue 10s ease-in-out infinite;
 }
 
 .app.landing-mode .landing-glow-red {
   right: max(18px, calc(50% - 610px));
   bottom: 11%;
   background: radial-gradient(circle, rgba(244, 63, 94, 0.44), rgba(244, 63, 94, 0.17) 48%, transparent 72%);
-  animation: landingFloatRed 16s ease-in-out infinite;
+  animation: landingFloatRed 11s ease-in-out infinite;
 }
 
 .app.landing-mode.landing-dark .landing-glow-blue {
@@ -5828,11 +5833,47 @@ option {
   backdrop-filter: blur(24px) saturate(135%);
 }
 
+.app.theme-light.view-discover .filter-panel {
+  border: 1px solid rgba(255, 255, 255, 0.72) !important;
+  background:
+    radial-gradient(circle at 12% 8%, rgba(37, 99, 235, 0.12), transparent 18rem),
+    radial-gradient(circle at 92% 18%, rgba(244, 63, 94, 0.10), transparent 18rem),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.42)) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 14px 40px rgba(71, 85, 105, 0.10) !important;
+  backdrop-filter: blur(20px) saturate(135%);
+  -webkit-backdrop-filter: blur(20px) saturate(135%);
+}
+
+.app.theme-light.view-discover .discover-card,
+.app.theme-light.view-current-request .collab-discovery-panel .discover-card,
+.app.theme-light.view-current-request .request-list-row {
+  border: 1px solid rgba(255, 255, 255, 0.72) !important;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(37, 99, 235, 0.10), transparent 15rem),
+    radial-gradient(circle at 90% 0%, rgba(244, 63, 94, 0.08), transparent 14rem),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.42)) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 14px 40px rgba(71, 85, 105, 0.10) !important;
+  backdrop-filter: blur(22px) saturate(135%);
+  -webkit-backdrop-filter: blur(22px) saturate(135%);
+}
+
 .app.theme-dark.view-discover .filter-panel :is(input, textarea, select),
 .app.theme-dark.view-current-request .collab-discovery-panel :is(input, textarea, select) {
   border-color: rgba(255, 255, 255, 0.13) !important;
   background: rgba(13, 30, 52, 0.72) !important;
   backdrop-filter: blur(10px) saturate(120%);
+}
+
+.app.theme-light.view-discover .filter-panel :is(input, textarea, select) {
+  border: 1px solid rgba(148, 163, 184, 0.22) !important;
+  color: var(--app-text) !important;
+  background: rgba(255, 255, 255, 0.56) !important;
+  backdrop-filter: blur(10px) saturate(120%);
+  -webkit-backdrop-filter: blur(10px) saturate(120%);
 }
 
 @media (max-width: 760px) {
@@ -6170,4 +6211,97 @@ option {
   color: #ffffff !important;
   stroke: currentColor !important;
   fill: none;
+}
+
+/* Current-request / Collabs layout alignment with Discover */
+.collabs-screen {
+  width: min(1120px, calc(100% - 36px));
+}
+
+.collabs-screen .collabs-page-header {
+  margin: 18px 0 22px;
+  align-items: end;
+  gap: 18px;
+}
+
+.collabs-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.collabs-screen .collabs-inline-back {
+  min-height: 42px;
+}
+
+.collabs-screen .collabs-page-header > div {
+  max-width: 760px;
+}
+
+.collabs-screen .collabs-page-header p:not(.eyebrow),
+.collabs-screen .collab-discovery-panel .compact-header p:not(.eyebrow) {
+  max-width: 720px;
+}
+
+.collabs-screen .collab-discovery-panel {
+  margin: 0 0 22px;
+}
+
+.app.theme-light.view-current-request .collab-discovery-panel,
+.app.theme-dark.view-current-request .collab-discovery-panel {
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.collabs-screen .collab-discovery-panel .compact-header {
+  margin: 0 0 22px;
+  align-items: end;
+}
+
+.collabs-screen .compact-discover-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.app.theme-light.view-current-request .collab-discovery-panel .discover-card,
+.app.theme-light.view-current-request .request-list-row {
+  border: 1px solid rgba(255, 255, 255, 0.72) !important;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(37, 99, 235, 0.10), transparent 15rem),
+    radial-gradient(circle at 90% 0%, rgba(244, 63, 94, 0.08), transparent 14rem),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.42)) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 14px 40px rgba(71, 85, 105, 0.10) !important;
+  backdrop-filter: blur(22px) saturate(135%);
+  -webkit-backdrop-filter: blur(22px) saturate(135%);
+}
+
+@media (max-width: 900px) {
+  .collabs-screen .compact-discover-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .collabs-screen {
+    width: min(100% - 24px, 1120px);
+  }
+
+  .collabs-screen .collabs-page-header {
+    align-items: start;
+  }
+
+  .collabs-header-actions {
+    justify-content: flex-start;
+  }
+
+  .collabs-screen .compact-discover-grid {
+    grid-template-columns: 1fr;
+  }
 }

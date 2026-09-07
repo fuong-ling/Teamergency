@@ -15,6 +15,10 @@ export const storeProfileId = (profileId) => {
   localStorage.setItem(PROFILE_ID_KEY, profileId);
 };
 
+export const clearProfileId = () => {
+  localStorage.removeItem(PROFILE_ID_KEY);
+};
+
 export const getStoredRequestId = () => localStorage.getItem(REQUEST_ID_KEY);
 
 export const getStoredRequestEditToken = () =>

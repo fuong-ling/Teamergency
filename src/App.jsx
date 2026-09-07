@@ -127,6 +127,7 @@ import {
   clearLoggedOut,
   clearLecturerSession,
   clearPendingRole,
+  clearProfileId,
   storeCurrentRequest,
   storeActiveRole,
   storeClassId,
@@ -586,15 +587,8 @@ const sortRequestsByVisibility = (requests = []) =>
   );
 
 const isProfileOwnershipError = (error) =>
-  String(error?.message || '').includes('Profile ownership required');
-
-const classMatchesProfile = (classItem = {}, profile = {}) => {
-  if (!classItem || !profile) return false;
-  const sameUniversity = normalizeFilterValue(classItem.university || 'RMIT University') === normalizeFilterValue(profile.university || 'RMIT University');
-  const sameSchool = normalizeFilterValue(classItem.school) === normalizeFilterValue(profile.school);
-  const sameMajor = normalizeFilterValue(classItem.major) === normalizeFilterValue(profile.major);
-  return sameUniversity && sameSchool && sameMajor;
-};
+  String(error?.message || '').includes('Profile ownership required')
+  || String(error?.message || '').includes('not linked to the current sign-in session');
 
 const getReviewSummary = (profile = {}) => {
   const summary = profile.review_summary || {};
@@ -1594,15 +1588,13 @@ function JoinClassPage({ profile, profileId, onCreateProfile, onJoined, t = tran
       }
 	    setLoading(true);
 	    try {
+        await getProfileById(profileId, { claimLegacy: true, ownedOnly: true });
 	      let foundClass = null;
 	      if (demoClassCodes.includes(normalizedCode)) {
 	        try {
 	          foundClass = await getDemoClassForProfile(profileId, normalizedCode);
 	        } catch (demoError) {
-	          if (
-	            isProfileOwnershipError(demoError)
-	            || demoError?.message?.includes('does not match your current academic profile')
-	          ) {
+	          if (isProfileOwnershipError(demoError)) {
 	            throw demoError;
 	          }
 	          console.error('Demo class preview lookup failed, trying generic lookup fallback', demoError);
@@ -1611,9 +1603,6 @@ function JoinClassPage({ profile, profileId, onCreateProfile, onJoined, t = tran
 
 	      if (!foundClass) {
 	        foundClass = await getClassByJoinCode(normalizedCode);
-	        if (foundClass && demoClassCodes.includes(normalizedCode) && !classMatchesProfile(foundClass, profile)) {
-	          throw new Error('This class does not match your current academic profile.');
-	        }
 	      }
 
 	      if (!foundClass) {
@@ -1626,9 +1615,7 @@ function JoinClassPage({ profile, profileId, onCreateProfile, onJoined, t = tran
 	      if (isProfileOwnershipError(err)) {
 	        setError(t('join.profileOwnership'));
 	      } else {
-	        setError(t(err?.message?.includes('does not match your current academic profile')
-	          ? 'join.profileMismatch'
-	          : 'join.invalidCode'));
+	        setError(t('join.invalidCode'));
 	      }
 	    } finally {
 	      setLoading(false);
@@ -1643,6 +1630,7 @@ function JoinClassPage({ profile, profileId, onCreateProfile, onJoined, t = tran
     setMessage('');
 
     try {
+      await getProfileById(profileId, { claimLegacy: true, ownedOnly: true });
       let membership;
 
       try {
@@ -1672,9 +1660,7 @@ function JoinClassPage({ profile, profileId, onCreateProfile, onJoined, t = tran
       onJoined?.(joinedClassId);
     } catch (err) {
       console.error('Join class failed', err);
-      setError(t(err?.message?.includes('does not match your current academic profile')
-        ? 'join.profileMismatch'
-        : 'join.joinFail'));
+      setError(isProfileOwnershipError(err) ? t('join.profileOwnership') : t('join.joinFail'));
     } finally {
       setJoining(false);
     }
@@ -5810,10 +5796,16 @@ function CurrentRequest({
         <h2>{t('opportunities.title')}</h2>
         <p>{t('opportunities.profileIntro')}</p>
       </div>
-      <button className="primary" onClick={onCreateNew}>
-        <Plus size={18} />
-        {t('opportunities.new')}
-      </button>
+      <div className="collabs-header-actions">
+        <button className="ghost collabs-inline-back" type="button" onClick={onBack}>
+          <ArrowLeft size={18} />
+          {t('common.back')}
+        </button>
+        <button className="primary" onClick={onCreateNew}>
+          <Plus size={18} />
+          {t('opportunities.new')}
+        </button>
+      </div>
     </div>
   );
 
@@ -5973,10 +5965,6 @@ function CurrentRequest({
   if (!selectedRequest) {
     return (
       <main className="screen collabs-screen">
-        <button className="ghost" type="button" onClick={onBack}>
-          <ArrowLeft size={18} />
-          {t('common.back')}
-        </button>
         {renderCollabHeader()}
         {renderCollabProfiles(null)}
       </main>
@@ -5987,10 +5975,6 @@ function CurrentRequest({
 
   return (
     <main className="screen collabs-screen">
-      <button className="ghost" type="button" onClick={onBack}>
-        <ArrowLeft size={18} />
-        {t('common.back')}
-      </button>
       {renderCollabHeader()}
 
       {renderCollabProfiles(request.status === 'looking' ? request : null)}
@@ -6214,16 +6198,21 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
     setState((current) => ({ ...current, loading: true, error: '' }));
 
     try {
+      const loadConnectionGroup = (direction) =>
+        getConnectionRequests(currentProfileId, direction).catch((error) => {
+          console.error(`Could not load ${direction} connections`, error);
+          return [];
+        });
 	      const [received, sent, connected, friends, currentRequest] = await Promise.all([
-	        getConnectionRequests(currentProfileId, 'received'),
-	        getConnectionRequests(currentProfileId, 'sent'),
-	        getConnectionRequests(currentProfileId, 'connected'),
+	        loadConnectionGroup('received'),
+	        loadConnectionGroup('sent'),
+	        loadConnectionGroup('connected'),
 	        listFriends(currentProfileId).catch(() => []),
 	        currentRequestId ? getTeamRequestById(currentRequestId).catch(() => null) : Promise.resolve(null),
 	      ]);
       const [declined, unmatched] = await Promise.all([
-        getConnectionRequests(currentProfileId, 'declined'),
-        getConnectionRequests(currentProfileId, 'unmatched'),
+        loadConnectionGroup('declined'),
+        loadConnectionGroup('unmatched'),
       ]);
       const declinedRows = [...declined, ...unmatched]
         .sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
@@ -7971,9 +7960,15 @@ export default function App() {
     }
 
     if (storedProfileId && hasSupabaseConfig) {
-      getProfileById(storedProfileId, { claimLegacy: true })
+      getProfileById(storedProfileId, { claimLegacy: true, ownedOnly: true })
         .then(setProfile)
-        .catch(() => setProfileId(''));
+        .catch(() => {
+          clearProfileId();
+          clearCurrentRequest();
+          setProfileId('');
+          setRequestId('');
+          setProfile(null);
+        });
     }
 	  }, []);
 
@@ -7988,7 +7983,7 @@ export default function App() {
 
       if (storedProfileId) {
         try {
-          const storedProfile = await getProfileById(storedProfileId, { claimLegacy: true });
+          const storedProfile = await getProfileById(storedProfileId, { claimLegacy: true, ownedOnly: true });
           if (!alive) return;
           const nextRole = pendingRole || getProfileRole(storedProfile);
           setSelectedLandingRole(pendingRole || '');
@@ -8005,11 +8000,15 @@ export default function App() {
             clearPendingRole();
             navigate(nextRole === 'lecturer' ? 'lecturer' : 'my-classes');
           }
+          return;
         } catch {
           if (!alive) return;
-          if (navigateAfterSignIn && hasGoogleAuthSession(session)) navigate('profile');
+          clearProfileId();
+          clearCurrentRequest();
+          setProfileId('');
+          setRequestId('');
+          setProfile(null);
         }
-	        return;
       }
 
       try {
@@ -8154,7 +8153,11 @@ export default function App() {
 
 	    try {
 	      if (storedProfileId) {
-	        ownedProfile = await getProfileById(storedProfileId, { claimLegacy: true }).catch(() => null);
+	        ownedProfile = await getProfileById(storedProfileId, { claimLegacy: true, ownedOnly: true }).catch(() => {
+	          clearProfileId();
+	          clearCurrentRequest();
+	          return null;
+	        });
 	      }
 
 	      if (!ownedProfile) {
@@ -8290,10 +8293,15 @@ export default function App() {
     }
 
     try {
-      const loadedProfile = await getProfileById(profileId, { claimLegacy: true });
+      const loadedProfile = await getProfileById(profileId, { claimLegacy: true, ownedOnly: true });
       setProfile(loadedProfile);
       navigate(currentRole === 'lecturer' ? (lecturerSession ? 'lecturer' : 'my-profile') : 'request');
     } catch {
+      clearProfileId();
+      clearCurrentRequest();
+      setProfileId('');
+      setRequestId('');
+      setProfile(null);
       setBootError("We couldn't load your saved profile. Please create a profile again on this device.");
       openProfileForm('student');
     }
