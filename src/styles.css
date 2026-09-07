@@ -6848,6 +6848,55 @@ option {
   flex: 0 0 auto;
 }
 
+/* Skills sit directly on the parent connection card. */
+.connection-skills-summary,
+.connection-skills-summary .mini-detail {
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.connection-skills-summary {
+  display: grid;
+  gap: 12px;
+}
+
+.app.theme-light .connection-skills-summary,
+.app.theme-dark .connection-skills-summary {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.skill-chip-list {
+  display: flex !important;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.skill-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 9px;
+  border: 1px solid rgba(39, 85, 192, 0.24);
+  border-radius: 999px;
+  color: #344054 !important;
+  background: rgba(39, 85, 192, 0.07);
+  font-size: 0.82rem;
+  line-height: 1.2;
+}
+
+.app.theme-dark .skill-chip {
+  border-color: rgba(143, 178, 255, 0.34);
+  color: #dce7ff !important;
+  background: rgba(47, 107, 255, 0.14);
+}
+
 @media (max-width: 720px) {
   .app.view-connections .results-header {
     align-items: stretch;

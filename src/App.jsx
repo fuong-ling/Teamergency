@@ -793,6 +793,14 @@ const getTeamProgress = (request, progress = {}) => {
   };
 };
 
+const SkillList = ({ items = [] }) => (
+  items?.length ? (
+    <span className="skill-chip-list">
+      {items.map((item, index) => <span className="skill-chip" key={`${item}-${index}`}>{item}</span>)}
+    </span>
+  ) : <span>Not specified</span>
+);
+
 const addConnectedTeammateToProgress = (request, progress = {}, candidateRequest = {}, connection = {}) => {
   const teammateProfile = candidateRequest.profile || candidateRequest;
   const teammateId = candidateRequest.profile_id || teammateProfile.id;
@@ -6515,14 +6523,14 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
                     }) })}
                   </div>
                 )}
-                <div className="connection-context">
+                <div className="connection-skills-summary">
                   <div className="mini-detail">
                     <strong>{t('matches.skillsHave')}</strong>
-                    <span>{joinList(request.teammate_skills)}</span>
+                    <SkillList items={request.teammate_skills} />
                   </div>
                   <div className="mini-detail">
                     <strong>{t('matches.lookingFor')}</strong>
-                    <span>{joinList(request.skills_needed)}</span>
+                    <SkillList items={request.skills_needed} />
                   </div>
                 </div>
               </div>
