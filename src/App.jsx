@@ -1175,6 +1175,9 @@ const connectedButtonLabel = (connection, t = translate.bind(null, 'en')) =>
     ? `${t('connections.connectedStatus')} · ${localizedConnectionRelationshipLabel(connection, t)}`
     : t('connections.connectedStatus');
 
+const discoverConnectedButtonLabel = (t = translate.bind(null, 'en')) =>
+  t('connections.connectedStatus');
+
 const connectionStatusLabel = (status, tab, t = translate.bind(null, 'en')) => {
   if (tab === 'received' && status === 'pending') return t('connections.needsResponse');
   if (tab === 'sent' && status === 'pending') return t('connections.pendingStatus');
@@ -1872,8 +1875,10 @@ function MyClassesPage({ profileId, onCreateProfile, onJoinClass, onOpenClass, t
             const request = pickClassRequest(state.requests, classItem.id);
 	            const requestMetrics = request ? getTeamProgress(request, state.progressByRequest[request.id]) : null;
 	            const editableStatus = getTeamStatusFromEditableTeam(state.teamStatusByClass[classItem.id], t);
-	            const metrics = editableStatus?.metrics || requestMetrics;
-	            const status = editableStatus || classTeamStatus(classItem, request, requestMetrics, t);
+	            const metrics = requestMetrics || editableStatus?.metrics;
+	            const status = requestMetrics
+              ? classTeamStatus(classItem, request, requestMetrics, t)
+              : editableStatus || classTeamStatus(classItem, request, requestMetrics, t);
 
             return (
               <article className="match-card" key={classItem.id}>
@@ -1887,7 +1892,7 @@ function MyClassesPage({ profileId, onCreateProfile, onJoinClass, onOpenClass, t
                 </div>
                 <div className="mini-detail">
 	                  <strong>{t('classes.teamStatus')}</strong>
-	                  <span>{metrics ? `${teammateCountSummary(metrics, t)} | ${translateStatusText(status.detail, t)}` : translateStatusText(status.detail, t)}</span>
+	                  <span>{metrics ? `${teammateCountSummary(metrics, t)} | ${remainingSummary(metrics, t)}` : translateStatusText(status.detail, t)}</span>
                 </div>
                 <button className="secondary" onClick={() => onOpenClass(classItem.id)}>
 	                  {t('classes.open')}
@@ -1917,7 +1922,7 @@ function TeamStatusEditor({ classItem, teamStatus, saving, error, onSave, onCanc
   const remaining = Math.max(0, requiredMembers - currentMembers);
 
   return (
-    <section className="request-panel standalone">
+    <section className="request-panel standalone class-team-editor">
 	      <p className="eyebrow">{t('class.editStatus')}</p>
       <div className="form-grid">
         <label>
@@ -2216,13 +2221,13 @@ function ClassDetailPage({
 		  }
 
 	  return (
-    <main className="screen">
+    <main className="screen class-detail-page">
       <button className="ghost" type="button" onClick={onBack}>
         <ArrowLeft size={18} />
 	        {t('classes.title')}
       </button>
 
-      <div className="results-header">
+      <div className="results-header class-detail-header">
         <div>
 	          <p className="eyebrow">{t('class.detail')}</p>
           <h2>{getClassDisplay(state.classItem)}</h2>
@@ -2230,8 +2235,9 @@ function ClassDetailPage({
         </div>
       </div>
 
-      <div className="request-management-grid">
-        <section className="request-panel standalone">
+      <section className="class-dashboard">
+      <div className="request-management-grid class-dashboard-side">
+        <section className="request-panel standalone class-info-panel">
 	          <p className="eyebrow">{t('class.info')}</p>
           <dl>
 	            <div><dt>{t('class.course')}</dt><dd>{state.classItem.course_name || state.classItem.course}</dd></div>
@@ -2245,7 +2251,7 @@ function ClassDetailPage({
 	          </dl>
 	        </section>
 
-        <section className="request-panel standalone">
+        <section className="request-panel standalone class-team-panel">
 	          <p className="eyebrow">{t('class.teamStatus')}</p>
 	          <span className={`status-badge ${status.tone}`}>{translateStatusText(status.label, t)}</span>
 	          {metrics ? (
@@ -2312,7 +2318,7 @@ function ClassDetailPage({
             </button>
           </div>
 	        </section>
-	      </div>
+      </div>
 
 	      {state.editingTeamStatus && (
 	        <TeamStatusEditor
@@ -2327,11 +2333,10 @@ function ClassDetailPage({
 	      )}
 	
 	      {selectedRequest && (
-        <section className="request-panel standalone">
+        <section className="request-panel standalone class-request-panel">
           <div className="results-header compact-header">
             <div>
 	              <p className="eyebrow">{t('class.currentRequest')}</p>
-              <h2>{getCourseDisplay(selectedRequest)}</h2>
             </div>
             {activeRequest && (
               <div className="hero-actions">
@@ -2352,7 +2357,7 @@ function ClassDetailPage({
             <div><dt>{t('request.anythingElse')}</dt><dd>{selectedRequest.requirements || t('common.notSpecified')}</dd></div>
           </dl>
 
-          <section className="matched-list">
+          <section className="matched-list class-team-members-list">
 	            <h3>{t('class.teamMembersFound')} ({metrics?.matchedCount || 0})</h3>
             {teammates.length === 0 ? (
 	              <p className="note">{t('class.noConnected')}</p>
@@ -2373,8 +2378,9 @@ function ClassDetailPage({
 	          </section>
 	        </section>
 	      )}
+	      </section>
 
-		      {state.actionSuccess && <p className="success">{state.actionSuccess}</p>}
+	      {state.actionSuccess && <p className="success">{state.actionSuccess}</p>}
 		      {state.actionError && !state.editingTeamStatus && <p className="error">{state.actionError}</p>}
 		      {state.deleteRequestTarget && (
 		        <div className="modal-backdrop" role="presentation">
@@ -4374,6 +4380,31 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
     }
   };
 
+  const unsendDiscoverConnect = async (profile) => {
+    if (!profile || !currentProfileId) return;
+    const connection = state.sentByProfile[profile.id] ?? state.connectionsByProfile[profile.id];
+    if (!connection?.id) return;
+
+    setState((current) => ({ ...current, sendingProfileId: profile.id, modalError: '' }));
+
+    try {
+      await cancelConnectionRequest(connection.id, currentProfileId);
+      setState((current) => ({
+        ...current,
+        sendingProfileId: '',
+        sentByProfile: { ...current.sentByProfile, [profile.id]: null },
+        connectionsByProfile: { ...current.connectionsByProfile, [profile.id]: null },
+      }));
+    } catch (error) {
+      console.error('Discover connection withdrawal failed', error);
+      setState((current) => ({
+        ...current,
+        sendingProfileId: '',
+        modalError: t('connections.cancelFail'),
+      }));
+    }
+  };
+
   return (
     <main className="screen">
       <div className="results-header">
@@ -4457,7 +4488,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
             const disabledReason = !currentProfileId
                 ? t('connections.needProfile')
                 : '';
-            const connection = state.sentByProfile[profile.id] || state.connectionsByProfile[profile.id];
+            const connection = state.sentByProfile[profile.id] ?? state.connectionsByProfile[profile.id];
             const connectionState = getConnectionState(connection, currentProfileId);
 
             return (
@@ -4476,9 +4507,9 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
                   <strong>{t('matches.skillsHave')}</strong>
                   <span>{joinList(profile.skills)}</span>
                 </div>
-                <ConnectionStateBadge state={connectionState} t={t} />
-                <ConnectionRelationshipBadge connection={connection} t={t} />
-                <div className="hero-actions">
+                {connectionState === 'sent_pending' && <ConnectionStateBadge state={connectionState} t={t} />}
+                {connectionState === 'received_pending' && <ConnectionStateBadge state={connectionState} t={t} />}
+                <div className="hero-actions discover-connection-actions">
                   <button
                     className="secondary"
                     onClick={() => onOpenProfile(profile.id)}
@@ -4493,10 +4524,16 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
                   ) : connectionState === 'accepted' ? (
                     <button className="connected-button" disabled>
                       <CheckCircle2 size={18} />
-                      {connectedButtonLabel(connection, t)}
+                      {discoverConnectedButtonLabel(t)}
                     </button>
                   ) : connectionState === 'sent_pending' ? (
-                    <button className="secondary" onClick={() => onOpenProfile(profile.id)}>{t('connections.requestSent')}</button>
+                    <button
+                      className="secondary"
+                      onClick={() => unsendDiscoverConnect(profile)}
+                      disabled={state.sendingProfileId === profile.id}
+                    >
+                      {state.sendingProfileId === profile.id ? t('common.updating') : t('connections.unsend')}
+                    </button>
                   ) : connectionState === 'received_pending' ? (
                     <button className="secondary" onClick={() => onOpenProfile(profile.id)}>{t('connections.respond')}</button>
                   ) : (
@@ -4764,19 +4801,20 @@ function DiscoverProfileDetail({ profileId, currentProfileId, currentProfile, on
             <p className="connection-hint">{disabledReason}</p>
           </div>
         ) : connectionState === 'accepted' ? (
-          <div className="stacked-actions">
+          <div className="stacked-actions profile-connection-actions">
             <button className="connected-button" disabled>
               <CheckCircle2 size={18} />
               {connectedButtonLabel(state.connection, t)}
             </button>
-            <ConnectionRelationshipBadge connection={state.connection} t={t} />
-            <button className="primary link-button" onClick={() => onOpenChat(state.connection.id)}>
-              <MessageCircle size={18} />
-	              {t('common.message')}
-            </button>
-            <button className="secondary link-button quiet-action" onClick={() => setState((current) => ({ ...current, unmatchOpen: true, actionError: '' }))}>
-	              {t('common.unmatch')}
-            </button>
+            <div className="connection-action-row">
+              <button className="primary link-button" onClick={() => onOpenChat(state.connection.id)}>
+                <MessageCircle size={18} />
+                {t('common.message')}
+              </button>
+              <button className="secondary link-button quiet-action" onClick={() => setState((current) => ({ ...current, unmatchOpen: true, actionError: '' }))}>
+                {t('common.unmatch')}
+              </button>
+            </div>
           </div>
         ) : connectionState === 'sent_pending' ? (
 	          <button className="disabled-contact" disabled>{t('common.requestSent')}</button>
@@ -5280,19 +5318,20 @@ function ProfileDetail({
 
     if (connectionState === 'accepted') {
       return (
-        <div className="stacked-actions">
+        <div className="stacked-actions profile-connection-actions">
           <button className="connected-button" disabled>
             <CheckCircle2 size={18} />
             {connectedButtonLabel(connection, t)}
           </button>
-          <ConnectionRelationshipBadge connection={connection} t={t} />
-          <button className="primary link-button" onClick={() => onOpenChat(connection.id)}>
-	            <MessageCircle size={18} />
-	            {t('common.message')}
-          </button>
-          <button className="secondary link-button quiet-action" onClick={() => setState((current) => ({ ...current, unmatchOpen: true, actionError: '' }))}>
-	            {t('common.unmatch')}
-          </button>
+          <div className="connection-action-row">
+            <button className="primary link-button" onClick={() => onOpenChat(connection.id)}>
+              <MessageCircle size={18} />
+              {t('common.message')}
+            </button>
+            <button className="secondary link-button quiet-action" onClick={() => setState((current) => ({ ...current, unmatchOpen: true, actionError: '' }))}>
+              {t('common.unmatch')}
+            </button>
+          </div>
         </div>
       );
     }
@@ -5444,7 +5483,7 @@ function CurrentRequest({
     ])
       .then(async ([requests, profiles, activeRequests]) => {
         const standaloneRequests = sortRequestsByVisibility(
-          requests.filter((request) => !request.class_id || request.id === requestId),
+          requests.filter((request) => !request.class_id),
         );
         const visibleProfiles = (profiles || [])
           .filter((candidate) => getProfileRole(candidate) === 'student')
@@ -5789,6 +5828,34 @@ function CurrentRequest({
     }
   };
 
+  const unsendCollabConnect = async (candidate) => {
+    if (!candidate || !currentProfileId) return;
+    const connection = state.collabConnectionsByProfile[candidate.id];
+    if (!connection?.id) return;
+
+    setState((current) => ({ ...current, collabSendingProfileId: candidate.id, error: '', success: '' }));
+
+    try {
+      await cancelConnectionRequest(connection.id, currentProfileId);
+      setState((current) => ({
+        ...current,
+        collabSendingProfileId: '',
+        success: t('connections.withdrawn'),
+        collabConnectionsByProfile: {
+          ...current.collabConnectionsByProfile,
+          [candidate.id]: null,
+        },
+      }));
+    } catch (error) {
+      console.error('Collab connection withdrawal failed', error);
+      setState((current) => ({
+        ...current,
+        collabSendingProfileId: '',
+        error: t('connections.cancelFail'),
+      }));
+    }
+  };
+
   if (state.loading) {
     return <main className="screen compact"><p className="loading">{t('request.loading')}</p></main>;
   }
@@ -5822,8 +5889,7 @@ function CurrentRequest({
     <div className="results-header collabs-page-header">
       <div>
         <p className="eyebrow">{t('opportunities.title')}</p>
-        <h2>{t('opportunities.title')}</h2>
-        <p>{t('opportunities.profileIntro')}</p>
+        <h2>{t('opportunities.profileIntro')}</h2>
       </div>
       <div className="collabs-header-actions">
         <button className="ghost collabs-inline-back" type="button" onClick={onBack}>
@@ -5840,13 +5906,6 @@ function CurrentRequest({
 
   const renderCollabProfiles = (request = null) => (
     <section className="request-panel standalone collab-discovery-panel">
-      <div className="results-header compact-header">
-        <div>
-          <p className="eyebrow">{request ? t('opportunities.targeted') : t('opportunities.browseProfiles')}</p>
-          <h2>{t('opportunities.subtitle')}</h2>
-          <p>{request ? t('matches.viewRecommended') : t('opportunities.profileIntroDetail')}</p>
-        </div>
-      </div>
       {collabProfiles.length === 0 ? (
         <section className="empty-state inline-empty">
           <p>{t('opportunities.noProfiles')}</p>
@@ -5875,8 +5934,9 @@ function CurrentRequest({
                   <strong>{t('matches.why')}</strong>
                   <span>{collabProfileReason(candidate, request)}</span>
                 </div>
-                <ConnectionStateBadge state={connectionState} t={t} />
-                <div className="hero-actions">
+                {connectionState === 'sent_pending' && <ConnectionStateBadge state={connectionState} t={t} />}
+                {connectionState === 'received_pending' && <ConnectionStateBadge state={connectionState} t={t} />}
+                <div className="hero-actions discover-connection-actions">
                   <button className="secondary" onClick={() => onOpenProfile?.(candidate.id)}>
                     {t('common.viewProfile')}
                   </button>
@@ -5889,12 +5949,24 @@ function CurrentRequest({
                       <UserPlus size={18} />
                       {state.collabSendingProfileId === candidate.id ? t('matches.sending') : t('matches.connect')}
                     </button>
-                  ) : (
+                  ) : connectionState === 'accepted' ? (
                     <button className="connected-button" disabled>
                       <CheckCircle2 size={18} />
-                      {connectedButtonLabel(connection, t)}
+                      {discoverConnectedButtonLabel(t)}
                     </button>
-                  )}
+                  ) : connectionState === 'sent_pending' ? (
+                    <button
+                      className="secondary"
+                      onClick={() => unsendCollabConnect(candidate)}
+                      disabled={state.collabSendingProfileId === candidate.id}
+                    >
+                      {state.collabSendingProfileId === candidate.id ? t('common.updating') : t('connections.unsend')}
+                    </button>
+                  ) : connectionState === 'received_pending' ? (
+                    <button className="secondary" onClick={() => onOpenProfile?.(candidate.id)}>
+                      {t('connections.respond')}
+                    </button>
+                  ) : null}
                 </div>
               </article>
             );
@@ -7901,7 +7973,7 @@ function MyProfile({
                   />
                 )}
                 {message && <p className="success">{message}</p>}
-                <div className="stacked-actions">
+                <div className="stacked-actions profile-actions">
                   <button className="primary link-button" onClick={startEdit}>{t('profile.editProfile')}</button>
 	                  <button className="secondary link-button" onClick={onCreateSearch}>{t('opportunities.new')}</button>
                   <button className="secondary link-button quiet-action" type="button" onClick={onLogout}>{t('profile.logout')}</button>
@@ -7922,7 +7994,7 @@ function MyProfile({
                 </dl>
                 {message && <p className="success">{message}</p>}
                 {error && <p className="error">{error}</p>}
-                <div className="stacked-actions">
+                <div className="stacked-actions profile-actions">
                   <button className="primary link-button" type="button" onClick={onOpenLecturer}>{t('profile.openLecturer')}</button>
                   <button className="secondary link-button" type="button" onClick={startEdit}>{t('profile.editProfile')}</button>
                   <button className="secondary link-button quiet-action" type="button" onClick={onLogout}>{t('profile.logout')}</button>

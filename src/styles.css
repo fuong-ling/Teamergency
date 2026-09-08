@@ -6950,3 +6950,646 @@ option {
     justify-content: flex-start;
   }
 }
+
+/* Task 1 UI cleanup: shared glass surfaces and compact action groups. */
+.app.theme-light :is(
+  .flow-panel,
+  .form-shell,
+  .confirmation,
+  .empty-state,
+  .profile-panel,
+  .request-panel,
+  .match-card,
+  .discover-card,
+  .connection-row,
+  .chat-shell,
+  .thread-row,
+  .request-list-panel,
+  .request-list-section,
+  .request-list-row,
+  .progress-panel,
+  .matched-list,
+  .inline-prompt,
+  .review-card,
+  .locked-box,
+  .request-switcher-panel,
+  .filter-panel,
+  .collab-discovery-panel,
+  .auth-card
+),
+.app.theme-dark :is(
+  .flow-panel,
+  .form-shell,
+  .confirmation,
+  .empty-state,
+  .profile-panel,
+  .request-panel,
+  .match-card,
+  .discover-card,
+  .connection-row,
+  .chat-shell,
+  .thread-row,
+  .request-list-panel,
+  .request-list-section,
+  .request-list-row,
+  .progress-panel,
+  .matched-list,
+  .inline-prompt,
+  .review-card,
+  .locked-box,
+  .request-switcher-panel,
+  .filter-panel,
+  .collab-discovery-panel,
+  .auth-card
+) {
+  backdrop-filter: blur(18px) saturate(125%);
+  -webkit-backdrop-filter: blur(18px) saturate(125%);
+}
+
+.app.theme-light :is(
+  .flow-panel,
+  .form-shell,
+  .confirmation,
+  .empty-state,
+  .profile-panel,
+  .request-panel,
+  .match-card,
+  .discover-card,
+  .connection-row,
+  .chat-shell,
+  .thread-row,
+  .request-list-panel,
+  .request-list-section,
+  .request-list-row,
+  .progress-panel,
+  .matched-list,
+  .inline-prompt,
+  .review-card,
+  .locked-box,
+  .request-switcher-panel,
+  .filter-panel,
+  .collab-discovery-panel,
+  .auth-card
+) {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.54)),
+    var(--app-surface) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.88),
+    0 18px 52px rgba(16, 24, 40, 0.08) !important;
+}
+
+.app.theme-dark :is(
+  .flow-panel,
+  .form-shell,
+  .confirmation,
+  .empty-state,
+  .profile-panel,
+  .request-panel,
+  .match-card,
+  .discover-card,
+  .connection-row,
+  .chat-shell,
+  .thread-row,
+  .request-list-panel,
+  .request-list-section,
+  .request-list-row,
+  .progress-panel,
+  .matched-list,
+  .inline-prompt,
+  .review-card,
+  .locked-box,
+  .request-switcher-panel,
+  .filter-panel,
+  .collab-discovery-panel,
+  .auth-card
+) {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.035)),
+    var(--app-surface) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 20px 60px rgba(0, 0, 0, 0.26) !important;
+}
+
+.profile-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.profile-actions .link-button {
+  width: 100%;
+  min-width: 0;
+  margin-top: 0;
+}
+
+.profile-connection-actions {
+  gap: 12px;
+}
+
+.profile-connection-actions .connected-button {
+  width: 100%;
+}
+
+.connection-action-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.connection-action-row .link-button {
+  width: 100%;
+  margin-top: 0;
+}
+
+.class-detail-page .class-detail-header {
+  margin-bottom: 18px;
+}
+
+.class-detail-page .request-management-grid {
+  gap: 16px;
+}
+
+.class-detail-page .request-panel.standalone {
+  padding: 20px 22px;
+}
+
+.class-detail-page .request-panel.standalone dl {
+  margin: 14px 0;
+}
+
+.class-detail-page .request-panel.standalone dl div {
+  padding: 8px 0;
+}
+
+.class-detail-page .class-team-panel .hero-actions {
+  margin-top: 18px;
+}
+
+@media (max-width: 720px) {
+  .profile-actions,
+  .connection-action-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Task 1.1: stronger layered glass surfaces. */
+.app.theme-light .topbar,
+.app.theme-dark .topbar,
+.app.theme-light :is(
+  .flow-panel,
+  .form-shell,
+  .confirmation,
+  .empty-state,
+  .profile-panel,
+  .request-panel,
+  .match-card,
+  .discover-card,
+  .connection-row,
+  .chat-shell,
+  .thread-row,
+  .request-list-panel,
+  .request-list-section,
+  .request-list-row,
+  .progress-panel,
+  .matched-list,
+  .inline-prompt,
+  .review-card,
+  .locked-box,
+  .request-switcher-panel,
+  .filter-panel,
+  .collab-discovery-panel,
+  .auth-card,
+  .class-dashboard
+),
+.app.theme-dark :is(
+  .flow-panel,
+  .form-shell,
+  .confirmation,
+  .empty-state,
+  .profile-panel,
+  .request-panel,
+  .match-card,
+  .discover-card,
+  .connection-row,
+  .chat-shell,
+  .thread-row,
+  .request-list-panel,
+  .request-list-section,
+  .request-list-row,
+  .progress-panel,
+  .matched-list,
+  .inline-prompt,
+  .review-card,
+  .locked-box,
+  .request-switcher-panel,
+  .filter-panel,
+  .collab-discovery-panel,
+  .auth-card,
+  .class-dashboard
+) {
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+}
+
+.app.theme-light .topbar {
+  background: rgba(255, 255, 255, 0.68) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 18px 52px rgba(37, 99, 235, 0.08) !important;
+}
+
+.app.theme-dark .topbar {
+  background: rgba(10, 35, 65, 0.58) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 20px 60px rgba(0, 0, 0, 0.28) !important;
+}
+
+.app.theme-light :is(
+  .flow-panel,
+  .form-shell,
+  .confirmation,
+  .empty-state,
+  .profile-panel,
+  .request-panel,
+  .match-card,
+  .discover-card,
+  .connection-row,
+  .chat-shell,
+  .thread-row,
+  .request-list-panel,
+  .request-list-section,
+  .request-list-row,
+  .progress-panel,
+  .matched-list,
+  .inline-prompt,
+  .review-card,
+  .locked-box,
+  .request-switcher-panel,
+  .filter-panel,
+  .collab-discovery-panel,
+  .auth-card,
+  .class-dashboard
+) {
+  border-color: rgba(37, 99, 235, 0.18) !important;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.48)),
+    rgba(255, 255, 255, 0.62) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 18px 52px rgba(16, 24, 40, 0.09) !important;
+}
+
+.app.theme-dark :is(
+  .flow-panel,
+  .form-shell,
+  .confirmation,
+  .empty-state,
+  .profile-panel,
+  .request-panel,
+  .match-card,
+  .discover-card,
+  .connection-row,
+  .chat-shell,
+  .thread-row,
+  .request-list-panel,
+  .request-list-section,
+  .request-list-row,
+  .progress-panel,
+  .matched-list,
+  .inline-prompt,
+  .review-card,
+  .locked-box,
+  .request-switcher-panel,
+  .filter-panel,
+  .collab-discovery-panel,
+  .auth-card,
+  .class-dashboard
+) {
+  border-color: rgba(255, 255, 255, 0.14) !important;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.025)),
+    rgba(10, 35, 65, 0.52) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 20px 60px rgba(0, 0, 0, 0.28) !important;
+}
+
+/* Class Detail dashboard: one parent, with the request on the left and the
+   class/team cards stacked on the right. */
+.class-dashboard {
+  display: grid;
+  grid-template-columns: minmax(0, 1.32fr) minmax(300px, 0.92fr);
+  grid-template-areas:
+    "request side"
+    "editor editor";
+  gap: 18px;
+  align-items: stretch;
+  margin-top: 0;
+  padding: 20px;
+  border: 1px solid;
+  border-radius: 22px;
+}
+
+.class-dashboard-side {
+  display: grid;
+  grid-area: side;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  align-content: start;
+  margin: 0;
+}
+
+.class-dashboard > .class-request-panel {
+  grid-area: request;
+  min-width: 0;
+  height: 100%;
+  margin: 0;
+}
+
+.class-dashboard > .class-team-editor {
+  grid-area: editor;
+  margin: 0;
+}
+
+.class-dashboard .class-info-panel,
+.class-dashboard .class-team-panel,
+.class-dashboard .class-request-panel,
+.class-dashboard .class-team-editor {
+  border-radius: 16px;
+}
+
+.app.theme-light .class-dashboard :is(.class-info-panel, .class-team-panel, .class-request-panel, .class-team-editor) {
+  border-color: rgba(37, 99, 235, 0.16) !important;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.64)),
+    rgba(255, 255, 255, 0.72) !important;
+}
+
+.app.theme-dark .class-dashboard :is(.class-info-panel, .class-team-panel, .class-request-panel, .class-team-editor) {
+  border-color: rgba(255, 255, 255, 0.18) !important;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.035)),
+    rgba(13, 44, 78, 0.68) !important;
+}
+
+.class-request-panel .compact-header {
+  margin: 0 0 10px;
+}
+
+.class-request-panel .compact-header .hero-actions {
+  margin-top: 0;
+}
+
+/* Keep both profile actions centered as one balanced control group. */
+.app:is(.view-profile-detail, .view-discover-profile) .connection-action-row {
+  align-items: stretch;
+}
+
+.app:is(.view-profile-detail, .view-discover-profile) .connection-action-row :is(.primary, .secondary) {
+  display: inline-flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  padding: 11px 16px !important;
+  line-height: 1.1;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.messages-tab-panel .thread-actions {
+  display: grid;
+  grid-template-columns: auto repeat(2, minmax(118px, 1fr));
+  align-items: center;
+  gap: 10px;
+}
+
+.messages-tab-panel .thread-actions .secondary {
+  width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .class-dashboard {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "request"
+      "side"
+      "editor";
+  }
+}
+
+@media (max-width: 720px) {
+  .messages-tab-panel .thread-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .app:is(.view-profile-detail, .view-discover-profile) .connection-action-row :is(.primary, .secondary) {
+    white-space: normal;
+  }
+}
+
+/* Task 1.2: keep the Class Detail grid structural, while the three cards
+   remain the visible surfaces. */
+.class-dashboard {
+  padding: 0;
+  border: 0 !important;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.app.theme-light .class-dashboard,
+.app.theme-dark .class-dashboard {
+  padding: 0 !important;
+  border: 0 !important;
+  outline: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.app.theme-light .class-dashboard::before,
+.app.theme-light .class-dashboard::after,
+.app.theme-dark .class-dashboard::before,
+.app.theme-dark .class-dashboard::after {
+  content: none !important;
+  display: none !important;
+  background: none !important;
+  box-shadow: none !important;
+}
+
+.class-dashboard-side .class-team-panel {
+  order: -1;
+}
+
+.class-dashboard .class-team-panel,
+.class-dashboard .class-info-panel,
+.class-dashboard .class-request-panel {
+  min-width: 0;
+}
+
+.class-request-panel .class-team-members-list {
+  margin: 20px 0 0;
+  padding: 14px 0 0 !important;
+  border: 0 !important;
+  border-top: 1px solid var(--app-border) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.class-request-panel .class-team-members-list h3 {
+  margin: 0 0 8px;
+}
+
+.class-request-panel .class-team-members-list .matched-row {
+  margin: 0;
+  padding: 10px 0 !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--app-border) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.class-request-panel .class-team-members-list .matched-row:last-child {
+  border-bottom: 0 !important;
+}
+
+.app.theme-light .class-request-panel .class-team-members-list,
+.app.theme-dark .class-request-panel .class-team-members-list {
+  border: 0 !important;
+  border-top: 1px solid var(--app-border) !important;
+  outline: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.app.theme-light .class-request-panel .class-team-members-list .matched-row,
+.app.theme-dark .class-request-panel .class-team-members-list .matched-row {
+  border: 0 !important;
+  border-bottom: 1px solid var(--app-border) !important;
+  outline: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Message/profile action rows use the same centered control geometry. */
+.app:is(.view-profile-detail, .view-discover-profile) .connection-action-row {
+  width: 100%;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.app:is(.view-profile-detail, .view-discover-profile) .connection-action-row > :is(.primary, .secondary) {
+  width: 100%;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.messages-tab-panel .thread-actions {
+  grid-template-columns: minmax(132px, auto) repeat(2, minmax(132px, 1fr));
+}
+
+.messages-tab-panel .thread-actions > button {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+}
+
+/* Discover and open-collab cards expose one mutually-exclusive connection
+   state and one balanced action row. */
+.discover-card .discover-connection-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+}
+
+.discover-card .discover-connection-actions > :is(.primary, .secondary, .connected-button, .disabled-contact) {
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.discover-card > .status-badge {
+  margin: 4px 0 2px;
+}
+
+.collabs-screen .collab-discovery-panel .compact-header h2 {
+  display: none;
+}
+
+.collabs-screen .collab-discovery-panel .compact-header p:not(.eyebrow) {
+  margin-top: 0;
+}
+
+@media (max-width: 900px) {
+  .class-dashboard-side .class-team-panel {
+    order: 1;
+  }
+
+  .class-dashboard-side .class-info-panel {
+    order: 0;
+  }
+}
+
+@media (max-width: 720px) {
+  .messages-tab-panel .thread-actions,
+  .discover-card .discover-connection-actions,
+  .app:is(.view-profile-detail, .view-discover-profile) .connection-action-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Task 1.3: accepted Discover/Collabs state keeps the checkmark prominent
+   without changing the underlying friend/teammate relationship. */
+.app.theme-light .discover-card .discover-connection-actions .connected-button,
+.app.theme-dark .discover-card .discover-connection-actions .connected-button {
+  border: 1px solid rgba(147, 197, 253, 0.58) !important;
+  color: #ffffff !important;
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 58%, #1e40af 100%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 12px 28px rgba(29, 78, 216, 0.28) !important;
+}
+
+.app.theme-light .discover-card .discover-connection-actions .connected-button:hover,
+.app.theme-dark .discover-card .discover-connection-actions .connected-button:hover {
+  filter: brightness(1.08) saturate(1.04);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    0 16px 34px rgba(29, 78, 216, 0.36) !important;
+}
