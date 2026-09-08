@@ -6750,6 +6750,48 @@ option {
   }
 }
 
+/* Keep Match Results content readable in light mode despite legacy dark-theme card rules. */
+.app.theme-light .match-card {
+  color: var(--app-text) !important;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(37, 99, 235, 0.08), transparent 15rem),
+    radial-gradient(circle at 90% 0%, rgba(244, 63, 94, 0.06), transparent 14rem),
+    var(--app-surface) !important;
+}
+
+.app.theme-light .match-card h3 {
+  color: var(--app-text) !important;
+}
+
+.app.theme-light .match-card > p {
+  color: var(--app-text-soft) !important;
+}
+
+.app.theme-light .match-card > p.note {
+  color: var(--app-muted) !important;
+}
+
+.app.theme-light .match-card .match-meta span {
+  border: 1px solid var(--app-border) !important;
+  color: var(--app-text-soft) !important;
+  background: var(--app-surface-2) !important;
+}
+
+.app.theme-light .match-card .mini-detail strong {
+  color: var(--app-text-soft) !important;
+}
+
+.app.theme-light .match-card .mini-detail span {
+  color: var(--app-text-soft) !important;
+}
+
+/* The selected request label must remain visible on its light surface. */
+.app.theme-light .request-switcher-panel .static-request-name {
+  border-color: var(--app-border) !important;
+  color: var(--app-text) !important;
+  background: var(--app-surface-2) !important;
+}
+
 /* Small review fixes: compact tabs, unboxed details, profile action alignment */
 .app.theme-light.landing-mode .landing-tagline {
   color: var(--app-text, #101828) !important;

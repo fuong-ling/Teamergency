@@ -459,7 +459,27 @@ const validatePortfolioFile = (file) => {
   return '';
 };
 
-const getFriendlyError = (error, fallback) => {
+const isMissingTeamRequestSchema = (error) => {
+  const code = String(error?.code || '');
+  const message = String(error?.message || '').toLowerCase();
+  const referencesTeamRequestField = ['total_team_size', 'teammates_needed_initial', 'class_id']
+    .some((field) => message.includes(field));
+  const missingColumn = ['42703', 'PGRST204'].includes(code)
+    && message.includes('column')
+    && referencesTeamRequestField;
+  const missingFunction = code === 'PGRST202'
+    && message.includes('could not find the function')
+    && [
+      'create_team_request',
+      'create_team_request_with_class',
+      'update_team_request',
+      'update_team_request_with_class',
+    ].some((functionName) => message.includes(functionName));
+
+  return missingColumn || missingFunction;
+};
+
+const getFriendlyError = (error, fallback, { demoClassJoin = false } = {}) => {
   if (error?.code === 'anonymous_provider_disabled' || error?.message?.includes('Anonymous sign-ins are disabled')) {
     return 'Anonymous Sign-ins are not enabled in Supabase yet. Enable them in Authentication > Sign In / Providers, then refresh this app.';
   }
@@ -468,7 +488,7 @@ const getFriendlyError = (error, fallback) => {
     return 'The real public testing migration has not been applied yet. Run supabase/real_public_testing.sql in Supabase.';
   }
 
-  if (error?.message?.includes('p_total_team_size') || error?.message?.includes("Could not find the 'total_team_size' column")) {
+  if (isMissingTeamRequestSchema(error)) {
     return 'The team size/class request database fix has not been applied yet. Run supabase/fix_current_request_team_size_and_class_rpc.sql in Supabase.';
   }
 
@@ -492,7 +512,7 @@ const getFriendlyError = (error, fallback) => {
     return 'This class does not match your current academic profile.';
   }
 
-  if (error?.message?.includes('class_id') && error?.message?.includes('ambiguous')) {
+  if (demoClassJoin && error?.message?.includes('class_id') && error?.message?.includes('ambiguous')) {
     return 'The demo class join database fix has not been applied yet. Run supabase/fix_join_demo_class_ambiguous.sql in Supabase, then refresh this app.';
   }
 
@@ -793,6 +813,30 @@ const getTeamProgress = (request, progress = {}) => {
   };
 };
 
+const getRequestStatusMetrics = (request = {}) => {
+  const teamStatus = request.team_status || {};
+  const total = Math.max(1, Number(
+    teamStatus.total_team_size
+      ?? teamStatus.required_members
+      ?? getTotalTeamSize(request),
+  ));
+  const remainingValue = teamStatus.remaining_members ?? teamStatus.remaining_spots;
+  const foundValue = teamStatus.found_count ?? teamStatus.current_members ?? teamStatus.teammates_found;
+  const fallbackFound = remainingValue !== undefined
+    ? total - Number(remainingValue)
+    : total - getInitialNeeded(request);
+  const found = Math.min(total, Math.max(0, Number(foundValue ?? fallbackFound)));
+  const remaining = Math.max(0, total - found);
+
+  return {
+    total,
+    found,
+    remaining,
+    complete: found >= total,
+    percent: Math.min(100, (found / total) * 100),
+  };
+};
+
 const SkillList = ({ items = [] }) => (
   items?.length ? (
     <span className="skill-chip-list">
@@ -800,40 +844,6 @@ const SkillList = ({ items = [] }) => (
     </span>
   ) : <span>Not specified</span>
 );
-
-const addConnectedTeammateToProgress = (request, progress = {}, candidateRequest = {}, connection = {}) => {
-  const teammateProfile = candidateRequest.profile || candidateRequest;
-  const teammateId = candidateRequest.profile_id || teammateProfile.id;
-  if (!request?.id || !teammateId || connection?.status !== 'accepted') return progress;
-
-  const teammates = Array.isArray(progress.teammates) ? progress.teammates : [];
-  if (teammates.some((teammate) => teammate.profile_id === teammateId || teammate.id === teammateId)) {
-    return progress;
-  }
-
-  const metrics = getTeamProgress(request, progress);
-  const nextMatchedCount = metrics.matchedCount + 1;
-  const nextFoundCount = Math.min(metrics.total, metrics.existingMembers + nextMatchedCount);
-
-  return {
-    ...progress,
-    found_count: nextFoundCount,
-    matched_count: nextMatchedCount,
-    existing_members: metrics.existingMembers,
-    total_team_size: metrics.total,
-    teammates: [
-      ...teammates,
-      {
-        profile_id: teammateId,
-        full_name: teammateProfile.full_name,
-        major: teammateProfile.major || candidateRequest.major,
-        skills: teammateProfile.skills || [],
-        is_demo: Boolean(teammateProfile.is_demo),
-        connection_id: connection.id,
-      },
-    ],
-  };
-};
 
 const progressSummary = (metrics, t = translate.bind(null, 'en')) =>
   `${metrics.found} / ${metrics.total} ${t('common.completed').toLowerCase()}`;
@@ -1670,7 +1680,11 @@ function JoinClassPage({ profile, profileId, onCreateProfile, onJoined, t = tran
       onJoined?.(joinedClassId);
     } catch (err) {
       console.error('Join class failed', err);
-      setError(isProfileOwnershipError(err) ? t('join.profileOwnership') : t('join.joinFail'));
+      setError(
+        isProfileOwnershipError(err)
+          ? t('join.profileOwnership')
+          : getFriendlyError(err, t('join.joinFail'), { demoClassJoin: Boolean(preview?.is_demo) }),
+      );
     } finally {
       setJoining(false);
     }
@@ -2110,8 +2124,10 @@ function ClassDetailPage({
 	  const progress = selectedRequest ? state.progressByRequest[selectedRequest.id] || { found_count: 0, teammates: [] } : null;
 	  const requestMetrics = selectedRequest ? getTeamProgress(selectedRequest, progress) : null;
 	  const editableStatus = getTeamStatusFromEditableTeam(state.teamStatus, t);
-	  const metrics = editableStatus?.metrics || requestMetrics;
-	  const status = editableStatus || classTeamStatus(state.classItem, selectedRequest, requestMetrics, t);
+	  const metrics = requestMetrics || editableStatus?.metrics;
+	  const status = requestMetrics
+    ? classTeamStatus(state.classItem, selectedRequest, requestMetrics, t)
+    : editableStatus || classTeamStatus(state.classItem, selectedRequest, requestMetrics, t);
 	  const teammates = progress?.teammates || [];
 	  const classClosed = state.classItem.formation_status === 'formation_complete' || state.classItem.status === 'closed';
 
@@ -2271,25 +2287,30 @@ function ClassDetailPage({
 
 		          {classClosed && <p className="note">{t('class.closed')}</p>}
 	
-	          <div className="hero-actions">
-	            <button
-	              className="secondary"
-	              type="button"
-	              onClick={() => setState((current) => ({ ...current, editingTeamStatus: true, actionError: '', actionSuccess: '' }))}
-	            >
-	              <Pencil size={18} />
-		              {t('class.editStatus')}
-	            </button>
-	            {activeRequest ? (
-	              <button className="primary" onClick={() => onViewMatches(activeRequest.id)}>
-		                {t('class.viewMatches')}
-	              </button>
-	            ) : !status.complete && !classClosed && (
-	              <button className="primary" onClick={() => onFindTeammates(state.classItem, state.teamStatus)}>
-		                {t('class.findTeammates')}
-	              </button>
-	            )}
-	          </div>
+          <div className="hero-actions">
+            <button
+              className={activeRequest ? 'secondary' : 'primary'}
+              type="button"
+              onClick={() => {
+                if (activeRequest) {
+                  setState((current) => ({ ...current, editingRequest: activeRequest, actionError: '', actionSuccess: '' }));
+                } else {
+                  onFindTeammates(state.classItem, state.teamStatus);
+                }
+              }}
+            >
+              <Pencil size={18} />
+              {activeRequest ? t('request.editClass') : t('class.createRequest')}
+            </button>
+            <button
+              className="primary"
+              type="button"
+              disabled={!activeRequest || classClosed}
+              onClick={() => activeRequest && onViewMatches(activeRequest.id)}
+            >
+              {t('class.findTeammates')}
+            </button>
+          </div>
 	        </section>
 	      </div>
 
@@ -2312,25 +2333,19 @@ function ClassDetailPage({
 	              <p className="eyebrow">{t('class.currentRequest')}</p>
               <h2>{getCourseDisplay(selectedRequest)}</h2>
             </div>
-	            {activeRequest && (
-	              <div className="hero-actions">
-	                <button className="secondary" onClick={() => setState((current) => ({ ...current, editingRequest: activeRequest, actionError: '', actionSuccess: '' }))}>
-	                  <Pencil size={18} />
-		                  {t('request.editClass')}
-	                </button>
-	                <button className="secondary quiet-action" onClick={() => setState((current) => ({ ...current, deleteRequestTarget: activeRequest, actionError: '', actionSuccess: '' }))}>
-	                  <Trash2 size={18} />
-		                  {t('request.deleteClass')}
-	                </button>
-	                <button className="secondary" onClick={() => onViewMatches(activeRequest.id)}>
-		                  {t('class.findMatches')}
-	                </button>
-	              </div>
-	            )}
+            {activeRequest && (
+              <div className="hero-actions">
+                <button className="secondary quiet-action" onClick={() => setState((current) => ({ ...current, deleteRequestTarget: activeRequest, actionError: '', actionSuccess: '' }))}>
+                  <Trash2 size={18} />
+                  {t('request.deleteClass')}
+                </button>
+              </div>
+            )}
           </div>
           <dl>
             <div><dt>{t('request.skillsNeeded')}</dt><dd>{joinList(selectedRequest.skills_needed)}</dd></div>
             <div><dt>{t('request.teamSize')}</dt><dd>{getTotalTeamSize(selectedRequest)}</dd></div>
+            <div><dt>{t('opportunities.progress')}</dt><dd>{teammateCountSummary(requestMetrics, t)} · {remainingSummary(requestMetrics, t)}</dd></div>
             <div><dt>{t('opportunities.initiallyLooking')}</dt><dd>{getInitialNeeded(selectedRequest)}</dd></div>
             <div><dt>{t('matches.workStyle')}</dt><dd>{joinList(getWorkStyles(selectedRequest))}</dd></div>
             <div><dt>{t('matches.teamStatus')}</dt><dd>{requestStatusLabel(selectedRequest.status, t)}</dd></div>
@@ -3778,10 +3793,10 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
 
 function MatchCard({ request, connectionState, onView, onConnect, connecting, t = translate.bind(null, 'en') }) {
   const teamStatus = request.team_status || {};
-  const remainingFromStatus = Number(teamStatus.remaining_members ?? request.members_needed ?? 0);
+  const liveMetrics = getRequestStatusMetrics(request);
   const teamStatusText = teamStatus.status_label
-    || (remainingFromStatus > 0
-      ? `${t('matches.lookingFor')} ${remainingFromStatus} ${remainingFromStatus === 1 ? t('matches.spot') : t('matches.spots')}`
+    || (liveMetrics.remaining > 0
+      ? `${t('matches.lookingFor')} ${liveMetrics.remaining} ${liveMetrics.remaining === 1 ? t('matches.spot') : t('matches.spots')}`
       : t('matches.teamNotSpecified'));
   const canConnect = connectionState === 'none' && !connecting;
 
@@ -3800,7 +3815,8 @@ function MatchCard({ request, connectionState, onView, onConnect, connecting, t 
       <div className="match-meta">
         <span>{getCourseDisplay(request)}</span>
         <span>{getLocalizedSessionDisplay(request, t)}</span>
-        <span>{getInitialNeeded(request)} {getInitialNeeded(request) === 1 ? t('matches.spot') : t('matches.spots')} {t('matches.remaining')}</span>
+        <span>{teammateCountSummary(liveMetrics, t)}</span>
+        <span>{remainingSummary(liveMetrics, t)}</span>
       </div>
       <div className="mini-detail">
         <strong>{t('matches.skillsHave')}</strong>
@@ -4119,9 +4135,6 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
       }
       let updatedProgress = await getTeamRequestProgress(currentRequest.id, currentProfileId)
         .catch(() => state.progressById[currentRequest.id] || { found_count: 0, teammates: [] });
-      if (currentRequest.class_id && request.profile?.is_demo) {
-        updatedProgress = addConnectedTeammateToProgress(currentRequest, updatedProgress, request, connection);
-      }
       setState((current) => ({
         ...current,
         sendingProfileId: '',
@@ -4157,7 +4170,7 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
 	          <p className="eyebrow">{isClassRequest ? t('matches.recommended') : t('matches.results')}</p>
 	          <h2>{isClassRequest ? t('matches.best') : t('matches.byRequest')}</h2>
         </div>
-        <button className="secondary" onClick={onViewCurrent}>
+        <button className="secondary" onClick={() => onViewCurrent(currentRequest)}>
           <Clock3 size={18} />
 	          {t('matches.current')}
         </button>
@@ -4588,6 +4601,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, currentProfile, on
   }
 
   const profile = state.profile;
+  const activeRequestMetrics = state.activeRequest ? getRequestStatusMetrics(state.activeRequest) : null;
   const isOwnProfile = profile.id === currentProfileId;
   const connectionState = getConnectionState(state.connection, currentProfileId);
   const reviewTeamRequestId = state.connection?.connection_context === 'team_request' && state.connection?.relationship_type === 'teammate'
@@ -4727,6 +4741,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, currentProfile, on
               <div><dt>{t('matches.workStyle')}</dt><dd>{joinList(getWorkStyles(state.activeRequest))}</dd></div>
               <div><dt>{t('matches.requirements')}</dt><dd>{describeRequirements(state.activeRequest)}</dd></div>
               <div><dt>{t('matches.teamSize')}</dt><dd>{getTotalTeamSize(state.activeRequest)}</dd></div>
+              <div><dt>{t('opportunities.progress')}</dt><dd>{teammateCountSummary(activeRequestMetrics, t)} · {remainingSummary(activeRequestMetrics, t)}</dd></div>
               <div><dt>{t('matches.lookingFor')}</dt><dd>{getInitialNeeded(state.activeRequest)} {getInitialNeeded(state.activeRequest) === 1 ? t('matches.spot') : t('matches.spots')}</dd></div>
               <PortfolioReference request={state.activeRequest} />
             </dl>
@@ -5109,6 +5124,7 @@ function ProfileDetail({
 
   const request = state.request;
   const profile = request.profile;
+  const requestMetrics = getRequestStatusMetrics(request);
   const isOwnProfile = currentProfileId === profile.id;
   const canSendConnection = currentProfileId && !isOwnProfile;
   const connection = state.connection;
@@ -5343,6 +5359,7 @@ function ProfileDetail({
 	            <div><dt>{t('matches.classSession')}</dt><dd>{getLocalizedSessionDisplay(request, t)}</dd></div>
 	            <div><dt>{t('request.skillsNeeded')}</dt><dd>{joinList(request.skills_needed)}</dd></div>
 	            <div><dt>{t('matches.teamSize')}</dt><dd>{getTotalTeamSize(request)}</dd></div>
+	            <div><dt>{t('opportunities.progress')}</dt><dd>{teammateCountSummary(requestMetrics, t)} · {remainingSummary(requestMetrics, t)}</dd></div>
 	            <div><dt>{t('matches.lookingFor')}</dt><dd>{getInitialNeeded(request)} {getInitialNeeded(request) === 1 ? t('matches.spot') : t('matches.spots')}</dd></div>
 	            <div><dt>{t('matches.workStyle')}</dt><dd>{joinList(getWorkStyles(request))}</dd></div>
 	            <div><dt>{t('matches.requirements')}</dt><dd>{describeRequirements(request)}</dd></div>
@@ -5426,7 +5443,9 @@ function CurrentRequest({
       getActiveTeamRequests().catch(() => []),
     ])
       .then(async ([requests, profiles, activeRequests]) => {
-        const standaloneRequests = sortRequestsByVisibility(requests.filter((request) => !request.class_id));
+        const standaloneRequests = sortRequestsByVisibility(
+          requests.filter((request) => !request.class_id || request.id === requestId),
+        );
         const visibleProfiles = (profiles || [])
           .filter((candidate) => getProfileRole(candidate) === 'student')
           .filter((candidate) => candidate.id !== currentProfileId);
@@ -6005,6 +6024,7 @@ function CurrentRequest({
 	          <div><dt>{t('request.deadline')}</dt><dd>{request.deadline || t('common.notSpecified')}</dd></div>
 	          <div><dt>{t('request.skillsNeeded')}</dt><dd>{joinList(request.skills_needed)}</dd></div>
 	          <div><dt>{t('request.teamSize')}</dt><dd>{getTotalTeamSize(request)}</dd></div>
+          <div><dt>{t('opportunities.progress')}</dt><dd>{teammateCountSummary(metrics, t)} · {remainingSummary(metrics, t)}</dd></div>
           <div><dt>{t('opportunities.initiallyLooking')}</dt><dd>{getInitialNeeded(request)}</dd></div>
           <div><dt>{t('request.teammateKind')}</dt><dd>{joinList(getWorkStyles(request))}</dd></div>
           <div><dt>{t('request.requirementsTitle')}</dt><dd>{describeRequirements(request)}</dd></div>
@@ -8552,14 +8572,14 @@ export default function App() {
 	          onBack={() => (requestClassContext ? navigate('class-detail') : goBack('home'))}
 	          classContext={requestClassContext}
 	          t={t}
-	          onCreated={(request) => {
+          onCreated={(request) => {
             setRequestId(request.id);
             if (request.class_id || requestClassContext?.id) {
               const nextClassId = request.class_id || requestClassContext.id;
               setSelectedClassId(nextClassId);
               storeClassId(nextClassId);
               setRequestClassContext(null);
-              navigate('matches');
+              navigate('class-detail');
             } else {
               navigate('matches');
             }
@@ -8573,7 +8593,14 @@ export default function App() {
           currentProfileId={profileId}
 	          onCreateNew={startRequest}
 	          onSelectRequest={selectCurrentRequest}
-	          onViewCurrent={() => navigate('current-request')}
+	          onViewCurrent={(currentRequest) => {
+              selectCurrentRequest(currentRequest.id);
+              if (currentRequest.class_id) {
+                openClass(currentRequest.class_id);
+              } else {
+                navigate('current-request');
+              }
+            }}
 	          t={t}
 	          onViewProfile={(id, score) => {
             setSelectedRequestId(id);

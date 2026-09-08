@@ -867,26 +867,17 @@ export const createTeamRequest = async (profileId, requestData) => {
     p_requirements: requestData.requirements,
   };
   if (requestData.class_id) {
-    const v2 = await client.rpc('create_team_request_with_class_v2', {
+    const { data, error } = await client.rpc('create_team_request_with_class', {
       ...args,
-      p_availability: requestData.availability,
-      p_preferred_active_time: requestData.preferred_active_time,
       p_class_id: requestData.class_id,
     });
 
-    if (!v2.error) {
-      if (!v2.data?.length) {
-        throw new Error('Team request was not created.');
-      }
-
-      return { ...v2.data[0], editToken: v2.data[0].edit_token };
+    if (error) throw error;
+    if (!data?.length) {
+      throw new Error('Team request was not created.');
     }
 
-    if (!isMissingSchemaFeature(v2.error)) {
-      throw v2.error;
-    }
-
-    args.p_class_id = requestData.class_id;
+    return { ...data[0], editToken: data[0].edit_token };
   }
 
   const rpcName = requestData.class_id ? 'create_team_request_with_class' : 'create_team_request';
@@ -1123,7 +1114,10 @@ const requestSessionKey = (request = {}) => {
 
 const requestsShareCourseAndSession = (left, right) => {
   if (left?.class_id || right?.class_id) {
-    return Boolean(left?.class_id && left.class_id === right?.class_id);
+    const sameClass = Boolean(left?.class_id && left.class_id === right?.class_id);
+    const leftSession = requestSessionKey(left);
+    const rightSession = requestSessionKey(right);
+    return Boolean(sameClass && (!leftSession || !rightSession || leftSession === rightSession));
   }
 
   if (isOpenOpportunityRequest(left) || isOpenOpportunityRequest(right)) {
