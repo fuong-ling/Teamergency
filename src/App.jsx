@@ -91,9 +91,7 @@ import {
 } from './lib/supabase';
 import { REVIEW_WAIT_DAYS } from './lib/config';
 import {
-  connectMessageSuggestions,
   contactTypes,
-  demoReplyPool,
   getAllCourses,
   getAllSkills,
   getCoursesForSchool,
@@ -142,6 +140,8 @@ import { calculateMatchScore } from './lib/matching';
 import { languages, translate } from './lib/i18n';
 
 const classDayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+const currentUiLanguage = () => getStoredLanguage?.() || 'en';
 
 const hiddenLegacyDemoClassCodes = ['676767', '88889999'];
 
@@ -193,7 +193,7 @@ const lecturerSessionFromProfile = (profile) => {
   return {
     university: profile.university || 'RMIT University',
     lecturerId: profile.lecturer_id || '',
-    lecturerName: profile.full_name || 'Lecturer',
+    lecturerName: profile.full_name || translate(currentUiLanguage(), 'profile.lecturer'),
   };
 };
 
@@ -234,6 +234,16 @@ const unmatchReasons = [
   'Our project needs have changed',
   'Other',
 ];
+
+const unmatchReasonKeys = {
+  'Our skills or expectations are not a good fit': 'ui.unmatchReason.skills',
+  'Our working styles are not compatible': 'ui.unmatchReason.style',
+  'I found another teammate': 'ui.unmatchReason.another',
+  'No response / inactive': 'ui.unmatchReason.inactive',
+  'Connected by mistake': 'ui.unmatchReason.mistake',
+  'Our project needs have changed': 'ui.unmatchReason.changed',
+  Other: 'ui.unmatchReason.other',
+};
 
 const emptyProfile = {
   role: 'student',
@@ -307,7 +317,7 @@ const getSessionCodeFromValue = (value = '') => {
 
 const formatSessionCode = (code = '') => {
   const normalized = getSessionCodeFromValue(code);
-  return normalized ? `Session ${normalized}` : '';
+  return normalized ? `${translate(currentUiLanguage(), 'ui.sessionPrefix')} ${normalized}` : '';
 };
 
 const isTimetableSession = (session = '') => {
@@ -440,20 +450,20 @@ const splitList = (value) =>
     .map((item) => item.trim())
     .filter(Boolean);
 
-const validatePortfolioFile = (file) => {
+const validatePortfolioFile = (file, t = (key, values) => translate(currentUiLanguage(), key, values)) => {
   if (!file) return '';
   const extension = file.name.split('.').pop()?.toLowerCase() || '';
 
   if (!portfolioFileRules.extensions.includes(extension)) {
-    return 'Portfolio reference must be a PDF, PNG, JPG, or JPEG file.';
+    return t('request.portfolioFileType');
   }
 
   if (!portfolioFileRules.mimeTypes.includes(file.type)) {
-    return 'Portfolio reference must be a PDF, PNG, JPG, or JPEG file.';
+    return t('request.portfolioFileType');
   }
 
   if (file.size > portfolioFileRules.maxSize) {
-    return 'Portfolio reference must be 10 MB or smaller.';
+    return t('request.portfolioFileSize');
   }
 
   return '';
@@ -481,15 +491,15 @@ const isMissingTeamRequestSchema = (error) => {
 
 const getFriendlyError = (error, fallback, { demoClassJoin = false } = {}) => {
   if (error?.code === 'anonymous_provider_disabled' || error?.message?.includes('Anonymous sign-ins are disabled')) {
-    return 'Anonymous Sign-ins are not enabled in Supabase yet. Enable them in Authentication > Sign In / Providers, then refresh this app.';
+    return translate(currentUiLanguage(), 'errors.anonymousAuth');
   }
 
   if (error?.code === 'PGRST204' || error?.message?.includes("Could not find the 'owner_id' column")) {
-    return 'The real public testing migration has not been applied yet. Run supabase/real_public_testing.sql in Supabase.';
+    return translate(currentUiLanguage(), 'errors.publicTestingMigration');
   }
 
   if (isMissingTeamRequestSchema(error)) {
-    return 'The team size/class request database fix has not been applied yet. Run supabase/fix_current_request_team_size_and_class_rpc.sql in Supabase.';
+    return translate(currentUiLanguage(), 'errors.teamRequestMigration');
   }
 
   if (
@@ -497,51 +507,53 @@ const getFriendlyError = (error, fallback, { demoClassJoin = false } = {}) => {
     || error?.message?.includes("Could not find the 'university' column")
     || error?.message?.includes("Could not find the 'is_available' column")
   ) {
-    return 'The A3 iteration migration has not been applied yet. Run supabase/a3_iteration_features.sql in Supabase.';
+    return translate(currentUiLanguage(), 'errors.a3Migration');
   }
 
   if (error?.message?.includes('Profile ownership required')) {
-    return 'This profile is not linked to the current browser session. Refresh the app first. If this keeps happening, create a new profile on this browser.';
+    return translate(currentUiLanguage(), 'errors.profileOwnership');
   }
 
   if (error?.message?.includes('Profile was not updated')) {
-    return 'This profile is not linked to the current browser session, so it cannot be edited from here. Refresh first; if it still happens, create a new profile on this browser.';
+    return translate(currentUiLanguage(), 'errors.profileUpdateOwnership');
   }
 
   if (error?.message?.includes('does not match your current academic profile')) {
-    return 'This class does not match your current academic profile.';
+    return translate(currentUiLanguage(), 'errors.classProfileMismatch');
   }
 
   if (demoClassJoin && error?.message?.includes('class_id') && error?.message?.includes('ambiguous')) {
-    return 'The demo class join database fix has not been applied yet. Run supabase/fix_join_demo_class_ambiguous.sql in Supabase, then refresh this app.';
+    return translate(currentUiLanguage(), 'errors.demoClassJoinMigration');
   }
 
   if (error?.message?.includes('Review is not available yet')) {
     if (REVIEW_WAIT_DAYS === 0) {
-      return 'Supabase is still using the old review wait setting. Run supabase/review_wait_now_testing.sql, then try again.';
+      return translate(currentUiLanguage(), 'errors.reviewWaitMigration');
     }
-    return 'Review is not available yet.';
+    return translate(currentUiLanguage(), 'errors.reviewUnavailable');
   }
 
   if (error?.code === '23505' || error?.message?.includes('duplicate key')) {
-    return 'You already submitted this once for this match.';
+    return translate(currentUiLanguage(), 'errors.duplicateSubmission');
   }
 
   return error?.message ? `${fallback} (${error.message})` : fallback;
 };
 
 const titleCase = (value) => {
-  if (!value) return 'Not specified';
+  if (!value) return translate(currentUiLanguage(), 'common.notSpecified');
   return value.charAt(0).toUpperCase() + value.slice(1);
 };
 
 const contactLabel = (value) => {
-  if (value === 'url') return 'Other link';
+  if (value === 'url') return translate(currentUiLanguage(), 'options.contact.url');
   return titleCase(value);
 };
 
 const schoolLabel = (value) =>
-  schoolOptions.find((school) => school.value === value)?.label || value || 'Not specified';
+  schoolOptions.find((school) => school.value === value)
+    ? translate(currentUiLanguage(), `options.school.${String(value).toLowerCase()}`)
+    : value || translate(currentUiLanguage(), 'common.notSpecified');
 
 const hasDisplaySchool = (value) => Boolean(String(value || '').trim());
 
@@ -559,7 +571,9 @@ const formatProfileAcademicLine = (profile = {}, separator = ' | ') =>
   ].filter(Boolean).join(separator);
 
 const universityLabel = (value) =>
-  universityOptions.find((university) => university.value === value)?.label || value || 'RMIT University';
+  universityOptions.find((university) => university.value === value)
+    ? translate(currentUiLanguage(), `options.university.${String(value).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')}`)
+    : value || 'RMIT University';
 
 const isKnownUniversity = (value = '') =>
   universityOptions.some((university) => university.value === value);
@@ -691,35 +705,39 @@ const getReviewEligibility = (connection) => {
 const allCourseOptions = getAllCourses();
 
 const formatCourseOption = (course) =>
-  course?.code ? `${course.name} (${course.code})` : course?.name || 'Not specified';
+  course?.code ? `${course.name} (${course.code})` : course?.name || translate(currentUiLanguage(), 'common.notSpecified');
 
 const findCourseByCode = (courseCode) =>
   allCourseOptions.find((course) => course.code === courseCode) || null;
 
 const getCourseDisplay = (request) => {
-  if (!request) return 'Not specified';
+  if (!request) return translate(currentUiLanguage(), 'common.notSpecified');
   if (request.request_scope === 'open_opportunity' || request.opportunity_name) {
-    return request.opportunity_name || request.course_name || request.course || 'Collab';
+    return request.opportunity_name || request.course_name || request.course || translate(currentUiLanguage(), 'request.open');
   }
   if (request.course_name && request.course_code) return `${request.course_name} (${request.course_code})`;
   if (request.course_name) return request.course_name;
-  return request.course || 'Not specified';
+  return request.course || translate(currentUiLanguage(), 'common.notSpecified');
 };
 
 const getOpportunityMeta = (request) =>
   [request?.opportunity_type, request?.opportunity_field]
     .filter(Boolean)
-    .join(' | ') || 'Collab';
+    .join(' | ') || translate(currentUiLanguage(), 'request.open');
 
 const getSessionDisplay = (request = {}) => {
   if (request.request_scope === 'open_opportunity' || request.opportunity_name) {
-    return request.deadline ? `Deadline ${request.deadline}` : 'Outside class';
+    return request.deadline
+      ? `${translate(currentUiLanguage(), 'request.deadline')} ${request.deadline}`
+      : translate(currentUiLanguage(), 'request.outsideClass');
   }
 
   const sessionLabel = formatSessionCode(request.session_code || request.class_session);
   if (sessionLabel) return sessionLabel;
   if (request.class_session && !isTimetableSession(request.class_session)) return request.class_session;
-  return request.class_session ? 'Legacy session' : 'Not specified';
+  return request.class_session
+    ? translate(currentUiLanguage(), 'class.session')
+    : translate(currentUiLanguage(), 'common.notSpecified');
 };
 
 const getLocalizedSessionDisplay = (request = {}, t = translate.bind(null, 'en')) => {
@@ -727,9 +745,11 @@ const getLocalizedSessionDisplay = (request = {}, t = translate.bind(null, 'en')
     return request.deadline ? `${t('request.deadline')} ${request.deadline}` : t('request.outsideClass');
   }
 
+  if (!request.class_session && !request.session_code) return t('common.notSpecified');
   const session = getSessionDisplay(request);
-  if (session === 'Not specified') return t('common.notSpecified');
-  if (session === 'Legacy session') return t('class.session');
+  if (request.class_session && !isTimetableSession(request.class_session) && !request.session_code) {
+    return request.class_session;
+  }
   return session;
 };
 
@@ -741,13 +761,13 @@ const requestStatusLabel = (status, t = translate.bind(null, 'en')) => {
 };
 
 const getClassDisplay = (classItem = {}) => {
-  const course = classItem.course_name || classItem.course || 'Course';
+  const course = classItem.course_name || classItem.course || translate(currentUiLanguage(), 'class.course');
   const code = classItem.course_code ? ` (${classItem.course_code})` : '';
   return `${course}${code} · ${getSessionDisplay(classItem)}`;
 };
 
 const getAcademicPeriodDisplay = (item = {}) =>
-  [item.semester, item.academic_year].filter(Boolean).join(', ') || 'Academic period not specified';
+  [item.semester, item.academic_year].filter(Boolean).join(', ') || translate(currentUiLanguage(), 'common.notSpecified');
 
 const getCourseFilterValue = (request) =>
   request?.course_code || request?.course_name || request?.course || '';
@@ -773,7 +793,7 @@ const courseMatchesFilter = (request, filterValue) => {
 };
 
 const joinList = (items) => {
-  if (!items?.length) return 'Not specified';
+  if (!items?.length) return translate(currentUiLanguage(), 'common.notSpecified');
   return items.join(', ');
 };
 
@@ -842,7 +862,7 @@ const SkillList = ({ items = [] }) => (
     <span className="skill-chip-list">
       {items.map((item, index) => <span className="skill-chip" key={`${item}-${index}`}>{item}</span>)}
     </span>
-  ) : <span>Not specified</span>
+  ) : <span>{translate(currentUiLanguage(), 'common.notSpecified')}</span>
 );
 
 const progressSummary = (metrics, t = translate.bind(null, 'en')) =>
@@ -1028,6 +1048,13 @@ const getProfileRequiredFields = (form = {}) => {
   return isOtherUniversityForm(form) ? base : ['full_name', 'university', 'school', 'major', 'student_id', 'skills', 'contact_value', 'short_bio'];
 };
 
+const isProfileFieldRequired = (form = {}, field) => {
+  if (field === 'custom_university') return isOtherUniversityForm(form);
+  if (field === 'consent_public_visibility') return true;
+  if (field === 'lecturer_contact_method') return form.role === 'lecturer';
+  return getProfileRequiredFields(form).includes(field);
+};
+
 const getProfileFieldErrors = (form, t = translate.bind(null, 'en')) => {
   const role = form.role === 'lecturer' ? 'lecturer' : 'student';
   const isFilled = (field) => {
@@ -1063,34 +1090,53 @@ const isProfileCompleteForRole = (profile, role) => {
 const FieldError = ({ message }) =>
   message ? <span className="validation-message">{message}</span> : null;
 
+const FieldLabel = ({ children, required = false }) => (
+  <span className="field-label">
+    {children}
+    {required && <span className="required-mark" aria-hidden="true">*</span>}
+  </span>
+);
+
 const mergeOptionSets = (...groups) =>
   [...new Set(groups.flat().filter(Boolean))];
 
-const describeRequirements = (request) => {
+const describeRequirements = (request, t = (key, values) => translate(currentUiLanguage(), key, values)) => {
   const data = request?.requirements_data || {};
   const parts = [];
 
   if (data.selected?.length) {
-    parts.push(...data.selected.filter((item) => item !== 'Has completed specific courses'));
+    parts.push(...data.selected
+      .filter((item) => item !== 'Has completed specific courses')
+      .map((item) => {
+        const key = `options.requirement.${String(item).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')}`;
+        const translated = t(key);
+        return translated === key ? item : translated;
+      }));
   }
 
   if (data.minimum_gpa) {
-    parts.push(`Minimum GPA: ${data.minimum_gpa}`);
+    parts.push(t('request.minimumGpaSummary', { value: data.minimum_gpa }));
   }
 
   if (data.portfolio_link_required) {
-    parts.push('Portfolio link requested');
+    parts.push(t('request.portfolioLinkRequested'));
   }
 
   if (data.required_tools?.length) {
-    parts.push(`Tools: ${data.required_tools.join(', ')}`);
+    parts.push(t('request.toolsSummary', {
+      tools: data.required_tools.map((item) => {
+        const key = `options.skill.${String(item).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')}`;
+        const translated = t(key);
+        return translated === key ? item : translated;
+      }).join(', '),
+    }));
   }
 
   if (request?.requirements) {
     parts.push(request.requirements);
   }
 
-  return parts.length ? parts.join(' | ') : 'Not specified';
+  return parts.length ? parts.join(' | ') : t('common.notSpecified');
 };
 
 const toggleValue = (items, value) =>
@@ -1108,7 +1154,7 @@ const formatTime = (value) => {
 };
 
 const formatThreadTime = (value) => {
-  if (!value) return 'No messages yet';
+  if (!value) return translate(currentUiLanguage(), 'messages.none');
   const date = new Date(value);
   const today = new Date();
   const yesterday = new Date();
@@ -1119,7 +1165,7 @@ const formatThreadTime = (value) => {
   }
 
   if (date.toDateString() === yesterday.toDateString()) {
-    return 'Yesterday';
+    return translate(currentUiLanguage(), 'ui.yesterday');
   }
 
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(date);
@@ -1127,7 +1173,7 @@ const formatThreadTime = (value) => {
 
 const PillList = ({ items }) => (
   <div className="pill-list">
-    {items?.length ? items.map((item) => <span key={item}>{item}</span>) : <span>Not specified</span>}
+    {items?.length ? items.map((item) => <span key={item}>{item}</span>) : <span>{translate(currentUiLanguage(), 'common.notSpecified')}</span>}
   </div>
 );
 
@@ -1200,7 +1246,7 @@ const ConnectionRelationshipBadge = ({ connection, t = translate.bind(null, 'en'
   return <span className={`status-badge ${tone}`}>{relationship}</span>;
 };
 
-const PortfolioReference = ({ request }) => {
+const PortfolioReference = ({ request, t = translate.bind(null, 'en') }) => {
   const fileUrl = getPortfolioReferenceUrl(request?.portfolio_reference_path);
 
   if (!request?.requires_portfolio && !fileUrl) {
@@ -1209,13 +1255,13 @@ const PortfolioReference = ({ request }) => {
 
   return (
     <>
-      {request?.requires_portfolio && <div><dt>Portfolio</dt><dd>Portfolio required</dd></div>}
+      {request?.requires_portfolio && <div><dt>{t('ui.portfolio')}</dt><dd>{t('ui.portfolioRequired')}</dd></div>}
       {fileUrl && (
         <div>
-          <dt>Portfolio / Project Reference</dt>
+          <dt>{t('ui.portfolioReference')}</dt>
           <dd>
             <a className="text-link" href={fileUrl} target="_blank" rel="noreferrer">
-              View File
+              {t('ui.viewFile')}
             </a>
             {request.portfolio_reference_name && <span className="file-name"> {request.portfolio_reference_name}</span>}
           </dd>
@@ -1264,11 +1310,14 @@ function ConnectModal({ receiverName, sending, error, onClose, onSend, t = trans
           />
         </label>
         <div className="suggestions">
-          {connectMessageSuggestions.map((message) => (
+          {[1, 2, 3].map((index) => {
+            const message = t(`connect.suggestion${index}`);
+            return (
             <button className="suggestion-chip" key={message} type="button" onClick={() => setIntroMessage(message)}>
               {message}
             </button>
-          ))}
+            );
+          })}
         </div>
         {error && <p className="error">{error}</p>}
         <div className="hero-actions">
@@ -1282,38 +1331,38 @@ function ConnectModal({ receiverName, sending, error, onClose, onSend, t = trans
   );
 }
 
-function UnmatchModal({ teammateName, saving, error, onClose, onConfirm }) {
+function UnmatchModal({ teammateName, saving, error, onClose, onConfirm, t = translate.bind(null, 'en') }) {
   const [step, setStep] = useState('confirm');
   const [reason, setReason] = useState('');
   const [note, setNote] = useState('');
 
   return (
     <div className="modal-backdrop" role="presentation">
-      <section className="connect-modal" role="dialog" aria-modal="true" aria-label="Unmatch confirmation">
+      <section className="connect-modal" role="dialog" aria-modal="true" aria-label={t('ui.unmatchConfirmation')}>
         {step === 'confirm' ? (
           <>
             <div className="modal-header">
               <div>
-                <p className="eyebrow">Unmatch</p>
-                <h2>Unmatch with {teammateName}?</h2>
+                <p className="eyebrow">{t('ui.unmatch')}</p>
+                <h2>{t('ui.unmatchWith', { name: teammateName })}</h2>
               </div>
-              <button className="ghost" onClick={onClose} type="button">Close</button>
+              <button className="ghost" onClick={onClose} type="button">{t('common.close')}</button>
             </div>
-            <p className="note">Are you sure you want to unmatch? You will no longer appear as connected.</p>
+            <p className="note">{t('ui.unmatchQuestion')}</p>
             {error && <p className="error">{error}</p>}
             <div className="hero-actions">
-              <button className="secondary" onClick={onClose} type="button">Cancel</button>
-              <button className="primary" onClick={() => setStep('reason')} type="button">Continue</button>
+              <button className="secondary" onClick={onClose} type="button">{t('common.cancel')}</button>
+              <button className="primary" onClick={() => setStep('reason')} type="button">{t('common.continue')}</button>
             </div>
           </>
         ) : (
           <>
             <div className="modal-header">
               <div>
-                <p className="eyebrow">Unmatch</p>
-                <h2>Why are you unmatching?</h2>
+                <p className="eyebrow">{t('ui.unmatch')}</p>
+                <h2>{t('ui.whyUnmatch')}</h2>
               </div>
-              <button className="ghost" onClick={onClose} type="button">Close</button>
+              <button className="ghost" onClick={onClose} type="button">{t('common.close')}</button>
             </div>
             <div className="radio-list">
               {unmatchReasons.map((item) => (
@@ -1324,13 +1373,13 @@ function UnmatchModal({ teammateName, saving, error, onClose, onConfirm }) {
                     checked={reason === item}
                     onChange={() => setReason(item)}
                   />
-                  <span>{item}</span>
+                    <span>{t(unmatchReasonKeys[item] || item)}</span>
                 </label>
               ))}
             </div>
             {reason === 'Other' && (
               <label>
-                Tell us more (optional)
+                {t('ui.tellMoreOptional')}
                 <textarea
                   value={note}
                   onChange={(event) => setNote(event.target.value)}
@@ -1340,9 +1389,9 @@ function UnmatchModal({ teammateName, saving, error, onClose, onConfirm }) {
             )}
             {error && <p className="error">{error}</p>}
             <div className="hero-actions">
-              <button className="secondary" onClick={onClose} type="button">Cancel</button>
+              <button className="secondary" onClick={onClose} type="button">{t('common.cancel')}</button>
               <button className="primary" onClick={() => onConfirm(reason, note)} disabled={saving || !reason}>
-                {saving ? 'Unmatching...' : 'Confirm Unmatch'}
+                {saving ? t('ui.unmatching') : t('ui.confirmUnmatch')}
               </button>
             </div>
           </>
@@ -1352,19 +1401,19 @@ function UnmatchModal({ teammateName, saving, error, onClose, onConfirm }) {
   );
 }
 
-function DemoSimulationPanel({ connection, accepting, onAccept, onStartChat, onViewConnection, onReset }) {
+function DemoSimulationPanel({ connection, accepting, onAccept, onStartChat, onViewConnection, onReset, t = translate.bind(null, 'en') }) {
   if (!connection) return null;
 
   if (connection.status === 'accepted') {
     return (
       <section className="demo-simulation success-simulation">
-        <p className="eyebrow">Demo Simulation</p>
-        <h3>It's a Match! 🎉</h3>
-        <p>You and this demo teammate are now connected.</p>
+        <p className="eyebrow">{t('ui.demoSimulation')}</p>
+        <h3>{t('ui.itsAMatch')}</h3>
+        <p>{t('ui.demoConnected')}</p>
         <div className="hero-actions">
-          <button className="primary" onClick={onStartChat}>Start Chat</button>
-          {onViewConnection && <button className="secondary" onClick={onViewConnection}>View Connection</button>}
-          {onReset && <button className="secondary" onClick={onReset}>Reset Demo</button>}
+          <button className="primary" onClick={onStartChat}>{t('ui.startChat')}</button>
+          {onViewConnection && <button className="secondary" onClick={onViewConnection}>{t('ui.viewConnection')}</button>}
+          {onReset && <button className="secondary" onClick={onReset}>{t('ui.resetDemo')}</button>}
         </div>
       </section>
     );
@@ -1373,11 +1422,11 @@ function DemoSimulationPanel({ connection, accepting, onAccept, onStartChat, onV
   if (connection.status === 'pending') {
     return (
       <section className="demo-simulation">
-        <p className="eyebrow">Demo Simulation</p>
-        <h3>Simulate demo acceptance</h3>
-        <p>This is a demo profile. Simulate the teammate accepting your connection request to continue testing the MVP flow.</p>
+        <p className="eyebrow">{t('ui.demoSimulation')}</p>
+        <h3>{t('ui.simulateAcceptance')}</h3>
+        <p>{t('ui.demoAcceptanceHelp')}</p>
         <button className="primary" onClick={onAccept} disabled={accepting}>
-          {accepting ? 'Simulating...' : 'Simulate Acceptance'}
+          {accepting ? t('ui.simulating') : t('ui.simulateAcceptance')}
         </button>
       </section>
     );
@@ -1404,7 +1453,7 @@ const StepRail = ({ step, t = translate.bind(null, 'en') }) => {
   ];
 
   return (
-    <div className="step-rail" aria-label="Teamergency flow">
+    <div className="step-rail" aria-label={t('steps.flow')}>
       {steps.map((item, index) => (
         <div className={index <= step ? 'step active' : 'step'} key={item}>
           <span>{index + 1}</span>
@@ -1564,7 +1613,7 @@ function Home({
           {!hasSupabaseConfig && <p className="field-helper">{t('profile.googleUnavailable')}</p>}
         </section>
 
-        <div className="landing-feature-row" aria-label="Teamergency features">
+        <div className="landing-feature-row" aria-label={t('home.featuresAria')}>
           {featureItems.map((item) => {
             const Icon = item.icon;
             return (
@@ -1819,7 +1868,7 @@ function MyClassesPage({ profileId, onCreateProfile, onJoinClass, onOpenClass, t
         if (alive) {
           setState({
             loading: false,
-            error: getFriendlyError(err, "We couldn't load your classes right now. Please try again."),
+            error: getFriendlyError(err, t('classes.loadFail')),
 	            classes: [],
 	            requests: [],
 	            progressByRequest: {},
@@ -2078,7 +2127,7 @@ function ClassDetailPage({
         if (alive) {
           setState({
             loading: false,
-	            error: getFriendlyError(err, "We couldn't load this class right now. Please try again."),
+            error: getFriendlyError(err, t('class.loadFail')),
 	            actionError: '',
 	            actionSuccess: '',
 	            classItem: null,
@@ -2260,7 +2309,7 @@ function ClassDetailPage({
 	                <strong>{teammateCountSummary(metrics, t)}</strong>
 		                <span>{metrics.complete ? t('class.complete') : `${metrics.remaining} ${t('class.missing')}`}</span>
               </div>
-              <div className="progress-track" aria-label="Class team formation progress">
+              <div className="progress-track" aria-label={t('ui.classFormationProgress')}>
                 <div className="progress-fill" style={{ width: `${metrics.percent}%` }} />
               </div>
 	              <p className={metrics.complete ? 'success' : 'note'}>{translateStatusText(status.detail, t)}</p>
@@ -2463,7 +2512,7 @@ function LecturerDashboard({ activeRole, lecturerSession, profileId, onOpenProfi
         .catch((err) => {
           if (alive) {
             setClasses([]);
-            setError(getFriendlyError(err, "We couldn't load lecturer dashboard data. Please run the Phase 2 demo migration and try again."));
+            setError(getFriendlyError(err, t('lecturer.loadFail')));
           }
         })
         .finally(() => {
@@ -2540,9 +2589,9 @@ function LecturerDashboard({ activeRole, lecturerSession, profileId, onOpenProfi
       setClasses((current) => [created, ...current]);
       setSelectedClassId(created.id);
       setCreateOpen(false);
-      setActionMessage(`Class created. Class code: ${created.join_code || created.lecturer_access_code}`);
+      setActionMessage(t('lecturer.classCreated', { code: created.join_code || created.lecturer_access_code }));
     } catch (err) {
-      setActionError(getFriendlyError(err, 'Could not create class. Run supabase/class_team_status_open_opportunities_phase.sql in Supabase and try again.'));
+      setActionError(getFriendlyError(err, t('lecturer.createFail')));
     } finally {
       setCreatingClass(false);
     }
@@ -2556,11 +2605,11 @@ function LecturerDashboard({ activeRole, lecturerSession, profileId, onOpenProfi
         lecturerProfileId: profileId,
         studentProfileId: student.profile_id,
         classId: selectedClass.id,
-        message: `Your lecturer noticed that you have not started looking for teammates for ${selectedClass.course_name}. Do you need help forming a team?`,
+        message: t('lecturer.reminderMessage', { course: selectedClass.course_name }),
       });
-      setActionMessage(`Reminder sent to ${displayName(student.full_name)}.`);
+      setActionMessage(t('lecturer.reminderSent', { name: displayName(student.full_name) }));
     } catch (err) {
-      setActionError(getFriendlyError(err, 'Could not send reminder yet. Run supabase/class_team_status_open_opportunities_phase.sql in Supabase and try again.'));
+      setActionError(getFriendlyError(err, t('lecturer.reminderFail')));
     }
   };
 
@@ -2572,11 +2621,11 @@ function LecturerDashboard({ activeRole, lecturerSession, profileId, onOpenProfi
         lecturerProfileId: profileId,
         studentProfileId: student.profile_id,
         classId: selectedClass.id,
-        message: `Hi, I noticed your team is still incomplete for ${selectedClass.course_name}. Are you having difficulty finding teammates or do you need help?`,
+        message: t('lecturer.studentMessage', { course: selectedClass.course_name }),
       });
       onOpenChat(thread.id);
     } catch (err) {
-      setActionError(getFriendlyError(err, 'Could not open lecturer message thread yet. Run supabase/class_team_status_open_opportunities_phase.sql in Supabase and try again.'));
+      setActionError(getFriendlyError(err, t('lecturer.messageFail')));
     }
   };
 
@@ -2592,7 +2641,7 @@ function LecturerDashboard({ activeRole, lecturerSession, profileId, onOpenProfi
         ? t('lecturer.unresolvedWarning', { count: result.unresolved_count })
         : t('lecturer.closeComplete'));
     } catch (err) {
-      setActionError(getFriendlyError(err, 'Could not close team formation yet. Run supabase/class_team_status_open_opportunities_phase.sql in Supabase and try again.'));
+      setActionError(getFriendlyError(err, t('lecturer.closeFail')));
     }
   };
 
@@ -2633,9 +2682,9 @@ function LecturerDashboard({ activeRole, lecturerSession, profileId, onOpenProfi
         ),
       );
       setClosingState({ ...result, unresolved_count: 0, showProposal: false });
-      setActionMessage('Proposed teams confirmed. Team formation is now complete for this class.');
+      setActionMessage(t('lecturer.proposalConfirmed'));
     } catch (err) {
-      setActionError(getFriendlyError(err, 'Could not confirm proposed teams yet. Run supabase/class_team_status_open_opportunities_phase.sql in Supabase and try again.'));
+      setActionError(getFriendlyError(err, t('lecturer.confirmFail')));
     } finally {
       setConfirmingTeams(false);
     }
@@ -2646,8 +2695,8 @@ function LecturerDashboard({ activeRole, lecturerSession, profileId, onOpenProfi
 	      <div className="results-header">
 	        <div>
 		          <p className="eyebrow">{t('lecturer.dashboard')}</p>
-	          <h2>{lecturerSession.lecturerName}'s demo classes</h2>
-	          <p>{lecturerSession.university} · Demo lecturer ID {lecturerSession.lecturerId}</p>
+	          <h2>{t('lecturer.demoClassesFor', { name: lecturerSession.lecturerName })}</h2>
+	          <p>{lecturerSession.university} · {t('lecturer.demoId', { id: lecturerSession.lecturerId })}</p>
 	        </div>
 	        <button className="primary" type="button" onClick={() => setCreateOpen((current) => !current)}>
 	          <Plus size={18} />
@@ -2660,15 +2709,15 @@ function LecturerDashboard({ activeRole, lecturerSession, profileId, onOpenProfi
 		          <p className="eyebrow">{t('lecturer.createClass')}</p>
 	          <form className="form-grid" onSubmit={createClass}>
 	            <label>
-		              Course / Subject Name
+		              {t('lecturer.courseName')}
 	              <input value={classForm.course_name} onChange={(event) => updateClassForm('course_name', event.target.value)} required />
 	            </label>
 	            <label>
-	              Course Code
+	              {t('lecturer.courseCode')}
 	              <input value={classForm.course_code} onChange={(event) => updateClassForm('course_code', event.target.value.toUpperCase())} required />
 	            </label>
 	            <label>
-	              Academic Field / Major
+	              {t('lecturer.academicFieldMajor')}
 	              <select value={classForm.major} onChange={(event) => updateClassForm('major', event.target.value)} required>
 	                {Object.values(majorsBySchool).flat().map((major) => (
 	                  <option value={major} key={major}>{major}</option>
@@ -2676,15 +2725,15 @@ function LecturerDashboard({ activeRole, lecturerSession, profileId, onOpenProfi
 	              </select>
 	            </label>
 	            <label>
-	              Session
+	              {t('lecturer.session')}
 	              <input value={classForm.session_code} onChange={(event) => updateClassForm('session_code', event.target.value)} placeholder="01" required />
 	            </label>
 	            <label>
-	              Approx. Number of Students
+	              {t('lecturer.approxStudents')}
 	              <input min="0" type="number" value={classForm.approximate_student_count} onChange={(event) => updateClassForm('approximate_student_count', event.target.value)} required />
 	            </label>
 	            <label>
-	              Required Members Per Team
+	              {t('lecturer.requiredMembersPerTeam')}
 	              <input min="2" type="number" value={classForm.required_members_per_team} onChange={(event) => updateClassForm('required_members_per_team', event.target.value)} required />
 	            </label>
 	            <label className="wide">
@@ -2713,7 +2762,7 @@ function LecturerDashboard({ activeRole, lecturerSession, profileId, onOpenProfi
                 <div>
                   <h3>{getClassDisplay(classItem)}</h3>
                   <p>{schoolLabel(classItem.school)} · {classItem.major}</p>
-                  <p className="note">Class code: {classItem.class_code}</p>
+                  <p className="note">{t('lecturer.classCode', { code: classItem.class_code })}</p>
                 </div>
                 <button className="secondary" type="button" onClick={() => setSelectedClassId(classItem.id)}>
 	                  {t('classes.open')}
@@ -2732,7 +2781,7 @@ function LecturerDashboard({ activeRole, lecturerSession, profileId, onOpenProfi
             <section className="progress-panel">
 	              <div className="progress-header">
 	                <strong>{getClassDisplay(selectedClass)}</strong>
-	                <span>{selectedClass.formation_rate ?? selectedClass.team_formation_rate ?? 0}% formed</span>
+	                <span>{selectedClass.formation_rate ?? selectedClass.team_formation_rate ?? 0}% {t('lecturer.formed')}</span>
 	              </div>
 	              <div className="stats-grid">
 		                <div><strong>{selectedClass.approximate_student_count || selectedClass.total_students}</strong><span>{t('lecturer.totalStudents')}</span></div>
@@ -2825,6 +2874,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
   const isLecturer = form.role === 'lecturer';
   const resolvedUniversity = resolveProfileUniversity(form);
   const usesOtherUniversity = isOtherUniversityForm(form);
+  const isRequiredField = (field) => isProfileFieldRequired(form, field);
   const profileSkillOptions = mergeOptionSets(
     getProfileSkillSuggestions({ major: form.major, school: form.school }),
     form.skills,
@@ -2915,7 +2965,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
 	        contact_type: isLecturer ? 'email' : form.contact_type,
 	        contact_value: isLecturer ? form.lecturer_contact_detail.trim() : form.contact_value.trim() || null,
         short_bio: isLecturer
-          ? form.short_bio.trim() || 'Lecturer profile for class team-formation monitoring.'
+          ? form.short_bio.trim() || t('profile.lecturerBioDefault')
           : form.short_bio.trim(),
         is_available: !isLecturer,
         consent_public_visibility: true,
@@ -2949,7 +2999,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
       storeProfileId(profile.id);
       onSaved(profile);
     } catch (err) {
-      setError(getFriendlyError(err, "We couldn't save your profile. Please try again."));
+      setError(getFriendlyError(err, t('profile.saveFail')));
     } finally {
       setSaving(false);
     }
@@ -2966,20 +3016,21 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
 	            <h2>{t('profile.completeTitle')}</h2>
               <p className="note">{isLecturer ? t('profile.lecturerProfileHint') : t('profile.studentProfileHint')}</p>
               <p className="signed-in-line">{t('profile.role')}: {isLecturer ? t('profile.lecturer') : t('profile.student')}</p>
+              <p className="required-note">{t('profile.requiredNote')}</p>
           </div>
         </div>
 
         <div className="form-grid">
           <label>
-	            {t('profile.fullName')}
+	            <FieldLabel required={isRequiredField('full_name')}>{t('profile.fullName')}</FieldLabel>
             <input value={form.full_name} onChange={(event) => updateField('full_name', event.target.value)} required />
             <FieldError message={fieldErrors.full_name} />
           </label>
           <label>
-	            {t('profile.university')}
+	            <FieldLabel required={isRequiredField('university')}>{t('profile.university')}</FieldLabel>
             <select value={form.university_choice} onChange={(event) => updateUniversityChoice(event.target.value)} required>
               {universityOptions.map((university) => (
-                <option value={university.value} key={university.value}>{university.label}</option>
+	                <option value={university.value} key={university.value}>{localizedOption(university.value, 'options.university', t)}</option>
               ))}
               <option value={OTHER_UNIVERSITY_VALUE}>{t('profile.otherUniversity')}</option>
             </select>
@@ -2987,7 +3038,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
           </label>
           {usesOtherUniversity && (
             <label>
-              {t('profile.universityName')}
+              <FieldLabel required={isRequiredField('custom_university')}>{t('profile.universityName')}</FieldLabel>
               <input
                 value={form.custom_university}
                 onChange={(event) => updateCustomUniversity(event.target.value)}
@@ -2999,7 +3050,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
           )}
           {(isLecturer || !usesOtherUniversity) && (
           <label>
-	            {isLecturer ? t('profile.department') : t('profile.school')}
+	            <FieldLabel required={isRequiredField('school')}>{isLecturer ? t('profile.department') : t('profile.school')}</FieldLabel>
             {usesOtherUniversity ? (
               <input
                 value={form.school === 'Other' ? '' : form.school}
@@ -3011,7 +3062,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
               <select value={form.school} onChange={(event) => updateSchool(event.target.value)} required>
                 <option value="">{isLecturer ? t('profile.selectDepartment') : t('profile.selectSchool')}</option>
                 {profileSchoolOptions.map((school) => (
-                  <option value={school.value} key={school.value}>{school.label}</option>
+	                  <option value={school.value} key={school.value}>{localizedOption(school.value, 'options.school', t)}</option>
                 ))}
               </select>
             )}
@@ -3021,56 +3072,56 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
 	          {isLecturer ? (
 	            <>
 	              <label>
-	                {t('profile.lecturerTitle')}
+	                <FieldLabel>{t('profile.lecturerTitle')}</FieldLabel>
 	                <input
 	                  value={form.lecturer_title}
 	                  onChange={(event) => updateField('lecturer_title', event.target.value)}
-	                  placeholder="Course coordinator, lecturer, tutor..."
+	                  placeholder={t('profile.lecturerTitlePlaceholder')}
 	                />
 	              </label>
 	              <label>
-	                {t('profile.academicField')}
+	                <FieldLabel required={isRequiredField('academic_field')}>{t('profile.academicField')}</FieldLabel>
 	                  <select
 	                    value={form.academic_field}
 	                    onChange={(event) => updateField('academic_field', event.target.value)}
 	                    required
 	                  >
-		                  <option value="">{t('request.field')}</option>
+	                  <option value="">{t('profile.selectAcademicField')}</option>
 	                  {opportunityFields.map((field) => (
-	                    <option value={field} key={field}>{field}</option>
+	                    <option value={field} key={field}>{localizedOption(field, 'options.field', t)}</option>
 	                  ))}
 	                </select>
                     <FieldError message={fieldErrors.academic_field} />
 	              </label>
 	              <label>
-	                {t('profile.lecturerId')}
+	                <FieldLabel required={isRequiredField('lecturer_id')}>{t('profile.lecturerId')}</FieldLabel>
 	                <input
 	                  value={form.lecturer_id}
 	                  onChange={(event) => updateField('lecturer_id', event.target.value)}
-	                  placeholder="v123456"
+	                  placeholder={t('profile.lecturerIdPlaceholder')}
 	                  required
 	                />
 	                <span className="field-helper">{t('profile.demoLecturerIds')}: {demoLecturerHelperText}</span>
                     <FieldError message={fieldErrors.lecturer_id} />
 	              </label>
 	              <label>
-		                {t('profile.preferredContact')}
+	                <FieldLabel required={isRequiredField('lecturer_contact_method')}>{t('profile.preferredContact')}</FieldLabel>
 	                <select
 	                  value={form.lecturer_contact_method}
 	                  onChange={(event) => updateField('lecturer_contact_method', event.target.value)}
 	                  required
 	                >
 	                  {lecturerContactMethods.map((method) => (
-	                    <option value={method} key={method}>{method}</option>
+	                    <option value={method} key={method}>{localizedOption(method, 'options.lecturerContact', t)}</option>
 	                  ))}
 	                </select>
 	              </label>
 	              <label className="wide">
-		                {t('profile.contactDetail')}
+	                <FieldLabel required={isRequiredField('lecturer_contact_detail')}>{t('profile.contactDetail')}</FieldLabel>
 	                <input
 	                  value={form.lecturer_contact_detail}
 	                  onChange={(event) => updateField('lecturer_contact_detail', event.target.value)}
-	                  placeholder="name@university.edu or Microsoft Teams handle"
+	                  placeholder={t('profile.lecturerContactPlaceholder')}
 	                  required
 	                />
                     <FieldError message={fieldErrors.lecturer_contact_detail} />
@@ -3079,7 +3130,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
 	          ) : (
 	            <>
 	              <label>
-		                {t('profile.major')}
+	                <FieldLabel required={isRequiredField('major')}>{t('profile.major')}</FieldLabel>
 	                {usesOtherUniversity ? (
 	                  <input
 	                    value={form.major}
@@ -3089,26 +3140,26 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
 	                  />
 	                ) : (
 	                  <select value={form.major} onChange={(event) => updateField('major', event.target.value)} required>
-	                    <option value="">{t('profile.major')}</option>
+	                    <option value="">{t('profile.selectMajor')}</option>
 	                    {(majorsBySchool[form.school] || []).map((major) => (
-	                      <option value={major} key={major}>{major}</option>
+	                      <option value={major} key={major}>{localizedOption(major, 'options.major', t)}</option>
 	                    ))}
 	                  </select>
 	                )}
                     <FieldError message={fieldErrors.major} />
 	              </label>
 	              <label>
-		                {t('profile.studentId')}
+	                <FieldLabel required={isRequiredField('student_id')}>{t('profile.studentId')}</FieldLabel>
 	                <input
 	                  value={form.student_id}
 	                  onChange={(event) => updateField('student_id', event.target.value)}
-	                  placeholder="STU-123456"
+	                  placeholder={t('profile.studentIdPlaceholder')}
                     required
 	                />
                     <FieldError message={fieldErrors.student_id} />
 	              </label>
 	              <fieldset className="wide">
-	                <legend>{t('profile.skills')}</legend>
+                <legend><FieldLabel required={isRequiredField('skills')}>{t('profile.skills')}</FieldLabel></legend>
 	                <p className="field-helper">{t('profile.skillHelper')}</p>
                     <FieldError message={fieldErrors.skills} />
                 <CheckboxGrid
@@ -3149,19 +3200,19 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
 	          {!isLecturer && (
 	            <>
 	              <label>
-		                {t('profile.contactMethod')}
+	                <FieldLabel>{t('profile.contactMethod')}</FieldLabel>
 	                <select value={form.contact_type} onChange={(event) => updateField('contact_type', event.target.value)}>
 	                  {contactTypes.map((type) => (
-	                    <option value={type} key={type}>{contactLabel(type)}</option>
+	                    <option value={type} key={type}>{localizedOption(type, 'options.contact', t)}</option>
 	                  ))}
 	                </select>
 	              </label>
 	              <label>
-		                {t('profile.contactInfo')}
+	                <FieldLabel required={isRequiredField('contact_value')}>{t('profile.contactInfo')}</FieldLabel>
 	                <input
 	                  value={form.contact_value}
 	                  onChange={(event) => updateField('contact_value', event.target.value)}
-	                  placeholder="name@email.com or @handle"
+	                  placeholder={t('profile.contactPlaceholder')}
 	                  required
 	                />
                     <FieldError message={fieldErrors.contact_value} />
@@ -3169,7 +3220,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
 	            </>
 	          )}
           <label className="wide">
-	            {isLecturer ? t('profile.bioNote') : t('profile.shortBio')}
+	            <FieldLabel required={isRequiredField('short_bio')}>{isLecturer ? t('profile.bioNote') : t('profile.shortBio')}</FieldLabel>
             <textarea
               value={form.short_bio}
               onChange={(event) => updateField('short_bio', event.target.value)}
@@ -3188,7 +3239,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
             required
           />
           <span>
-	            {t('profile.consent')}
+	            <FieldLabel required={isRequiredField('consent_public_visibility')}>{t('profile.consent')}</FieldLabel>
           </span>
         </label>
         <p className="field-helper">{t('profile.completeLead')}</p>
@@ -3211,7 +3262,7 @@ function ProfileSaved({ profile, onContinue, t = translate.bind(null, 'en') }) {
       <section className="confirmation">
         <CheckCircle2 size={42} />
 	        <p className="eyebrow">{t('profile.saved')}</p>
-	        <h2>{displayName(profile?.full_name) || 'Your profile'} {t('profile.ready')}</h2>
+        <h2>{displayName(profile?.full_name) || t('profile.yourProfile')} {t('profile.ready')}</h2>
 	        <p>
 	          {isLecturer
 	            ? t('profile.lecturerSaved')
@@ -3396,7 +3447,7 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
   };
 
   const updatePortfolioFile = (file) => {
-    const fileError = validatePortfolioFile(file);
+    const fileError = validatePortfolioFile(file, t);
     setError(fileError);
     setForm((current) => ({
       ...current,
@@ -3423,7 +3474,7 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
       ? form.other_opportunity_field.trim()
       : form.opportunity_field;
 
-    const portfolioFileError = validatePortfolioFile(form.portfolio_file);
+    const portfolioFileError = validatePortfolioFile(form.portfolio_file, t);
     const totalTeamSize = Number(form.total_team_size);
     const teammatesNeededInitial = Number(form.teammates_needed_initial);
 
@@ -3583,7 +3634,7 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
 		                  <select value={form.opportunity_type} onChange={(event) => updateOpportunityType(event.target.value)} required>
 		                    <option value="">{t('request.selectType')}</option>
 		                    {opportunityTypes.map((type) => (
-		                      <option value={type} key={type}>{type}</option>
+		                      <option value={type} key={type}>{localizedOption(type, 'options.opportunity', t)}</option>
 		                    ))}
 		                  </select>
 		                </label>
@@ -3592,7 +3643,7 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
 		                  <select value={form.opportunity_field} onChange={(event) => updateOpportunityField(event.target.value)} required>
 		                    <option value="">{t('request.selectField')}</option>
 		                    {opportunityFields.map((field) => (
-		                      <option value={field} key={field}>{field}</option>
+		                      <option value={field} key={field}>{localizedOption(field, 'options.field', t)}</option>
 		                    ))}
 		                  </select>
 		                </label>
@@ -3766,6 +3817,7 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
                   options={toolOptions}
                   selected={form.required_tools}
                   onToggle={toggleTool}
+                  labelFor={(option) => localizedOption(option, 'options.skill', t)}
                 />
                 {form.required_tools.includes('Other') && (
                   <input
@@ -3938,7 +3990,7 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
             activeLoading: false,
             activeRequests: [],
             progressById: {},
-            error: "We couldn't load your active requests right now. Please try again.",
+            error: t('matches.activeLoadFail'),
           }));
         }
       });
@@ -4123,7 +4175,7 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
         senderProfileId: currentProfileId,
         receiverProfileId: request.profile_id,
         senderTeamRequestId: currentRequest.id,
-        introMessage: `Hi ${displayName(request.profile?.full_name)}, your teammate search looks like a good match for mine. Want to connect?`,
+        introMessage: t('connect.matchIntro', { name: displayName(request.profile?.full_name) }),
       });
       void trackProductEvent('connection_requested', {
         profileId: currentProfileId,
@@ -4161,7 +4213,7 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
       setState((current) => ({
         ...current,
         sendingProfileId: '',
-        connectError: getFriendlyError(err, "We couldn't send your connection request. Please try again."),
+        connectError: getFriendlyError(err, t('connections.sendFail')),
       }));
     }
   };
@@ -4468,7 +4520,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
           <select value={filters.skill} onChange={(event) => updateDiscoveryFilters({ ...filters, skill: event.target.value }, 'skill')}>
             <option value="">{t('discover.allSkills')}</option>
             {discoverSkillOptions.map((skill) => (
-              <option value={skill} key={skill}>{skill}</option>
+              <option value={skill} key={skill}>{localizedOption(skill, 'options.skill', t)}</option>
             ))}
           </select>
         </label>
@@ -4619,7 +4671,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, currentProfile, on
           setState((current) => ({
             ...current,
             loading: false,
-            error: "We couldn't load this profile right now. Please try again.",
+            error: t('discover.loadFail'),
           }));
         }
       });
@@ -4630,7 +4682,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, currentProfile, on
   }, [profileId, currentProfileId]);
 
   if (state.loading) {
-    return <main className="screen compact"><p className="loading">Loading profile...</p></main>;
+    return <main className="screen compact"><p className="loading">{t('ui.loadingProfile')}</p></main>;
   }
 
   if (state.error) {
@@ -4645,9 +4697,9 @@ function DiscoverProfileDetail({ profileId, currentProfileId, currentProfile, on
     ? state.connection.sender_team_request_id || state.connection.receiver_team_request_id || state.activeRequest?.id
     : null;
   const disabledReason = isOwnProfile
-      ? 'This is your profile.'
+      ? t('ui.thisIsYourProfile')
       : !currentProfileId
-        ? 'Create a profile before connecting.'
+        ? t('connect.needProfile')
         : '';
 
   const sendConnect = async (introMessage) => {
@@ -4684,7 +4736,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, currentProfile, on
       setState((current) => ({
         ...current,
         sending: false,
-        actionError: "We couldn't send your connection request. Please try again.",
+        actionError: t('connections.sendFail'),
       }));
     }
   };
@@ -4703,7 +4755,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, currentProfile, on
       setState((current) => ({
         ...current,
         simulating: false,
-        actionError: "We couldn't simulate demo acceptance. Please try again.",
+        actionError: t('ui.demoAcceptanceFail'),
       }));
     }
   };
@@ -4729,13 +4781,13 @@ function DiscoverProfileDetail({ profileId, currentProfileId, currentProfile, on
         unmatchSaving: false,
         unmatchOpen: false,
         connection: { ...current.connection, ...updated, status: 'unmatched' },
-        actionSuccess: `You are no longer connected with ${displayName(profile.full_name)}.`,
+        actionSuccess: t('ui.unmatchSuccess', { name: displayName(profile.full_name) }),
       }));
     } catch {
       setState((current) => ({
         ...current,
         unmatchSaving: false,
-        actionError: "We couldn't unmatch this connection. Please try again.",
+        actionError: t('connections.unmatchFail'),
       }));
     }
   };
@@ -4776,11 +4828,11 @@ function DiscoverProfileDetail({ profileId, currentProfileId, currentProfile, on
               <div><dt>{t('matches.classSession')}</dt><dd>{getLocalizedSessionDisplay(state.activeRequest, t)}</dd></div>
               <div><dt>{t('request.skillsNeeded')}</dt><dd>{joinList(state.activeRequest.skills_needed)}</dd></div>
               <div><dt>{t('matches.workStyle')}</dt><dd>{joinList(getWorkStyles(state.activeRequest))}</dd></div>
-              <div><dt>{t('matches.requirements')}</dt><dd>{describeRequirements(state.activeRequest)}</dd></div>
+              <div><dt>{t('matches.requirements')}</dt><dd>{describeRequirements(state.activeRequest, t)}</dd></div>
               <div><dt>{t('matches.teamSize')}</dt><dd>{getTotalTeamSize(state.activeRequest)}</dd></div>
               <div><dt>{t('opportunities.progress')}</dt><dd>{teammateCountSummary(activeRequestMetrics, t)} · {remainingSummary(activeRequestMetrics, t)}</dd></div>
               <div><dt>{t('matches.lookingFor')}</dt><dd>{getInitialNeeded(state.activeRequest)} {getInitialNeeded(state.activeRequest) === 1 ? t('matches.spot') : t('matches.spots')}</dd></div>
-              <PortfolioReference request={state.activeRequest} />
+          <PortfolioReference request={state.activeRequest} t={t} />
             </dl>
           </div>
         )}
@@ -4789,6 +4841,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, currentProfile, on
           currentProfileId={currentProfileId}
           reviewedProfileId={profile.id}
           teamRequestId={reviewTeamRequestId}
+          t={t}
         />
         {state.actionError && <p className="error">{state.actionError}</p>}
         {state.actionSuccess && <p className="success">{state.actionSuccess}</p>}
@@ -4834,6 +4887,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, currentProfile, on
             onStartChat={() => onOpenChat(state.connection.id)}
             onViewConnection={null}
             onReset={resetDemo}
+            t={t}
           />
         )}
       </section>
@@ -4855,6 +4909,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, currentProfile, on
           error={state.actionError}
           onClose={() => setState((current) => ({ ...current, unmatchOpen: false, actionError: '' }))}
           onConfirm={unmatch}
+          t={t}
         />
       )}
     </main>
@@ -4890,7 +4945,7 @@ function ReviewsSection({ reviews = [], profile, title = '', viewerProfile = nul
   );
 }
 
-function TeammateFeedbackPanel({ connection, currentProfileId, reviewedProfileId, teamRequestId }) {
+function TeammateFeedbackPanel({ connection, currentProfileId, reviewedProfileId, teamRequestId, t = translate.bind(null, 'en') }) {
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewText, setReviewText] = useState('');
   const [saving, setSaving] = useState('');
@@ -4928,9 +4983,9 @@ function TeammateFeedbackPanel({ connection, currentProfileId, reviewedProfileId
         },
         dedupeKey: review.id ? `review_submitted:${review.id}` : null,
       });
-      setMessage('Teammate review saved.');
+      setMessage(t('ui.reviewSaved'));
     } catch (err) {
-      setError(getFriendlyError(err, "We couldn't save your review. Please try again."));
+      setError(getFriendlyError(err, t('ui.reviewSaveFail')));
     } finally {
       setSaving('');
     }
@@ -4938,19 +4993,19 @@ function TeammateFeedbackPanel({ connection, currentProfileId, reviewedProfileId
 
   return (
     <section className="request-summary-box">
-      <p className="eyebrow">Write a Teammate Review</p>
+      <p className="eyebrow">{t('ui.writeReview')}</p>
       <form className="feedback-form" onSubmit={submitReview}>
-        <h3>How was it working with this teammate?</h3>
+        <h3>{t('ui.reviewPrompt')}</h3>
         <div>
-          <strong>Teammate rating</strong>
-          <div className="star-rating" role="radiogroup" aria-label="Teammate rating">
+          <strong>{t('ui.teammateRating')}</strong>
+          <div className="star-rating" role="radiogroup" aria-label={t('ui.teammateRating')}>
             {[1, 2, 3, 4, 5].map((rating) => (
               <button
                 className={Number(reviewRating) >= rating ? 'selected' : ''}
                 key={rating}
                 type="button"
                 onClick={() => setReviewRating(rating)}
-                aria-label={`${rating} star${rating === 1 ? '' : 's'}`}
+                aria-label={`${rating} ${rating === 1 ? t('ui.star') : t('ui.stars')}`}
               >
                 <Star size={22} fill="currentColor" strokeWidth={2.2} />
               </button>
@@ -4961,10 +5016,10 @@ function TeammateFeedbackPanel({ connection, currentProfileId, reviewedProfileId
           value={reviewText}
           onChange={(event) => setReviewText(event.target.value)}
           rows="4"
-          placeholder="e.g. Reliable, communicates clearly, and completed tasks on time."
+          placeholder={t('ui.reviewPlaceholder')}
         />
         <button className="secondary" type="submit" disabled={saving === 'review'}>
-          {saving === 'review' ? 'Saving...' : 'Submit Teammate Review'}
+          {saving === 'review' ? t('ui.saving') : t('ui.submitReview')}
         </button>
       </form>
       {message && <p className="success">{message}</p>}
@@ -4973,7 +5028,7 @@ function TeammateFeedbackPanel({ connection, currentProfileId, reviewedProfileId
   );
 }
 
-function MatchUsefulnessPanel({ request, currentProfileId, teamComplete }) {
+function MatchUsefulnessPanel({ request, currentProfileId, teamComplete, t = translate.bind(null, 'en') }) {
   const [rating, setRating] = useState(5);
   const [feedbackText, setFeedbackText] = useState('');
   const [saving, setSaving] = useState(false);
@@ -4983,11 +5038,11 @@ function MatchUsefulnessPanel({ request, currentProfileId, teamComplete }) {
   if (!request || !currentProfileId || !teamComplete) return null;
 
   const labels = {
-    1: 'Not useful',
-    2: 'Not very useful',
-    3: 'Okay',
-    4: 'Useful',
-    5: 'Very useful',
+    1: t('ui.ratingNotUseful'),
+    2: t('ui.ratingNotVeryUseful'),
+    3: t('ui.ratingOkay'),
+    4: t('ui.ratingUseful'),
+    5: t('ui.ratingVeryUseful'),
   };
 
   const submit = async (event) => {
@@ -5014,9 +5069,9 @@ function MatchUsefulnessPanel({ request, currentProfileId, teamComplete }) {
         },
         dedupeKey: feedback.id ? `match_feedback_submitted:${feedback.id}` : null,
       });
-      setMessage('Match usefulness rating saved.');
+      setMessage(t('ui.matchUsefulnessSaved'));
     } catch (err) {
-      setError(getFriendlyError(err, "We couldn't save match usefulness rating. Please try again."));
+      setError(getFriendlyError(err, t('ui.matchUsefulnessSaveFail')));
     } finally {
       setSaving(false);
     }
@@ -5024,18 +5079,18 @@ function MatchUsefulnessPanel({ request, currentProfileId, teamComplete }) {
 
   return (
     <section className="request-summary-box">
-      <p className="eyebrow">Match Usefulness Rating</p>
-      <h3>How useful were Teamergency’s matches in helping you form this team?</h3>
-      <p className="note">This rating is about the quality of Teamergency’s match recommendation, not the other person.</p>
+      <p className="eyebrow">{t('ui.matchUsefulnessRating')}</p>
+      <h3>{t('ui.matchUsefulnessPrompt')}</h3>
+      <p className="note">{t('ui.matchUsefulnessHelp')}</p>
       <form className="feedback-form" onSubmit={submit}>
-        <div className="star-rating" role="radiogroup" aria-label="Match usefulness rating">
+        <div className="star-rating" role="radiogroup" aria-label={t('ui.matchUsefulnessAria')}>
           {[1, 2, 3, 4, 5].map((value) => (
             <button
               className={Number(rating) >= value ? 'selected' : ''}
               key={value}
               type="button"
               onClick={() => setRating(value)}
-              aria-label={`${value} stars - ${labels[value]}`}
+              aria-label={`${value} ${t('ui.stars')} - ${labels[value]}`}
             >
               <Star size={22} fill="currentColor" strokeWidth={2.2} />
             </button>
@@ -5046,10 +5101,10 @@ function MatchUsefulnessPanel({ request, currentProfileId, teamComplete }) {
           value={feedbackText}
           onChange={(event) => setFeedbackText(event.target.value)}
           rows="3"
-          placeholder="What worked well or what could improve?"
+          placeholder={t('ui.matchUsefulnessPlaceholder')}
         />
         <button className="secondary" type="submit" disabled={saving}>
-          {saving ? 'Saving...' : 'Submit Match Usefulness Rating'}
+          {saving ? t('ui.saving') : t('ui.submitMatchUsefulness')}
         </button>
       </form>
       {message && <p className="success">{message}</p>}
@@ -5141,7 +5196,7 @@ function ProfileDetail({
           setState((current) => ({
             ...current,
             loading: false,
-            error: "We couldn't load teammates right now. Please try again.",
+            error: t('matches.loadingFail'),
             request: null,
           }));
         }
@@ -5153,7 +5208,7 @@ function ProfileDetail({
   }, [requestId]);
 
   if (state.loading) {
-    return <main className="screen compact"><p className="loading">Loading profile...</p></main>;
+    return <main className="screen compact"><p className="loading">{t('ui.loadingProfile')}</p></main>;
   }
 
   if (state.error) {
@@ -5210,7 +5265,7 @@ function ProfileDetail({
       setState((current) => ({
         ...current,
         actionLoading: false,
-        actionError: "We couldn't send your connection request. Please try again.",
+        actionError: t('connections.sendFail'),
       }));
     }
   };
@@ -5229,7 +5284,7 @@ function ProfileDetail({
       setState((current) => ({
         ...current,
         simulating: false,
-        actionError: "We couldn't simulate demo acceptance. Please try again.",
+        actionError: t('ui.demoAcceptanceFail'),
       }));
     }
   };
@@ -5255,13 +5310,13 @@ function ProfileDetail({
         unmatchSaving: false,
         unmatchOpen: false,
         connection: { ...current.connection, ...updated, status: 'unmatched' },
-        actionSuccess: `You are no longer connected with ${displayName(profile.full_name)}.`,
+        actionSuccess: t('ui.unmatchSuccess', { name: displayName(profile.full_name) }),
       }));
     } catch {
       setState((current) => ({
         ...current,
         unmatchSaving: false,
-        actionError: "We couldn't unmatch this connection. Please try again.",
+        actionError: t('connections.unmatchFail'),
       }));
     }
   };
@@ -5272,9 +5327,9 @@ function ProfileDetail({
         <div className="stacked-actions">
           <button className="disabled-contact" disabled>
             <UserPlus size={18} />
-            Connect
+            {t('common.connect')}
           </button>
-          <p className="connection-hint">This is your profile.</p>
+          <p className="connection-hint">{t('ui.thisIsYourProfile')}</p>
         </div>
       );
     }
@@ -5384,6 +5439,7 @@ function ProfileDetail({
               onStartChat={() => onOpenChat(connection.id)}
               onViewConnection={null}
               onReset={resetDemo}
+              t={t}
             />
           )}
         </div>
@@ -5401,8 +5457,8 @@ function ProfileDetail({
 	            <div><dt>{t('opportunities.progress')}</dt><dd>{teammateCountSummary(requestMetrics, t)} · {remainingSummary(requestMetrics, t)}</dd></div>
 	            <div><dt>{t('matches.lookingFor')}</dt><dd>{getInitialNeeded(request)} {getInitialNeeded(request) === 1 ? t('matches.spot') : t('matches.spots')}</dd></div>
 	            <div><dt>{t('matches.workStyle')}</dt><dd>{joinList(getWorkStyles(request))}</dd></div>
-	            <div><dt>{t('matches.requirements')}</dt><dd>{describeRequirements(request)}</dd></div>
-            <PortfolioReference request={request} />
+	            <div><dt>{t('matches.requirements')}</dt><dd>{describeRequirements(request, t)}</dd></div>
+            <PortfolioReference request={request} t={t} />
           </dl>
 	          {currentRequestId === request.id && <p className="note">{t('matches.thisRequest')}</p>}
           <TeammateFeedbackPanel
@@ -5410,6 +5466,7 @@ function ProfileDetail({
             currentProfileId={currentProfileId}
             reviewedProfileId={profile.id}
             teamRequestId={feedbackTeamRequestId}
+            t={t}
           />
         </div>
       </section>
@@ -5430,6 +5487,7 @@ function ProfileDetail({
           error={state.actionError}
           onClose={() => setState((current) => ({ ...current, unmatchOpen: false, actionError: '' }))}
           onConfirm={unmatch}
+          t={t}
         />
       )}
     </main>
@@ -5546,7 +5604,7 @@ function CurrentRequest({
           setState((current) => ({
             ...current,
             loading: false,
-            error: "We couldn't load teammates right now. Please try again.",
+            error: t('matches.loadingFail'),
             saving: false,
           }));
         }
@@ -5789,7 +5847,7 @@ function CurrentRequest({
         senderProfileId: currentProfileId,
         receiverProfileId: candidate.id,
         senderTeamRequestId: selectedRequest?.status === 'looking' ? selectedRequest.id : null,
-        introMessage: `Hi ${displayName(candidate.full_name)}, I found your profile through Collabs and think we could work well together.`,
+        introMessage: t('connect.collabIntro', { name: displayName(candidate.full_name) }),
       });
       void trackProductEvent('connection_requested', {
         profileId: currentProfileId,
@@ -6099,8 +6157,8 @@ function CurrentRequest({
           <div><dt>{t('opportunities.progress')}</dt><dd>{teammateCountSummary(metrics, t)} · {remainingSummary(metrics, t)}</dd></div>
           <div><dt>{t('opportunities.initiallyLooking')}</dt><dd>{getInitialNeeded(request)}</dd></div>
           <div><dt>{t('request.teammateKind')}</dt><dd>{joinList(getWorkStyles(request))}</dd></div>
-          <div><dt>{t('request.requirementsTitle')}</dt><dd>{describeRequirements(request)}</dd></div>
-          <PortfolioReference request={request} />
+          <div><dt>{t('request.requirementsTitle')}</dt><dd>{describeRequirements(request, t)}</dd></div>
+          <PortfolioReference request={request} t={t} />
           <div><dt>{t('matches.teamStatus')}</dt><dd>{requestStatusLabel(request.status, t)}</dd></div>
         </dl>
 	        <div className="hero-actions">
@@ -6135,7 +6193,7 @@ function CurrentRequest({
             <strong>{t('opportunities.progress')}</strong>
             <span>{progressSummary(metrics, t)}</span>
           </div>
-          <div className="progress-track" aria-label="Team formation progress">
+          <div className="progress-track" aria-label={t('ui.classFormationProgress')}>
             <div className="progress-fill" style={{ width: `${metrics.percent}%` }} />
           </div>
 	          {teamComplete ? <p className="success">{t('status.teamComplete')}</p> : <p className="note">{remainingSummary(metrics, t)}</p>}
@@ -6146,6 +6204,7 @@ function CurrentRequest({
           request={request}
           currentProfileId={currentProfileId}
           teamComplete={teamComplete}
+          t={t}
         />
 
         <section className="progress-panel">
@@ -6700,6 +6759,7 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
 	          error={state.actionError}
 	          onClose={() => setState((current) => ({ ...current, unmatchTarget: null, actionError: '' }))}
 	          onConfirm={unmatch}
+	          t={t}
 	        />
 	      )}
 	      {state.editMessageTarget && (
@@ -6787,7 +6847,7 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
 	  );
 	}
 
-function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
+function FriendsPage({ currentProfileId, onOpenChat, onViewProfile, t = translate.bind(null, 'en') }) {
   const [state, setState] = useState({
     loading: true,
     error: '',
@@ -6820,7 +6880,7 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
       .catch(() => setState((current) => ({
         ...current,
         loading: false,
-        error: "We couldn't load friends right now. Please try again.",
+        error: t('connections.loadFriendsFail'),
       })));
   };
 
@@ -6844,14 +6904,14 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
         ...current,
         saving: false,
         removeTarget: null,
-        success: `Removed ${displayName(target.teammate_full_name)} from Friends.`,
+        success: t('connections.friendRemoved', { name: displayName(target.teammate_full_name) }),
       }));
       loadFriends();
     } catch {
       setState((current) => ({
         ...current,
         saving: false,
-        error: "We couldn't remove this friend. Please try again.",
+        error: t('connections.removeFriendFail'),
       }));
     }
   };
@@ -6875,14 +6935,14 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
         saving: false,
         matchTarget: null,
         selectedMatchIndex: 0,
-        success: `Matched with ${displayName(target.teammate_full_name)} for ${option.course_name || 'this request'}.`,
+        success: t('connections.friendMatched', { name: displayName(target.teammate_full_name), request: option.course_name || t('connections.thisRequest') }),
       }));
       loadFriends();
     } catch (err) {
       setState((current) => ({
         ...current,
         saving: false,
-        error: getFriendlyError(err, "We couldn't create this teammate match. Please try again."),
+        error: getFriendlyError(err, t('connections.friendMatchFail')),
       }));
     }
   };
@@ -7012,7 +7072,7 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile }) {
                   onClick={() => openMatchPlus(friend, matchOptions)}
                 >
                   <Sparkles size={18} />
-                  Match+
+                  {t('connections.matchPlus')}
                 </button>
                 <button className="primary" onClick={() => onOpenChat(friend.connection_id)}>
                   <MessageCircle size={18} />
@@ -7151,7 +7211,7 @@ function MessagesList({ currentProfileId, onOpenChat, onViewProfile, onNotificat
         if (alive) {
           setState({
             loading: false,
-            error: "We couldn't load messages right now. Please try again.",
+            error: t('messages.loadListFail'),
             threads: [],
           });
         }
@@ -7166,12 +7226,14 @@ function MessagesList({ currentProfileId, onOpenChat, onViewProfile, onNotificat
 
   return (
     <Shell className={embedded ? 'messages-tab-panel' : 'screen compact'}>
-      <div className="results-header">
-        <div>
-	          <p className="eyebrow">{t('messages.title')}</p>
-	          <h2>{t('messages.accepted')}</h2>
+      {!embedded && (
+        <div className="results-header">
+          <div>
+            <p className="eyebrow">{t('messages.title')}</p>
+            <h2>{t('messages.accepted')}</h2>
+          </div>
         </div>
-      </div>
+      )}
 
       {!currentProfileId && (
         <section className="empty-state">
@@ -7214,7 +7276,7 @@ function MessagesList({ currentProfileId, onOpenChat, onViewProfile, onNotificat
   );
 }
 
-function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, onViewProfile, onNotificationsChanged }) {
+function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, onViewProfile, onNotificationsChanged, t = translate.bind(null, 'en') }) {
   const [state, setState] = useState({
     loading: true,
     error: '',
@@ -7246,7 +7308,7 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
         setState((current) => ({
           ...current,
           loading: false,
-          error: 'You need to connect before messaging this teammate.',
+          error: t('messages.connectionRequired'),
           detail,
           messages: [],
         }));
@@ -7278,7 +7340,7 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
       setState((current) => ({
         ...current,
         loading: false,
-        error: "We couldn't load this conversation right now. Please try again.",
+        error: t('messages.loadFail'),
       }));
     }
   };
@@ -7338,7 +7400,7 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
       }));
 
       if (state.detail?.teammate_is_demo) {
-        const replyText = demoReplyPool[state.messages.length % demoReplyPool.length];
+        const replyText = t(`messages.demoReply${(state.messages.length % 4) + 1}`);
         window.setTimeout(async () => {
           try {
             const reply = await sendDemoReply({
@@ -7353,7 +7415,7 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
           } catch {
             setState((current) => ({
               ...current,
-              error: 'Demo reply could not be sent. Please try again.',
+              error: t('ui.demoReplyFail'),
             }));
           }
         }, 900);
@@ -7362,7 +7424,7 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
       setState((current) => ({
         ...current,
         sending: false,
-        error: 'Message could not be sent. Please try again.',
+        error: t('ui.messageSendFail'),
       }));
     }
   };
@@ -7382,13 +7444,13 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
         unmatchSaving: false,
         unmatchOpen: false,
         detail: { ...current.detail, ...updated, status: 'unmatched' },
-        actionSuccess: `You are no longer connected with ${displayName(current.detail?.teammate_full_name) || 'this teammate'}.`,
+        actionSuccess: t('ui.unmatchSuccess', { name: displayName(current.detail?.teammate_full_name) || t('connections.teammate') }),
       }));
     } catch {
       setState((current) => ({
         ...current,
         unmatchSaving: false,
-        actionError: "We couldn't unmatch this connection. Please try again.",
+        actionError: t('connections.unmatchFail'),
       }));
     }
   };
@@ -7399,41 +7461,41 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
     <main className="screen compact">
       <button className="ghost" type="button" onClick={onBack}>
         <ArrowLeft size={18} />
-        Back
+        {t('common.back')}
       </button>
 
       <section className="chat-shell">
         <div className="chat-header">
           <div>
-            <h2>{displayName(state.detail?.teammate_full_name) || 'Conversation'}</h2>
+            <h2>{displayName(state.detail?.teammate_full_name) || t('ui.conversation')}</h2>
             <p>
               {state.detail?.teammate_is_demo
-                ? 'Demo Conversation'
+                ? t('ui.demoConversation')
                 : state.detail?.status === 'accepted'
-                  ? connectedButtonLabel(state.detail)
+                  ? connectedButtonLabel(state.detail, t)
                   : chatEnded
-                    ? 'Connection ended'
-                    : 'Connection required'}
+                    ? t('connections.connectionEnded')
+                    : t('messages.connectionRequired')}
             </p>
           </div>
           <div className="chat-header-actions">
             {state.detail?.teammate_profile_id && (
               <button className="secondary" onClick={() => onViewProfile(state.detail.teammate_profile_id)}>
-                View Profile
+                {t('common.viewProfile')}
               </button>
             )}
             {state.detail?.status === 'accepted' && (
               <button className="secondary quiet-action" onClick={() => setState((current) => ({ ...current, unmatchOpen: true, actionError: '' }))}>
-                Unmatch
+                {t('common.unmatch')}
               </button>
             )}
           </div>
         </div>
 
-        {chatEnded && <p className="note">This connection has ended.</p>}
+        {chatEnded && <p className="note">{t('ui.connectionEnded')}</p>}
         {state.actionSuccess && <p className="success">{state.actionSuccess}</p>}
         {state.actionError && <p className="error">{state.actionError}</p>}
-        {state.loading && <p className="loading">Loading chat...</p>}
+        {state.loading && <p className="loading">{t('ui.loadingChat')}</p>}
         {state.error && <p className="error">{state.error}</p>}
 
         {!state.loading && !state.error && (
@@ -7441,14 +7503,14 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
             <div className="message-window">
               {state.messages.length === 0 && (
                 <div className="empty-state inline-empty">
-                  <p>No messages yet. Say hello!</p>
+                  <p>{t('messages.none')}</p>
                 </div>
               )}
               {state.messages.map((message) => {
                 const mine = message.sender_profile_id === currentProfileId;
                 return (
                   <div className={mine ? 'message-bubble mine' : 'message-bubble'} key={message.id}>
-                    <span>{mine ? 'You' : displayName(state.detail.teammate_full_name)}</span>
+                    <span>{mine ? t('ui.you') : displayName(state.detail.teammate_full_name)}</span>
                     <p>{message.message_text}</p>
                     <time>{formatTime(message.created_at)}</time>
                   </div>
@@ -7467,12 +7529,12 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
                     send();
                   }
                 }}
-                placeholder={chatEnded ? 'This connection has ended.' : 'Type a message...'}
+                placeholder={chatEnded ? t('ui.connectionEnded') : t('ui.typeMessage')}
                 disabled={chatEnded}
               />
               <button className="primary" onClick={send} disabled={!messageText.trim() || state.sending || chatEnded}>
                 <SendHorizontal size={18} />
-                {state.sending ? 'Sending...' : 'Send'}
+                {state.sending ? t('matches.sending') : t('common.send')}
               </button>
             </div>
           </>
@@ -7480,11 +7542,12 @@ function ChatPage({ connectionId, currentProfileId, currentRequestId, onBack, on
       </section>
       {state.unmatchOpen && (
         <UnmatchModal
-          teammateName={displayName(state.detail?.teammate_full_name) || 'this teammate'}
+          teammateName={displayName(state.detail?.teammate_full_name) || t('connections.teammate')}
           saving={state.unmatchSaving}
           error={state.actionError}
           onClose={() => setState((current) => ({ ...current, unmatchOpen: false, actionError: '' }))}
           onConfirm={unmatch}
+          t={t}
         />
       )}
     </main>
@@ -7515,12 +7578,14 @@ function MyProfile({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
   const currentRole = activeRole === 'lecturer' ? 'lecturer' : 'student';
   const editingAsLecturer = form.role === 'lecturer';
   const authEmail = getAuthSessionEmail(authSession);
   const signedInWithGoogle = hasGoogleAuthSession(authSession);
   const resolvedUniversity = resolveProfileUniversity(form);
   const usesOtherUniversity = isOtherUniversityForm(form);
+  const isRequiredField = (field) => isProfileFieldRequired(form, field);
   const profileSkillOptions = mergeOptionSets(
     getProfileSkillSuggestions({ major: form.major, school: form.school }),
     form.skills,
@@ -7549,7 +7614,7 @@ function MyProfile({
         if (alive) {
           setReviewsState({
             loading: false,
-            error: "We couldn't load reviews about you right now.",
+            error: t('profile.reviewsLoadFail'),
             reviews: [],
           });
         }
@@ -7601,11 +7666,13 @@ function MyProfile({
     });
     setMessage('');
     setError('');
+    setFieldErrors({});
     setEditing(true);
   };
 
   const updateField = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
+    setFieldErrors((current) => ({ ...current, [field]: '' }));
   };
 
   const updateSchool = (value) => {
@@ -7614,6 +7681,7 @@ function MyProfile({
       school: value,
       major: majorsBySchool[value]?.includes(current.major) ? current.major : '',
     }));
+    setFieldErrors((current) => ({ ...current, school: '', major: '', skills: '' }));
   };
 
   const updateUniversityChoice = (value) => {
@@ -7625,10 +7693,12 @@ function MyProfile({
       school: isRmitUniversity(value) ? current.school : '',
       major: isRmitUniversity(value) ? current.major : '',
     }));
+    setFieldErrors((current) => ({ ...current, university: '', school: '', major: '' }));
   };
 
   const updateCustomUniversity = (value) => {
     setForm((current) => ({ ...current, custom_university: value, university: value }));
+    setFieldErrors((current) => ({ ...current, university: '', custom_university: '' }));
   };
 
   const toggleProfileSkill = (skill) => {
@@ -7637,11 +7707,13 @@ function MyProfile({
       skills: toggleValue(current.skills, skill),
       other_skill: skill === 'Other' && current.skills.includes('Other') ? '' : current.other_skill,
     }));
+    setFieldErrors((current) => ({ ...current, skills: '' }));
   };
 
   const cancelEdit = () => {
     setEditing(false);
     setError('');
+    setFieldErrors({});
   };
 
   const submitLecturerLogin = (event) => {
@@ -7651,7 +7723,7 @@ function MyProfile({
 
     const account = findDemoLecturerAccount(lecturerForm.university, lecturerForm.lecturerId);
     if (!account) {
-      setError(`Lecturer ID not found for this university. Try: ${demoLecturerHelperText}.`);
+      setError(t('profile.lecturerIdNotFound', { hint: demoLecturerHelperText }));
       return;
     }
 
@@ -7664,16 +7736,13 @@ function MyProfile({
     event.preventDefault();
     setError('');
     setMessage('');
+    setFieldErrors({});
 
     const skills = getProfileSkillsFromForm(form);
-
-	    if (editingAsLecturer) {
-	      if (!form.full_name || !resolveProfileUniversity(form) || !getFormSchoolValue(form) || !form.academic_field || !form.lecturer_id || !form.lecturer_contact_detail) {
-	        setError("Please fill in your lecturer profile's required fields.");
-	        return;
-	      }
-    } else if (!form.full_name || !resolveProfileUniversity(form) || (!usesOtherUniversity && !form.school) || !form.major || skills.length === 0 || !form.contact_value || !form.short_bio) {
-      setError("Please fill in your profile's required fields.");
+	    const nextFieldErrors = getProfileFieldErrors({ ...form, skills }, t);
+	    setFieldErrors(nextFieldErrors);
+	    if (Object.keys(nextFieldErrors).length > 0) {
+      setError(t('validation.fixMissing'));
       return;
     }
 
@@ -7693,7 +7762,7 @@ function MyProfile({
 	        contact_type: editingAsLecturer ? 'email' : form.contact_type,
 	        contact_value: editingAsLecturer ? form.lecturer_contact_detail.trim() : form.contact_value.trim(),
         short_bio: editingAsLecturer
-          ? form.short_bio.trim() || 'Lecturer profile for class team-formation monitoring.'
+          ? form.short_bio.trim() || t('profile.lecturerBioDefault')
           : form.short_bio.trim(),
 	        is_available: profile.is_available ?? !editingAsLecturer,
 	        role: editingAsLecturer ? 'lecturer' : 'student',
@@ -7715,9 +7784,9 @@ function MyProfile({
       });
       onProfileUpdated(updated);
       setEditing(false);
-      setMessage('Profile updated successfully.');
+      setMessage(t('profile.updated'));
     } catch (err) {
-      setError(getFriendlyError(err, "We couldn't update your profile. Please try again."));
+      setError(getFriendlyError(err, t('profile.updateFail')));
     } finally {
       setSaving(false);
     }
@@ -7742,34 +7811,38 @@ function MyProfile({
             {editing ? (
               <form className="edit-profile-form" onSubmit={saveChanges}>
                 <h2>{t('profile.editProfile')}</h2>
+                <p className="required-note">{t('profile.requiredNote')}</p>
                 <div className="form-grid single">
                   <label>
-                    {t('profile.fullName')}
+                    <FieldLabel required={isRequiredField('full_name')}>{t('profile.fullName')}</FieldLabel>
                     <input value={form.full_name} onChange={(event) => updateField('full_name', event.target.value)} required />
+                    <FieldError message={fieldErrors.full_name} />
                   </label>
                   <label>
-                    {t('profile.university')}
+                    <FieldLabel required={isRequiredField('university')}>{t('profile.university')}</FieldLabel>
                     <select value={form.university_choice} onChange={(event) => updateUniversityChoice(event.target.value)} required>
                       {universityOptions.map((university) => (
-                        <option value={university.value} key={university.value}>{university.label}</option>
+                        <option value={university.value} key={university.value}>{localizedOption(university.value, 'options.university', t)}</option>
                       ))}
                       <option value={OTHER_UNIVERSITY_VALUE}>{t('profile.otherUniversity')}</option>
                     </select>
+                    <FieldError message={fieldErrors.university} />
                   </label>
                   {usesOtherUniversity && (
                     <label>
-                      {t('profile.universityName')}
+                      <FieldLabel required={isRequiredField('custom_university')}>{t('profile.universityName')}</FieldLabel>
                       <input
                         value={form.custom_university}
                         onChange={(event) => updateCustomUniversity(event.target.value)}
                         placeholder={t('profile.universityNamePlaceholder')}
                         required
                       />
+                      <FieldError message={fieldErrors.university} />
                     </label>
                   )}
                   {(editingAsLecturer || !usesOtherUniversity) && (
                   <label>
-                    {editingAsLecturer ? t('profile.department') : t('profile.school')}
+                    <FieldLabel required={isRequiredField('school')}>{editingAsLecturer ? t('profile.department') : t('profile.school')}</FieldLabel>
                     {usesOtherUniversity ? (
                       <input
                         value={form.school === 'Other' ? '' : form.school}
@@ -7781,70 +7854,75 @@ function MyProfile({
                       <select value={form.school} onChange={(event) => updateSchool(event.target.value)} required>
                         <option value="">{editingAsLecturer ? t('profile.selectDepartment') : t('profile.selectSchool')}</option>
                         {profileSchoolOptions.map((school) => (
-                          <option value={school.value} key={school.value}>{school.label}</option>
+                          <option value={school.value} key={school.value}>{localizedOption(school.value, 'options.school', t)}</option>
                         ))}
                       </select>
                     )}
+                    <FieldError message={fieldErrors.school} />
                   </label>
                   )}
 	                  {editingAsLecturer ? (
 	                    <>
-	                      <label>
-	                        {t('profile.lecturerTitle')}
+                      <label>
+                        <FieldLabel>{t('profile.lecturerTitle')}</FieldLabel>
 	                        <input
 	                          value={form.lecturer_title}
 	                          onChange={(event) => updateField('lecturer_title', event.target.value)}
-	                          placeholder="Course coordinator, lecturer, tutor..."
+                          placeholder={t('profile.lecturerTitlePlaceholder')}
 	                        />
 	                      </label>
-	                      <label>
-	                        {t('profile.academicField')}
+                      <label>
+                        <FieldLabel required={isRequiredField('academic_field')}>{t('profile.academicField')}</FieldLabel>
 	                        <select
 	                          value={form.academic_field}
 	                          onChange={(event) => updateField('academic_field', event.target.value)}
 	                          required
 	                        >
-	                          <option value="">{t('request.selectField')}</option>
-	                          {opportunityFields.map((field) => (
-	                            <option value={field} key={field}>{field}</option>
-	                          ))}
-	                        </select>
-	                      </label>
-	                      <label>
-	                        {t('profile.lecturerId')}
+                          <option value="">{t('profile.selectAcademicField')}</option>
+                          {opportunityFields.map((field) => (
+                            <option value={field} key={field}>{localizedOption(field, 'options.field', t)}</option>
+                          ))}
+                        </select>
+                        <FieldError message={fieldErrors.academic_field} />
+                      </label>
+                      <label>
+                        <FieldLabel required={isRequiredField('lecturer_id')}>{t('profile.lecturerId')}</FieldLabel>
 	                        <input
 	                          value={form.lecturer_id}
 	                          onChange={(event) => updateField('lecturer_id', event.target.value)}
-	                          placeholder="v123456"
+                          placeholder={t('profile.lecturerIdPlaceholder')}
 	                          required
 	                        />
-	                        <span className="field-helper">{t('profile.demoLecturerIds')}: {demoLecturerHelperText}</span>
-	                      </label>
-	                      <label>
-	                        {t('profile.preferredContact')}
+                        <span className="field-helper">{t('profile.demoLecturerIds')}: {demoLecturerHelperText}</span>
+                        <FieldError message={fieldErrors.lecturer_id} />
+                      </label>
+                      <label>
+                        <FieldLabel required={isRequiredField('lecturer_contact_method')}>{t('profile.preferredContact')}</FieldLabel>
 	                        <select
 	                          value={form.lecturer_contact_method}
 	                          onChange={(event) => updateField('lecturer_contact_method', event.target.value)}
 	                          required
 	                        >
-	                          {lecturerContactMethods.map((method) => (
-	                            <option value={method} key={method}>{method}</option>
-	                          ))}
+                          {lecturerContactMethods.map((method) => (
+                            <option value={method} key={method}>{localizedOption(method, 'options.lecturerContact', t)}</option>
+                          ))}
 	                        </select>
 	                      </label>
-	                      <label>
-	                        {t('profile.contactDetail')}
+                      <label>
+                        <FieldLabel required={isRequiredField('lecturer_contact_detail')}>{t('profile.contactDetail')}</FieldLabel>
 	                        <input
 	                          value={form.lecturer_contact_detail}
 	                          onChange={(event) => updateField('lecturer_contact_detail', event.target.value)}
-	                          required
-	                        />
+                          placeholder={t('profile.lecturerContactPlaceholder')}
+                          required
+                        />
+                        <FieldError message={fieldErrors.lecturer_contact_detail} />
 	                      </label>
 	                    </>
 	                  ) : (
 	                    <>
                       <label>
-                        {t('profile.major')}
+                        <FieldLabel required={isRequiredField('major')}>{t('profile.major')}</FieldLabel>
                         {usesOtherUniversity ? (
                           <input
                             value={form.major}
@@ -7854,23 +7932,26 @@ function MyProfile({
                           />
                         ) : (
                           <select value={form.major} onChange={(event) => updateField('major', event.target.value)} required>
-                            <option value="">{t('profile.major')}</option>
+                            <option value="">{t('profile.selectMajor')}</option>
                             {(majorsBySchool[form.school] || []).map((major) => (
-                              <option value={major} key={major}>{major}</option>
+                              <option value={major} key={major}>{localizedOption(major, 'options.major', t)}</option>
                             ))}
                           </select>
                         )}
-	                      </label>
-	                      <label>
-	                        {t('profile.studentId')}
+                        <FieldError message={fieldErrors.major} />
+                      </label>
+                      <label>
+                        <FieldLabel required={isRequiredField('student_id')}>{t('profile.studentId')}</FieldLabel>
 	                        <input
 	                          value={form.student_id}
 	                          onChange={(event) => updateField('student_id', event.target.value)}
-	                          placeholder="STU-123456"
-	                        />
+                          placeholder={t('profile.studentIdPlaceholder')}
+                          required
+                        />
+                        <FieldError message={fieldErrors.student_id} />
 	                      </label>
 	                      <fieldset className="wide">
-                        <legend>{t('profile.skills')}</legend>
+                        <legend><FieldLabel required={isRequiredField('skills')}>{t('profile.skills')}</FieldLabel></legend>
                         <p className="field-helper">{t('profile.skillHelper')}</p>
                         <CheckboxGrid
                           options={profileSkillOptions}
@@ -7907,32 +7988,35 @@ function MyProfile({
                   )}
 	                  {!editingAsLecturer && (
 	                    <>
-	                      <label>
-	                        {t('profile.contactMethod')}
+                      <label>
+                        <FieldLabel>{t('profile.contactMethod')}</FieldLabel>
 	                        <select value={form.contact_type} onChange={(event) => updateField('contact_type', event.target.value)}>
-	                          {contactTypes.map((type) => (
-	                            <option value={type} key={type}>{contactLabel(type)}</option>
+                          {contactTypes.map((type) => (
+                            <option value={type} key={type}>{localizedOption(type, 'options.contact', t)}</option>
 	                          ))}
 	                        </select>
 	                      </label>
-	                      <label>
-	                        {t('profile.contactInfo')}
+                      <label>
+                        <FieldLabel required={isRequiredField('contact_value')}>{t('profile.contactInfo')}</FieldLabel>
 	                        <input
 	                          value={form.contact_value}
 	                          onChange={(event) => updateField('contact_value', event.target.value)}
-	                          required
-	                        />
+                          placeholder={t('profile.contactPlaceholder')}
+                          required
+                        />
+                        <FieldError message={fieldErrors.contact_value} />
 	                      </label>
 	                    </>
 	                  )}
                   <label>
-                    {editingAsLecturer ? t('profile.bioNote') : t('profile.shortBio')}
+                    <FieldLabel required={isRequiredField('short_bio')}>{editingAsLecturer ? t('profile.bioNote') : t('profile.shortBio')}</FieldLabel>
                     <textarea
                       value={form.short_bio}
                       onChange={(event) => updateField('short_bio', event.target.value)}
                       rows="4"
                       required={!editingAsLecturer}
                     />
+                    {!editingAsLecturer && <FieldError message={fieldErrors.short_bio} />}
                   </label>
 	                </div>
                 {error && <p className="error">{error}</p>}
@@ -8214,8 +8298,8 @@ export default function App() {
 
   const configWarning = useMemo(() => {
     if (hasSupabaseConfig) return '';
-    return 'Supabase is not configured yet. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to run the MVP.';
-  }, []);
+    return t('errors.supabaseConfig');
+  }, [t]);
 
   const hasProfile = Boolean(profileId);
   const currentRole = activeRole === 'lecturer' ? 'lecturer' : 'student';
@@ -8369,7 +8453,7 @@ export default function App() {
         await signOut();
       }
     } catch (err) {
-      setBootError(getFriendlyError(err, "We couldn't log you out. Please try again."));
+      setBootError(getFriendlyError(err, t('profile.logoutFail')));
       return;
     }
 
@@ -8419,7 +8503,7 @@ export default function App() {
       setProfileId('');
       setRequestId('');
       setProfile(null);
-      setBootError("We couldn't load your saved profile. Please create a profile again on this device.");
+      setBootError(t('profile.loadSavedFail'));
       openProfileForm('student');
     }
   };
@@ -8511,7 +8595,7 @@ export default function App() {
           </span>
         </button>
 	        <div className="top-actions">
-	          <div className="language-switch" aria-label="Language">
+	          <div className="language-switch" aria-label={t('ui.language')}>
 	            <Languages size={16} />
 	            {languages.map((option) => (
 	              <button
@@ -8528,8 +8612,8 @@ export default function App() {
               className="theme-toggle"
               type="button"
               onClick={toggleAppTheme}
-              aria-label={appTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-              title={appTheme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+              aria-label={appTheme === 'dark' ? t('ui.switchToLight') : t('ui.switchToDark')}
+              title={appTheme === 'dark' ? t('ui.lightMode') : t('ui.darkMode')}
             >
               {appTheme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
             </button>
@@ -8760,6 +8844,7 @@ export default function App() {
             setSelectedDiscoverProfileId(id);
             navigate('discover-profile');
           }}
+          t={t}
         />
       )}
 
@@ -8784,6 +8869,7 @@ export default function App() {
             navigate('discover-profile');
           }}
           onNotificationsChanged={refreshNotificationCounts}
+          t={t}
         />
       )}
 
@@ -8798,6 +8884,7 @@ export default function App() {
             navigate('discover-profile');
           }}
           onNotificationsChanged={refreshNotificationCounts}
+          t={t}
         />
       )}
 
