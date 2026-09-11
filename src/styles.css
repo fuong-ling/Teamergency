@@ -7617,6 +7617,76 @@ option {
   font-weight: 700;
 }
 
+.searchable-combobox {
+  position: relative;
+  width: 100%;
+}
+
+.searchable-combobox > input[role="combobox"] {
+  width: 100%;
+}
+
+.searchable-combobox-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 5px);
+  left: 0;
+  right: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid color-mix(in srgb, var(--app-blue) 42%, var(--app-border) 58%);
+  border-radius: 12px;
+  background: var(--app-surface, #fff);
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.2);
+}
+
+.searchable-combobox-option {
+  display: block;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--app-text);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.searchable-combobox-option:hover,
+.searchable-combobox-option:focus-visible {
+  color: #fff;
+  background: linear-gradient(135deg, var(--app-blue), var(--app-red));
+  outline: none;
+}
+
+.searchable-combobox-option.add-option,
+.searchable-combobox-option.other-option {
+  margin-top: 4px;
+  border-top: 1px solid var(--app-border);
+  color: var(--app-blue);
+  font-weight: 700;
+}
+
+.searchable-combobox-option.add-option:hover,
+.searchable-combobox-option.add-option:focus-visible,
+.searchable-combobox-option.other-option:hover,
+.searchable-combobox-option.other-option:focus-visible {
+  color: #fff;
+}
+
+.searchable-combobox-empty {
+  display: block;
+  padding: 9px 10px;
+  color: var(--app-text-soft);
+  font-size: 0.9rem;
+}
+
+.app.theme-dark .searchable-combobox-menu {
+  background: var(--app-surface, #17213b);
+  box-shadow: 0 16px 30px rgba(0, 0, 0, 0.4);
+}
+
 .app.theme-light .score,
 .app.theme-dark .score {
   display: inline-flex;

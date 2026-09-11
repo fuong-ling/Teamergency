@@ -252,7 +252,10 @@ const emptyProfile = {
   university_choice: 'RMIT University',
   custom_university: '',
   school: '',
+  custom_school: '',
   major: '',
+  custom_major: '',
+  custom_subject: '',
   skills: [],
   other_skill: '',
   contact_type: 'email',
@@ -273,6 +276,8 @@ const emptyProfile = {
 
 const createProfileFormState = (initialRole = 'student', initialData = {}) => {
   const role = initialRole === 'lecturer' ? 'lecturer' : 'student';
+  const initialSchool = initialData.school || '';
+  const knownSchool = schoolOptions.some((option) => option.value === initialSchool);
   return {
     ...emptyProfile,
     ...initialData,
@@ -282,8 +287,13 @@ const createProfileFormState = (initialRole = 'student', initialData = {}) => {
     custom_university: getUniversityChoice(initialData.university || emptyProfile.university) === OTHER_UNIVERSITY_VALUE
       ? initialData.university || ''
       : '',
-    school: initialData.school || '',
+    school: knownSchool || !initialSchool ? initialSchool : OTHER_OPTION_VALUE,
+    custom_school: knownSchool ? '' : initialSchool,
     major: role === 'lecturer' ? 'Lecturer' : initialData.major || '',
+    custom_major: '',
+    custom_subject: initialData.academic_field && !opportunityFields.includes(initialData.academic_field)
+      ? initialData.academic_field
+      : '',
     skills: Array.isArray(initialData.skills) ? initialData.skills : [],
     work_styles: Array.isArray(initialData.work_styles) ? initialData.work_styles : [],
     contact_type: initialData.contact_type || 'email',
@@ -600,7 +610,19 @@ const isValidSchoolCode = (value = '') =>
   schoolOptions.some((school) => school.value === String(value || '').trim());
 
 const getFormSchoolValue = (form = {}) =>
-  isValidSchoolCode(form.school) ? String(form.school).trim() : null;
+  form.school === OTHER_OPTION_VALUE
+    ? String(form.custom_school || '').trim() || null
+    : String(form.school || '').trim() || null;
+
+const getFormSubjectValue = (form = {}) =>
+  form.academic_field === OTHER_OPTION_VALUE
+    ? String(form.custom_subject || '').trim() || ''
+    : String(form.academic_field || '').trim();
+
+const getFormMajorValue = (form = {}) =>
+  form.major === OTHER_OPTION_VALUE
+    ? String(form.custom_major || '').trim() || ''
+    : String(form.major || '').trim();
 
 const subscriptionTier = (profile = {}) =>
   String(profile?.subscription_status || profile?.subscription || 'free').trim().toLowerCase();
@@ -773,6 +795,55 @@ const getCourseFilterValue = (request) =>
   request?.course_code || request?.course_name || request?.course || '';
 
 const normalizeFilterValue = (value) => String(value || '').trim().toLowerCase();
+
+const normalizeAcademicValue = (value) => String(value || '').trim().replace(/\s+/g, ' ');
+
+const dedupeAcademicValues = (values = []) => {
+  const seen = new Set();
+  return values.reduce((result, value) => {
+    const clean = normalizeAcademicValue(value);
+    const key = clean.toLowerCase();
+    if (!clean || seen.has(key)) return result;
+    seen.add(key);
+    result.push(clean);
+    return result;
+  }, []);
+};
+
+const mergeAcademicOptions = (staticOptions = [], dynamicValues = []) => {
+  const seen = new Set();
+  return [...staticOptions, ...dynamicValues].reduce((result, option) => {
+    const rawValue = typeof option === 'string' ? option : option?.value;
+    const cleanValue = normalizeAcademicValue(rawValue);
+    const key = cleanValue.toLowerCase();
+    if (!cleanValue || seen.has(key)) return result;
+    seen.add(key);
+    result.push(typeof option === 'string' ? { value: cleanValue, label: cleanValue } : {
+      ...option,
+      value: cleanValue,
+    });
+    return result;
+  }, []);
+};
+
+const getAcademicValuesFromProfiles = (profiles = []) => {
+  const rows = Array.isArray(profiles) ? profiles : [];
+  const studentProfiles = rows.filter((profile) => getProfileRole(profile) === 'student');
+  const lecturerProfiles = rows.filter((profile) => getProfileRole(profile) === 'lecturer');
+  return {
+    universities: dedupeAcademicValues(rows.map((profile) => profile.university)),
+    schools: dedupeAcademicValues(rows.map((profile) => profile.school)),
+    majors: dedupeAcademicValues(studentProfiles.map((profile) => profile.major)),
+    subjects: dedupeAcademicValues(lecturerProfiles.map((profile) => profile.academic_field)),
+  };
+};
+
+const emptyAcademicValues = {
+  universities: [],
+  schools: [],
+  majors: [],
+  subjects: [],
+};
 
 const arrayOverlapCount = (left = [], right = []) => {
   const rightSet = new Set((right || []).map(normalizeFilterValue).filter(Boolean));
@@ -1033,7 +1104,7 @@ const profileRequiredLabels = {
   short_bio: 'profile.shortBio',
   work_styles: 'profile.workStyle',
   student_id: 'profile.studentId',
-  academic_field: 'profile.academicField',
+  academic_field: 'profile.subject',
   lecturer_id: 'profile.lecturerId',
   lecturer_contact_detail: 'profile.contactDetail',
 };
@@ -1060,6 +1131,15 @@ const getProfileFieldErrors = (form, t = translate.bind(null, 'en')) => {
   const isFilled = (field) => {
     if (field === 'university') {
       return Boolean(resolveProfileUniversity(form));
+    }
+    if (field === 'school') {
+      return Boolean(getFormSchoolValue(form));
+    }
+    if (field === 'academic_field') {
+      return Boolean(getFormSubjectValue(form));
+    }
+    if (field === 'major') {
+      return Boolean(getFormMajorValue(form));
     }
     const value = field === 'skills' ? getProfileSkillsFromForm(form) : form[field];
     return Array.isArray(value) ? value.length > 0 : Boolean(String(value || '').trim());
@@ -1096,6 +1176,159 @@ const FieldLabel = ({ children, required = false }) => (
     {required && <span className="required-mark" aria-hidden="true">*</span>}
   </span>
 );
+
+const OTHER_OPTION_VALUE = '__other__';
+
+function SearchableCombobox({
+  value = '',
+  options = [],
+  onSelect,
+  onCustom,
+  placeholder,
+  otherLabel,
+  addLabel,
+  noResultsLabel,
+  t = translate.bind(null, 'en'),
+  otherValue = OTHER_OPTION_VALUE,
+}) {
+  const rootRef = useRef(null);
+  const selectedValueRef = useRef(value);
+  const inputFocusedRef = useRef(false);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState(value === otherValue ? '' : String(value || ''));
+  const [queryDirty, setQueryDirty] = useState(false);
+
+  useEffect(() => {
+    if (selectedValueRef.current === value) return;
+    selectedValueRef.current = value;
+    if (inputFocusedRef.current) return;
+    setQuery(value === otherValue ? '' : String(value || ''));
+    setQueryDirty(false);
+  }, [value, otherValue]);
+
+  useEffect(() => {
+    const handlePointerDown = (event) => {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, []);
+
+  const normalizedQuery = queryDirty ? query.trim().toLowerCase() : '';
+  const filteredOptions = options
+    .filter((option) => {
+      const optionValue = String(option.value || option).toLowerCase();
+      const optionLabel = String(option.label || option.value || option).toLowerCase();
+      return optionValue.includes(normalizedQuery) || optionLabel.includes(normalizedQuery);
+    })
+    .slice(0, 40);
+  const exactOption = options.some((option) => {
+    const optionValue = String(option.value || option).trim().toLowerCase();
+    const optionLabel = String(option.label || option.value || option).trim().toLowerCase();
+    return optionValue === normalizedQuery || optionLabel === normalizedQuery;
+  });
+  const selectOption = (nextValue) => {
+    if (nextValue === otherValue) {
+      setQuery('');
+      setQueryDirty(false);
+      onSelect(otherValue);
+    } else {
+      const option = options.find((item) => String(item.value || item) === nextValue);
+      const nextLabel = option?.label || option?.value || option || nextValue;
+      setQuery(String(nextLabel));
+      setQueryDirty(false);
+      onSelect(nextValue);
+    }
+    setOpen(false);
+  };
+
+  const selectedOption = options.find((option) => String(option.value || option) === String(value));
+  const selectedLabel = selectedOption?.label || selectedOption?.value || value;
+  // Keep the live query visible while the menu is open, including when the
+  // selected value is the "Other" sentinel used for custom saved values.
+  // The custom-value input remains responsible for the committed value.
+  const displayValue = open ? query : (value === otherValue ? '' : (query || String(selectedLabel || '')));
+
+  return (
+    <div className="searchable-combobox" ref={rootRef}>
+      <input
+        role="combobox"
+        aria-expanded={open}
+        aria-autocomplete="list"
+        value={displayValue}
+        placeholder={placeholder}
+        onFocus={(event) => {
+          inputFocusedRef.current = true;
+          if (!queryDirty && query) event.currentTarget.select();
+          setOpen(true);
+        }}
+        onBlur={() => {
+          inputFocusedRef.current = false;
+        }}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          setQueryDirty(true);
+          setOpen(true);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') setOpen(false);
+          if (event.key === 'Enter' && open && filteredOptions[0]) {
+            event.preventDefault();
+            selectOption(String(filteredOptions[0].value || filteredOptions[0]));
+          }
+        }}
+      />
+      {open && (
+        <div className="searchable-combobox-menu" role="listbox">
+          {filteredOptions.map((option) => {
+            const optionValue = String(option.value || option);
+            const optionLabel = option.label || option.value || option;
+            return (
+              <button
+                className="searchable-combobox-option"
+                type="button"
+                role="option"
+                key={optionValue}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => selectOption(optionValue)}
+              >
+                {optionLabel}
+              </button>
+            );
+          })}
+          {onCustom && query.trim() && !exactOption && !filteredOptions.length && (
+            <button
+              className="searchable-combobox-option add-option"
+              type="button"
+              role="option"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                onCustom(query.trim());
+                setQuery(query.trim());
+                setOpen(false);
+              }}
+            >
+              {addLabel?.replace('{value}', query.trim())}
+            </button>
+          )}
+          {onSelect && otherLabel && (
+            <button
+              className="searchable-combobox-option other-option"
+              type="button"
+              role="option"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => selectOption(otherValue)}
+            >
+              {otherLabel}
+            </button>
+          )}
+          {!filteredOptions.length && !onCustom && <span className="searchable-combobox-empty">{noResultsLabel}</span>}
+          {!filteredOptions.length && onCustom && !query.trim() && <span className="searchable-combobox-empty">{noResultsLabel}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const mergeOptionSets = (...groups) =>
   [...new Set(groups.flat().filter(Boolean))];
@@ -2865,7 +3098,7 @@ function LecturerDashboard({ activeRole, lecturerSession, profileId, onOpenProfi
   );
 }
 
-function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = translate.bind(null, 'en') }) {
+function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, academicValues = emptyAcademicValues, t = translate.bind(null, 'en') }) {
   const initialDataSignature = JSON.stringify(initialData || {});
   const [form, setForm] = useState(() => createProfileFormState(initialRole, initialData));
   const [error, setError] = useState('');
@@ -2879,7 +3112,28 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
     getProfileSkillSuggestions({ major: form.major, school: form.school }),
     form.skills,
   );
+  const profileUniversityComboOptions = mergeAcademicOptions(universityOptions, academicValues.universities);
   const profileSchoolOptions = getSchoolsForUniversity(resolvedUniversity);
+  const profileSchoolComboOptions = mergeAcademicOptions(profileSchoolOptions, academicValues.schools).map((school) => ({
+    value: school.value,
+    label: localizedOption(school.value, 'options.school', t),
+  }));
+  const profileMajorValues = mergeOptionSets(
+    ...Object.values(majorsBySchool),
+    form.major === OTHER_OPTION_VALUE ? '' : form.major,
+    ...academicValues.majors,
+  );
+  const profileMajorComboOptions = profileMajorValues.map((major) => ({
+    value: major,
+    label: localizedOption(major, 'options.major', t),
+  }));
+  const profileSubjectComboOptions = mergeAcademicOptions(
+    opportunityFields.filter((field) => field !== 'Other'),
+    academicValues.subjects.filter((field) => field !== 'Other'),
+  ).map((field) => ({
+    value: field.value,
+    label: localizedOption(field.value, 'options.field', t),
+  }));
 
   useEffect(() => {
     setForm(createProfileFormState(initialRole, initialData));
@@ -2896,9 +3150,43 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
     setForm((current) => ({
       ...current,
       school: value,
+      custom_school: value === OTHER_OPTION_VALUE ? current.custom_school : '',
       major: majorsBySchool[value]?.includes(current.major) ? current.major : '',
     }));
     setFieldErrors((current) => ({ ...current, school: '', major: '', skills: '' }));
+  };
+
+  const updateCustomSchool = (value) => {
+    setForm((current) => ({ ...current, school: OTHER_OPTION_VALUE, custom_school: value }));
+    setFieldErrors((current) => ({ ...current, school: '' }));
+  };
+
+  const updateSubject = (value) => {
+    setForm((current) => ({
+      ...current,
+      academic_field: value,
+      custom_subject: value === OTHER_OPTION_VALUE ? current.custom_subject : '',
+    }));
+    setFieldErrors((current) => ({ ...current, academic_field: '' }));
+  };
+
+  const updateMajor = (value) => {
+    setForm((current) => ({
+      ...current,
+      major: value,
+      custom_major: value === OTHER_OPTION_VALUE ? current.custom_major : '',
+    }));
+    setFieldErrors((current) => ({ ...current, major: '' }));
+  };
+
+  const updateCustomMajor = (value) => {
+    setForm((current) => ({ ...current, major: OTHER_OPTION_VALUE, custom_major: value }));
+    setFieldErrors((current) => ({ ...current, major: '' }));
+  };
+
+  const updateCustomSubject = (value) => {
+    setForm((current) => ({ ...current, academic_field: OTHER_OPTION_VALUE, custom_subject: value }));
+    setFieldErrors((current) => ({ ...current, academic_field: '' }));
   };
 
   const updateUniversityChoice = (value) => {
@@ -2916,6 +3204,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
   const updateCustomUniversity = (value) => {
     setForm((current) => ({
       ...current,
+      university_choice: OTHER_UNIVERSITY_VALUE,
       custom_university: value,
       university: value,
     }));
@@ -2956,7 +3245,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
         full_name: form.full_name.trim(),
         university: resolvedUniversity || 'RMIT University',
         school: getFormSchoolValue(form),
-        major: isLecturer ? 'Lecturer' : form.major.trim(),
+        major: isLecturer ? 'Lecturer' : getFormMajorValue(form),
         skills: isLecturer ? ['Teaching'] : skills,
         avatar_url: form.avatar_url || null,
         availability: [],
@@ -2972,7 +3261,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
 	        role,
 	        lecturer_title: isLecturer ? form.lecturer_title.trim() || null : null,
 	        lecturer_id: isLecturer ? form.lecturer_id.trim() : null,
-	        academic_field: isLecturer ? form.academic_field.trim() : form.major.trim(),
+        academic_field: isLecturer ? getFormSubjectValue(form) : getFormMajorValue(form),
 	        lecturer_contact_method: isLecturer ? form.lecturer_contact_method : null,
 	        lecturer_contact_detail: isLecturer ? form.lecturer_contact_detail.trim() : null,
 	        student_id: isLecturer ? null : form.student_id || null,
@@ -3028,12 +3317,21 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
           </label>
           <label>
 	            <FieldLabel required={isRequiredField('university')}>{t('profile.university')}</FieldLabel>
-            <select value={form.university_choice} onChange={(event) => updateUniversityChoice(event.target.value)} required>
-              {universityOptions.map((university) => (
-	                <option value={university.value} key={university.value}>{localizedOption(university.value, 'options.university', t)}</option>
-              ))}
-              <option value={OTHER_UNIVERSITY_VALUE}>{t('profile.otherUniversity')}</option>
-            </select>
+            <SearchableCombobox
+              value={form.university_choice}
+              options={profileUniversityComboOptions.map((university) => ({
+                value: university.value,
+                label: localizedOption(university.value, 'options.university', t),
+              }))}
+              onSelect={updateUniversityChoice}
+              onCustom={updateCustomUniversity}
+              placeholder={t('profile.searchUniversity')}
+              otherLabel={t('profile.otherUniversity')}
+              addLabel={t('profile.addValue')}
+              noResultsLabel={t('profile.noResults')}
+              otherValue={OTHER_UNIVERSITY_VALUE}
+              t={t}
+            />
             <FieldError message={fieldErrors.university} />
           </label>
           {usesOtherUniversity && (
@@ -3051,20 +3349,23 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
           {(isLecturer || !usesOtherUniversity) && (
           <label>
 	            <FieldLabel required={isRequiredField('school')}>{isLecturer ? t('profile.department') : t('profile.school')}</FieldLabel>
-            {usesOtherUniversity ? (
+            <SearchableCombobox
+              value={form.school}
+              options={profileSchoolComboOptions}
+              onSelect={updateSchool}
+              placeholder={t('profile.searchSchool')}
+              otherLabel={t('profile.other')}
+              addLabel={t('profile.addValue')}
+              noResultsLabel={t('profile.noResults')}
+              t={t}
+            />
+            {form.school === OTHER_OPTION_VALUE && (
               <input
-                value={form.school === 'Other' ? '' : form.school}
-                onChange={(event) => updateField('school', event.target.value)}
-                placeholder={t('profile.departmentPlaceholder')}
-                required={isLecturer}
+                value={form.custom_school}
+                onChange={(event) => updateCustomSchool(event.target.value)}
+                placeholder={t('profile.enterSchool')}
+                required
               />
-            ) : (
-              <select value={form.school} onChange={(event) => updateSchool(event.target.value)} required>
-                <option value="">{isLecturer ? t('profile.selectDepartment') : t('profile.selectSchool')}</option>
-                {profileSchoolOptions.map((school) => (
-	                  <option value={school.value} key={school.value}>{localizedOption(school.value, 'options.school', t)}</option>
-                ))}
-              </select>
             )}
             <FieldError message={fieldErrors.school} />
           </label>
@@ -3080,17 +3381,25 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
 	                />
 	              </label>
 	              <label>
-	                <FieldLabel required={isRequiredField('academic_field')}>{t('profile.academicField')}</FieldLabel>
-	                  <select
-	                    value={form.academic_field}
-	                    onChange={(event) => updateField('academic_field', event.target.value)}
-	                    required
-	                  >
-	                  <option value="">{t('profile.selectAcademicField')}</option>
-	                  {opportunityFields.map((field) => (
-	                    <option value={field} key={field}>{localizedOption(field, 'options.field', t)}</option>
-	                  ))}
-	                </select>
+	                <FieldLabel required={isRequiredField('academic_field')}>{t('profile.subject')}</FieldLabel>
+	                <SearchableCombobox
+                  value={form.academic_field}
+                  options={profileSubjectComboOptions}
+                  onSelect={updateSubject}
+                  placeholder={t('profile.searchSubject')}
+                  otherLabel={t('profile.other')}
+                  addLabel={t('profile.addValue')}
+                  noResultsLabel={t('profile.noResults')}
+                  t={t}
+                />
+                {form.academic_field === OTHER_OPTION_VALUE && (
+                  <input
+                    value={form.custom_subject}
+                    onChange={(event) => updateCustomSubject(event.target.value)}
+                    placeholder={t('profile.enterSubject')}
+                    required
+                  />
+                )}
                     <FieldError message={fieldErrors.academic_field} />
 	              </label>
 	              <label>
@@ -3131,21 +3440,25 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, t = t
 	            <>
 	              <label>
 	                <FieldLabel required={isRequiredField('major')}>{t('profile.major')}</FieldLabel>
-	                {usesOtherUniversity ? (
-	                  <input
-	                    value={form.major}
-	                    onChange={(event) => updateField('major', event.target.value)}
-	                    placeholder={t('profile.majorFieldPlaceholder')}
-	                    required
-	                  />
-	                ) : (
-	                  <select value={form.major} onChange={(event) => updateField('major', event.target.value)} required>
-	                    <option value="">{t('profile.selectMajor')}</option>
-	                    {(majorsBySchool[form.school] || []).map((major) => (
-	                      <option value={major} key={major}>{localizedOption(major, 'options.major', t)}</option>
-	                    ))}
-	                  </select>
-	                )}
+                <SearchableCombobox
+                  value={form.major}
+                  options={profileMajorComboOptions}
+                  onSelect={updateMajor}
+                  onCustom={updateCustomMajor}
+                  placeholder={t('profile.searchMajor')}
+                  otherLabel={t('profile.other')}
+                  addLabel={t('profile.addValue')}
+                  noResultsLabel={t('profile.noResults')}
+                  t={t}
+                />
+                {form.major === OTHER_OPTION_VALUE && (
+                  <input
+                    value={form.custom_major}
+                    onChange={(event) => updateCustomMajor(event.target.value)}
+                    placeholder={t('profile.enterMajor')}
+                    required
+                  />
+                )}
                     <FieldError message={fieldErrors.major} />
 	              </label>
 	              <label>
@@ -4366,17 +4679,29 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
     ? getCoursesForSchool(filters.school)
     : getAllCourses()
   ).filter((course, index, list) => list.findIndex((item) => item.code === course.code) === index);
+  const discoverUniversityOptions = mergeAcademicOptions(
+    universityOptions,
+    state.profiles.map((profile) => profile.university),
+  );
+  const discoverSchoolOptions = mergeAcademicOptions(
+    schoolOptions,
+    state.profiles.map((profile) => profile.school),
+  );
   const filteredProfiles = state.profiles
     .filter((profile) => profile.id !== currentProfileId)
-    .filter((profile) => !filters.university || (profile.university || 'RMIT University') === filters.university)
-    .filter((profile) => !filters.school || profile.school === filters.school)
-    .filter((profile) => !filters.major || profile.major === filters.major)
+    .filter((profile) => !filters.university || normalizeAcademicValue(profile.university || 'RMIT University').toLowerCase() === normalizeAcademicValue(filters.university).toLowerCase())
+    .filter((profile) => !filters.school || normalizeAcademicValue(profile.school).toLowerCase() === normalizeAcademicValue(filters.school).toLowerCase())
+    .filter((profile) => !filters.major || normalizeAcademicValue(profile.major).toLowerCase() === normalizeAcademicValue(filters.major).toLowerCase())
     .filter((profile) => !filters.course || requestsByProfile[profile.id]?.some((request) => courseMatchesFilter(request, filters.course)))
     .filter((profile) => !filters.skill || profile.skills?.includes(filters.skill));
 
-  const availableMajors = filters.school
-    ? majorsBySchool[filters.school] || []
-    : [...new Set(Object.values(majorsBySchool).flat())];
+  const schoolFilteredProfiles = filters.school
+    ? state.profiles.filter((profile) => normalizeAcademicValue(profile.school).toLowerCase() === normalizeAcademicValue(filters.school).toLowerCase())
+    : state.profiles;
+  const availableMajors = mergeAcademicOptions(
+    filters.school ? majorsBySchool[filters.school] || [] : [...new Set(Object.values(majorsBySchool).flat())],
+    schoolFilteredProfiles.map((profile) => profile.major),
+  );
   const discoverSkillOptions = getAllSkills().filter((skill) => skill !== 'Other');
   const updateDiscoveryFilters = (nextFilters, filterName) => {
     const changed = filters[filterName] !== nextFilters[filterName];
@@ -4475,8 +4800,8 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
             onChange={(event) => updateDiscoveryFilters({ ...filters, university: event.target.value }, 'university')}
           >
             <option value="">{t('discover.allUniversities')}</option>
-            {universityOptions.map((university) => (
-              <option value={university.value} key={university.value}>{university.label}</option>
+            {discoverUniversityOptions.map((university) => (
+              <option value={university.value} key={university.value}>{localizedOption(university.value, 'options.university', t)}</option>
             ))}
           </select>
         </label>
@@ -4492,8 +4817,8 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
             }, 'school')}
           >
             <option value="">{t('discover.allSchools')}</option>
-            {schoolOptions.map((school) => (
-              <option value={school.value} key={school.value}>{school.label}</option>
+            {discoverSchoolOptions.map((school) => (
+              <option value={school.value} key={school.value}>{localizedOption(school.value, 'options.school', t)}</option>
             ))}
           </select>
         </label>
@@ -4502,7 +4827,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
           <select value={filters.major} onChange={(event) => updateDiscoveryFilters({ ...filters, major: event.target.value }, 'major')}>
             <option value="">{t('discover.allMajors')}</option>
             {availableMajors.map((major) => (
-              <option value={major} key={major}>{major}</option>
+              <option value={major.value} key={major.value}>{localizedOption(major.value, 'options.major', t)}</option>
             ))}
           </select>
         </label>
@@ -7559,6 +7884,7 @@ function MyProfile({
   activeRole,
   authSession,
   lecturerSession,
+  academicValues = emptyAcademicValues,
   onCreateProfile,
   onCreateSearch,
   onOpenLecturer,
@@ -7590,7 +7916,28 @@ function MyProfile({
     getProfileSkillSuggestions({ major: form.major, school: form.school }),
     form.skills,
   );
+  const profileUniversityComboOptions = mergeAcademicOptions(universityOptions, academicValues.universities);
   const profileSchoolOptions = getSchoolsForUniversity(resolvedUniversity);
+  const profileSchoolComboOptions = mergeAcademicOptions(profileSchoolOptions, academicValues.schools).map((school) => ({
+    value: school.value,
+    label: localizedOption(school.value, 'options.school', t),
+  }));
+  const profileMajorValues = mergeOptionSets(
+    ...Object.values(majorsBySchool),
+    form.major === OTHER_OPTION_VALUE ? '' : form.major,
+    ...academicValues.majors,
+  );
+  const profileMajorComboOptions = profileMajorValues.map((major) => ({
+    value: major,
+    label: localizedOption(major, 'options.major', t),
+  }));
+  const profileSubjectComboOptions = mergeAcademicOptions(
+    opportunityFields.filter((field) => field !== 'Other'),
+    academicValues.subjects.filter((field) => field !== 'Other'),
+  ).map((field) => ({
+    value: field.value,
+    label: localizedOption(field.value, 'options.field', t),
+  }));
 
   useEffect(() => {
     let alive = true;
@@ -7633,7 +7980,8 @@ function MyProfile({
   }, [lecturerSession?.university, lecturerSession?.lecturerId]);
 
   const startEdit = () => {
-    const school = schoolOptions.some((option) => option.value === profile.school) ? profile.school : profile.school || '';
+    const knownSchool = schoolOptions.some((option) => option.value === profile.school);
+    const school = knownSchool || !profile.school ? profile.school || '' : OTHER_OPTION_VALUE;
     const roleForEdit = currentRole;
     setForm({
       role: roleForEdit,
@@ -7644,9 +7992,11 @@ function MyProfile({
         ? profile.university || ''
         : '',
       school,
+      custom_school: knownSchool ? '' : profile.school || '',
       major: roleForEdit === 'lecturer'
         ? 'Lecturer'
         : school && majorsBySchool[school]?.includes(profile.major) ? profile.major : profile.major || '',
+      custom_major: '',
       skills: profile.skills || [],
       other_skill: '',
       contact_type: profile.contact_type || 'email',
@@ -7657,6 +8007,9 @@ function MyProfile({
 	      lecturer_title: profile.lecturer_title || '',
 	      lecturer_id: profile.lecturer_id || '',
 	      academic_field: profile.academic_field || '',
+	      custom_subject: profile.academic_field && !opportunityFields.includes(profile.academic_field)
+        ? profile.academic_field
+        : '',
 	      lecturer_contact_method: profile.lecturer_contact_method || 'Email',
 	      lecturer_contact_detail: profile.lecturer_contact_detail || profile.contact_value || '',
 	      student_id: profile.student_id || '',
@@ -7679,9 +8032,43 @@ function MyProfile({
     setForm((current) => ({
       ...current,
       school: value,
+      custom_school: value === OTHER_OPTION_VALUE ? current.custom_school : '',
       major: majorsBySchool[value]?.includes(current.major) ? current.major : '',
     }));
     setFieldErrors((current) => ({ ...current, school: '', major: '', skills: '' }));
+  };
+
+  const updateCustomSchool = (value) => {
+    setForm((current) => ({ ...current, school: OTHER_OPTION_VALUE, custom_school: value }));
+    setFieldErrors((current) => ({ ...current, school: '' }));
+  };
+
+  const updateSubject = (value) => {
+    setForm((current) => ({
+      ...current,
+      academic_field: value,
+      custom_subject: value === OTHER_OPTION_VALUE ? current.custom_subject : '',
+    }));
+    setFieldErrors((current) => ({ ...current, academic_field: '' }));
+  };
+
+  const updateMajor = (value) => {
+    setForm((current) => ({
+      ...current,
+      major: value,
+      custom_major: value === OTHER_OPTION_VALUE ? current.custom_major : '',
+    }));
+    setFieldErrors((current) => ({ ...current, major: '' }));
+  };
+
+  const updateCustomMajor = (value) => {
+    setForm((current) => ({ ...current, major: OTHER_OPTION_VALUE, custom_major: value }));
+    setFieldErrors((current) => ({ ...current, major: '' }));
+  };
+
+  const updateCustomSubject = (value) => {
+    setForm((current) => ({ ...current, academic_field: OTHER_OPTION_VALUE, custom_subject: value }));
+    setFieldErrors((current) => ({ ...current, academic_field: '' }));
   };
 
   const updateUniversityChoice = (value) => {
@@ -7697,7 +8084,12 @@ function MyProfile({
   };
 
   const updateCustomUniversity = (value) => {
-    setForm((current) => ({ ...current, custom_university: value, university: value }));
+    setForm((current) => ({
+      ...current,
+      university_choice: OTHER_UNIVERSITY_VALUE,
+      custom_university: value,
+      university: value,
+    }));
     setFieldErrors((current) => ({ ...current, university: '', custom_university: '' }));
   };
 
@@ -7753,7 +8145,7 @@ function MyProfile({
         full_name: form.full_name.trim(),
         university: resolveProfileUniversity(form) || 'RMIT University',
         school: getFormSchoolValue(form),
-        major: editingAsLecturer ? 'Lecturer' : form.major.trim(),
+        major: editingAsLecturer ? 'Lecturer' : getFormMajorValue(form),
         skills: editingAsLecturer ? ['Teaching'] : skills,
         avatar_url: form.avatar_url || null,
         availability: [],
@@ -7768,7 +8160,7 @@ function MyProfile({
 	        role: editingAsLecturer ? 'lecturer' : 'student',
 	        lecturer_title: editingAsLecturer ? form.lecturer_title.trim() || null : null,
 	        lecturer_id: editingAsLecturer ? form.lecturer_id.trim() : null,
-	        academic_field: editingAsLecturer ? form.academic_field.trim() : form.major.trim(),
+        academic_field: editingAsLecturer ? getFormSubjectValue(form) : getFormMajorValue(form),
 	        lecturer_contact_method: editingAsLecturer ? form.lecturer_contact_method : null,
 	        lecturer_contact_detail: editingAsLecturer ? form.lecturer_contact_detail.trim() : null,
 	        student_id: editingAsLecturer ? null : form.student_id || null,
@@ -7820,12 +8212,21 @@ function MyProfile({
                   </label>
                   <label>
                     <FieldLabel required={isRequiredField('university')}>{t('profile.university')}</FieldLabel>
-                    <select value={form.university_choice} onChange={(event) => updateUniversityChoice(event.target.value)} required>
-                      {universityOptions.map((university) => (
-                        <option value={university.value} key={university.value}>{localizedOption(university.value, 'options.university', t)}</option>
-                      ))}
-                      <option value={OTHER_UNIVERSITY_VALUE}>{t('profile.otherUniversity')}</option>
-                    </select>
+                    <SearchableCombobox
+                      value={form.university_choice}
+                      options={profileUniversityComboOptions.map((university) => ({
+                        value: university.value,
+                        label: localizedOption(university.value, 'options.university', t),
+                      }))}
+                      onSelect={updateUniversityChoice}
+                      onCustom={updateCustomUniversity}
+                      placeholder={t('profile.searchUniversity')}
+                      otherLabel={t('profile.otherUniversity')}
+                      addLabel={t('profile.addValue')}
+                      noResultsLabel={t('profile.noResults')}
+                      otherValue={OTHER_UNIVERSITY_VALUE}
+                      t={t}
+                    />
                     <FieldError message={fieldErrors.university} />
                   </label>
                   {usesOtherUniversity && (
@@ -7843,20 +8244,23 @@ function MyProfile({
                   {(editingAsLecturer || !usesOtherUniversity) && (
                   <label>
                     <FieldLabel required={isRequiredField('school')}>{editingAsLecturer ? t('profile.department') : t('profile.school')}</FieldLabel>
-                    {usesOtherUniversity ? (
+                    <SearchableCombobox
+                      value={form.school}
+                      options={profileSchoolComboOptions}
+                      onSelect={updateSchool}
+                      placeholder={t('profile.searchSchool')}
+                      otherLabel={t('profile.other')}
+                      addLabel={t('profile.addValue')}
+                      noResultsLabel={t('profile.noResults')}
+                      t={t}
+                    />
+                    {form.school === OTHER_OPTION_VALUE && (
                       <input
-                        value={form.school === 'Other' ? '' : form.school}
-                        onChange={(event) => updateField('school', event.target.value)}
-                        placeholder={t('profile.departmentPlaceholder')}
-                        required={editingAsLecturer}
+                        value={form.custom_school}
+                        onChange={(event) => updateCustomSchool(event.target.value)}
+                        placeholder={t('profile.enterSchool')}
+                        required
                       />
-                    ) : (
-                      <select value={form.school} onChange={(event) => updateSchool(event.target.value)} required>
-                        <option value="">{editingAsLecturer ? t('profile.selectDepartment') : t('profile.selectSchool')}</option>
-                        {profileSchoolOptions.map((school) => (
-                          <option value={school.value} key={school.value}>{localizedOption(school.value, 'options.school', t)}</option>
-                        ))}
-                      </select>
                     )}
                     <FieldError message={fieldErrors.school} />
                   </label>
@@ -7872,17 +8276,25 @@ function MyProfile({
 	                        />
 	                      </label>
                       <label>
-                        <FieldLabel required={isRequiredField('academic_field')}>{t('profile.academicField')}</FieldLabel>
-	                        <select
-	                          value={form.academic_field}
-	                          onChange={(event) => updateField('academic_field', event.target.value)}
-	                          required
-	                        >
-                          <option value="">{t('profile.selectAcademicField')}</option>
-                          {opportunityFields.map((field) => (
-                            <option value={field} key={field}>{localizedOption(field, 'options.field', t)}</option>
-                          ))}
-                        </select>
+                        <FieldLabel required={isRequiredField('academic_field')}>{t('profile.subject')}</FieldLabel>
+                        <SearchableCombobox
+                          value={form.academic_field}
+                          options={profileSubjectComboOptions}
+                          onSelect={updateSubject}
+                          placeholder={t('profile.searchSubject')}
+                          otherLabel={t('profile.other')}
+                          addLabel={t('profile.addValue')}
+                          noResultsLabel={t('profile.noResults')}
+                          t={t}
+                        />
+                        {form.academic_field === OTHER_OPTION_VALUE && (
+                          <input
+                            value={form.custom_subject}
+                            onChange={(event) => updateCustomSubject(event.target.value)}
+                            placeholder={t('profile.enterSubject')}
+                            required
+                          />
+                        )}
                         <FieldError message={fieldErrors.academic_field} />
                       </label>
                       <label>
@@ -7923,20 +8335,24 @@ function MyProfile({
 	                    <>
                       <label>
                         <FieldLabel required={isRequiredField('major')}>{t('profile.major')}</FieldLabel>
-                        {usesOtherUniversity ? (
+                        <SearchableCombobox
+                          value={form.major}
+                          options={profileMajorComboOptions}
+                          onSelect={updateMajor}
+                          onCustom={updateCustomMajor}
+                          placeholder={t('profile.searchMajor')}
+                          otherLabel={t('profile.other')}
+                          addLabel={t('profile.addValue')}
+                          noResultsLabel={t('profile.noResults')}
+                          t={t}
+                        />
+                        {form.major === OTHER_OPTION_VALUE && (
                           <input
-                            value={form.major}
-                            onChange={(event) => updateField('major', event.target.value)}
-                            placeholder={t('profile.majorFieldPlaceholder')}
+                            value={form.custom_major}
+                            onChange={(event) => updateCustomMajor(event.target.value)}
+                            placeholder={t('profile.enterMajor')}
                             required
                           />
-                        ) : (
-                          <select value={form.major} onChange={(event) => updateField('major', event.target.value)} required>
-                            <option value="">{t('profile.selectMajor')}</option>
-                            {(majorsBySchool[form.school] || []).map((major) => (
-                              <option value={major} key={major}>{localizedOption(major, 'options.major', t)}</option>
-                            ))}
-                          </select>
                         )}
                         <FieldError message={fieldErrors.major} />
                       </label>
@@ -8071,7 +8487,7 @@ function MyProfile({
                   <div><dt>{t('profile.role')}</dt><dd>{t('profile.lecturer')}</dd></div>
                   <div><dt>{t('profile.university')}</dt><dd>{universityLabel(profile.university)}</dd></div>
                   {hasDisplaySchool(profile.school) && <div><dt>{t('profile.department')}</dt><dd>{schoolLabel(profile.school)}</dd></div>}
-                  <div><dt>{t('profile.academicField')}</dt><dd>{profile.academic_field || t('common.notSpecified')}</dd></div>
+                  <div><dt>{t('profile.subject')}</dt><dd>{profile.academic_field || t('common.notSpecified')}</dd></div>
                   <div><dt>{t('profile.lecturerId')}</dt><dd>{profile.lecturer_id || lecturerSession?.lecturerId || t('common.notSpecified')}</dd></div>
                   <div><dt>{t('profile.contact')}</dt><dd>{profile.lecturer_contact_detail || profile.contact_value || t('common.notSpecified')}</dd></div>
                   <div><dt>{t('profile.bio')}</dt><dd>{profile.short_bio || t('common.notSpecified')}</dd></div>
@@ -8098,6 +8514,7 @@ export default function App() {
   const [profileId, setProfileId] = useState('');
   const [requestId, setRequestId] = useState('');
   const [profile, setProfile] = useState(null);
+  const [academicValues, setAcademicValues] = useState(emptyAcademicValues);
   const [profileFormRole, setProfileFormRole] = useState('student');
   const [selectedLandingRole, setSelectedLandingRole] = useState(() => getStoredPendingRole());
   const [activeRole, setActiveRole] = useState('student');
@@ -8126,6 +8543,21 @@ export default function App() {
     }),
     [googleProfileSeed, profile],
   );
+
+  useEffect(() => {
+    if (!hasSupabaseConfig || !supabase) return undefined;
+    let alive = true;
+    getDiscoverProfiles()
+      .then((profiles) => {
+        if (alive) setAcademicValues(getAcademicValuesFromProfiles(profiles));
+      })
+      .catch(() => {
+        // Static catalog values remain available when dynamic loading is unavailable.
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     const storedProfileId = getStoredProfileId();
@@ -8653,9 +9085,10 @@ export default function App() {
       {view === 'profile' && (
 	        <ProfileForm
 	          key={`${profileFormRole}-${profileFormInitialData.id || authSession?.user?.id || 'new'}`}
-	          initialRole={profileFormRole}
+            initialRole={profileFormRole}
             initialData={profileFormInitialData}
-	          t={t}
+            academicValues={academicValues}
+            t={t}
 	          onSaved={(savedProfile) => {
             const savedRole = getProfileRole(savedProfile);
             setProfile(savedProfile);
@@ -8894,6 +9327,7 @@ export default function App() {
 	          activeRole={currentRole}
 	          authSession={authSession}
 	          lecturerSession={lecturerSession}
+	          academicValues={academicValues}
 	          onCreateProfile={() => openProfileForm('student')}
 	          onCreateSearch={startRequest}
 	          onOpenLecturer={() => navigate('lecturer')}

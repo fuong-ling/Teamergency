@@ -94,11 +94,11 @@ const getProfileExtraPayload = (profileData = {}) => ({
   subscription_status: profileData.subscription_status || 'free',
 });
 
-const validProfileSchoolCodes = new Set(['SCD', 'TBS', 'SSET']);
-
 const normalizeProfileSchool = (school) => {
-  const value = String(school || '').trim();
-  return validProfileSchoolCodes.has(value) ? value : null;
+  const value = String(school || '').trim().replace(/\s+/g, ' ');
+  if (!value) return null;
+  // Preserve legacy catalog codes and valid custom School names alike.
+  return value;
 };
 
 export const createProfile = async (profileData) => {
