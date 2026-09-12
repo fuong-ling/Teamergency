@@ -56,6 +56,7 @@ import {
   joinDemoClassByCode,
   joinClassByCode,
   listMyClasses,
+  listAllClasses,
   listMyClassesWithStatus,
   getTeamRequestProgress,
   getTeamRequestById,
@@ -547,6 +548,14 @@ const getFriendlyError = (error, fallback, { demoClassJoin = false } = {}) => {
     return translate(currentUiLanguage(), 'errors.duplicateSubmission');
   }
 
+  const databaseMessage = String(error?.message || '');
+  if (
+    /^23/.test(String(error?.code || ''))
+    || /new row for relation|violates .* constraint|postgresql/i.test(databaseMessage)
+  ) {
+    return fallback;
+  }
+
   return error?.message ? `${fallback} (${error.message})` : fallback;
 };
 
@@ -584,6 +593,9 @@ const universityLabel = (value) =>
   universityOptions.find((university) => university.value === value)
     ? translate(currentUiLanguage(), `options.university.${String(value).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')}`)
     : value || 'RMIT University';
+
+const savedUniversityDisplay = (profile = {}) =>
+  normalizeAcademicValue(profile?.university) || 'RMIT University';
 
 const isKnownUniversity = (value = '') =>
   universityOptions.some((university) => university.value === value);
@@ -742,15 +754,24 @@ const getCourseDisplay = (request) => {
   return request.course || translate(currentUiLanguage(), 'common.notSpecified');
 };
 
-const getOpportunityMeta = (request) =>
-  [request?.opportunity_type, request?.opportunity_field]
+const getOpportunityMeta = (request, t = translate.bind(null, 'en')) =>
+  [
+    request?.opportunity_type ? localizedOption(request.opportunity_type, 'options.opportunity', t) : '',
+    request?.opportunity_field ? localizedOption(request.opportunity_field, 'options.field', t) : '',
+  ]
     .filter(Boolean)
-    .join(' | ') || translate(currentUiLanguage(), 'request.open');
+    .join(' · ') || t('request.open');
+
+const formatDisplayDate = (value) => {
+  const text = String(value || '').trim();
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : text;
+};
 
 const getSessionDisplay = (request = {}) => {
   if (request.request_scope === 'open_opportunity' || request.opportunity_name) {
     return request.deadline
-      ? `${translate(currentUiLanguage(), 'request.deadline')} ${request.deadline}`
+      ? `${translate(currentUiLanguage(), 'request.deadline')} ${formatDisplayDate(request.deadline)}`
       : translate(currentUiLanguage(), 'request.outsideClass');
   }
 
@@ -764,7 +785,7 @@ const getSessionDisplay = (request = {}) => {
 
 const getLocalizedSessionDisplay = (request = {}, t = translate.bind(null, 'en')) => {
   if (request.request_scope === 'open_opportunity' || request.opportunity_name) {
-    return request.deadline ? `${t('request.deadline')} ${request.deadline}` : t('request.outsideClass');
+    return request.deadline ? `${t('request.deadline')} ${formatDisplayDate(request.deadline)}` : t('request.outsideClass');
   }
 
   if (!request.class_session && !request.session_code) return t('common.notSpecified');
@@ -1181,9 +1202,11 @@ const OTHER_OPTION_VALUE = '__other__';
 
 function SearchableCombobox({
   value = '',
+  customValue,
   options = [],
   onSelect,
   onCustom,
+  onQueryChange,
   placeholder,
   otherLabel,
   addLabel,
@@ -1194,17 +1217,30 @@ function SearchableCombobox({
   const rootRef = useRef(null);
   const selectedValueRef = useRef(value);
   const inputFocusedRef = useRef(false);
+  const hasCustomValue = customValue !== undefined;
+  const customText = String(customValue || '');
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState(value === otherValue ? '' : String(value || ''));
+  const initialQuery = value === otherValue
+    ? (hasCustomValue ? customText || String(otherLabel || otherValue) : '')
+    : String(value || '');
+  const [query, setQuery] = useState(initialQuery);
   const [queryDirty, setQueryDirty] = useState(false);
 
   useEffect(() => {
-    if (selectedValueRef.current === value) return;
+    if (selectedValueRef.current === value && !(hasCustomValue && value === otherValue && customValue && !queryDirty)) return;
     selectedValueRef.current = value;
     if (inputFocusedRef.current) return;
-    setQuery(value === otherValue ? '' : String(value || ''));
+    setQuery(value === otherValue
+      ? (hasCustomValue ? customText || String(otherLabel || otherValue) : '')
+      : String(value || ''));
     setQueryDirty(false);
-  }, [value, otherValue]);
+  }, [value, customValue, otherLabel, otherValue, queryDirty, hasCustomValue, customText]);
+
+  useEffect(() => {
+    if (hasCustomValue && value === otherValue && !customValue && !queryDirty && !inputFocusedRef.current) {
+      setQuery(String(otherLabel || otherValue));
+    }
+  }, [otherLabel, value, customValue, otherValue, queryDirty, hasCustomValue]);
 
   useEffect(() => {
     const handlePointerDown = (event) => {
@@ -1229,7 +1265,7 @@ function SearchableCombobox({
   });
   const selectOption = (nextValue) => {
     if (nextValue === otherValue) {
-      setQuery('');
+      setQuery(hasCustomValue ? customText || String(otherLabel || otherValue) : '');
       setQueryDirty(false);
       onSelect(otherValue);
     } else {
@@ -1244,10 +1280,13 @@ function SearchableCombobox({
 
   const selectedOption = options.find((option) => String(option.value || option) === String(value));
   const selectedLabel = selectedOption?.label || selectedOption?.value || value;
-  // Keep the live query visible while the menu is open, including when the
-  // selected value is the "Other" sentinel used for custom saved values.
-  // The custom-value input remains responsible for the committed value.
-  const displayValue = open ? query : (value === otherValue ? '' : (query || String(selectedLabel || '')));
+  // Keep the live query visible in the same input. For the "Other" sentinel,
+  // show its localized label (or the saved custom value) until the user types.
+  const displayValue = open
+    ? query
+    : (value === otherValue
+      ? (hasCustomValue ? query || customText || String(otherLabel || otherValue) : '')
+      : (query || String(selectedLabel || '')));
 
   return (
     <div className="searchable-combobox" ref={rootRef}>
@@ -1266,8 +1305,10 @@ function SearchableCombobox({
           inputFocusedRef.current = false;
         }}
         onChange={(event) => {
-          setQuery(event.target.value);
+          const nextQuery = event.target.value;
+          setQuery(nextQuery);
           setQueryDirty(true);
+          onQueryChange?.(nextQuery);
           setOpen(true);
         }}
         onKeyDown={(event) => {
@@ -1433,6 +1474,20 @@ const getConnectionState = (connection, currentProfileId) => {
   if (connection.status === 'pending' && connection.receiver_profile_id === currentProfileId) return 'received_pending';
   if (connection.status === 'pending') return 'pending';
   return connection.status;
+};
+
+// Demo receivers are accepted through the authoritative Supabase RPC. The
+// follow-up read keeps relationship/context/request linkage in sync with the
+// database instead of relying on a React-only status update.
+const acceptDemoConnection = async ({ connection, receiverProfileId, currentProfileId, context = '' }) => {
+  const accepted = await simulateDemoAcceptance(connection.id, currentProfileId);
+  const refreshed = await getConnectionBetween(currentProfileId, receiverProfileId, context).catch(() => null);
+  return {
+    ...connection,
+    ...accepted,
+    ...(refreshed || {}),
+    status: 'accepted',
+  };
 };
 
 const connectionStateLabel = (state, t = translate.bind(null, 'en')) => {
@@ -1864,14 +1919,18 @@ function Home({
   );
 }
 
-function JoinClassPage({ profile, profileId, onCreateProfile, onJoined, t = translate.bind(null, 'en') }) {
-  const [joinCode, setJoinCode] = useState(() => getStoredInviteCode());
+function JoinClassPage({ profile, profileId, initialCode = '', onCreateProfile, onJoined, t = translate.bind(null, 'en') }) {
+  const [joinCode, setJoinCode] = useState(() => initialCode || getStoredInviteCode());
   const [networkStatus, setNetworkStatus] = useState('');
   const [preview, setPreview] = useState(null);
   const [loading, setLoading] = useState(false);
   const [joining, setJoining] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (initialCode) setJoinCode(initialCode);
+  }, [initialCode]);
 
   const previewClass = async (event) => {
     event.preventDefault();
@@ -2041,7 +2100,7 @@ function JoinClassPage({ profile, profileId, onCreateProfile, onJoined, t = tran
   );
 }
 
-function MyClassesPage({ profileId, onCreateProfile, onJoinClass, onOpenClass, t = translate.bind(null, 'en') }) {
+function MyClassesPage({ profileId, profile, onCreateProfile, onJoinClass, onOpenClass, t = translate.bind(null, 'en') }) {
   const [state, setState] = useState({
     loading: true,
     error: '',
@@ -2049,13 +2108,15 @@ function MyClassesPage({ profileId, onCreateProfile, onJoinClass, onOpenClass, t
 	    requests: [],
 	    progressByRequest: {},
 	    teamStatusByClass: {},
+	    search: '',
+	    copiedCode: '',
 	  });
 
   useEffect(() => {
     let alive = true;
 
     if (!profileId) {
-	      setState({ loading: false, error: '', classes: [], requests: [], progressByRequest: {}, teamStatusByClass: {} });
+      setState({ loading: false, error: '', classes: [], requests: [], progressByRequest: {}, teamStatusByClass: {}, search: '', copiedCode: '' });
       return () => {
         alive = false;
       };
@@ -2063,8 +2124,19 @@ function MyClassesPage({ profileId, onCreateProfile, onJoinClass, onOpenClass, t
 
     setState((current) => ({ ...current, loading: true, error: '' }));
 
-    Promise.all([listMyClassesWithStatus(profileId), listMyTeamRequests(profileId)])
-      .then(async ([classes, requests]) => {
+    Promise.all([listMyClassesWithStatus(profileId), listAllClasses(), listMyTeamRequests(profileId)])
+      .then(async ([joinedClasses, allClasses, requests]) => {
+        const joinedById = new Map(joinedClasses.map((classItem) => [classItem.id, classItem]));
+        const directoryClasses = [
+          ...allClasses,
+          ...joinedClasses.filter((classItem) => !allClasses.some((item) => item.id === classItem.id)),
+        ];
+        const classes = directoryClasses.map((classItem) => ({
+          ...classItem,
+          ...(joinedById.get(classItem.id) || {}),
+          class_code: classItem.class_code || classItem.demo_class_code || classItem.join_code,
+          joined: joinedById.has(classItem.id),
+        }));
         const classRequests = requests.filter((request) => request.class_id);
         const progressEntries = await Promise.all(
           classRequests.map(async (request) => {
@@ -2077,7 +2149,7 @@ function MyClassesPage({ profileId, onCreateProfile, onJoinClass, onOpenClass, t
         );
 
 	        const teamStatusEntries = await Promise.all(
-	          classes.map(async (classItem) => {
+	          joinedClasses.map(async (classItem) => {
 	            try {
 	              return [classItem.id, await getMyClassTeamStatus(profileId, classItem.id)];
 	            } catch {
@@ -2090,10 +2162,12 @@ function MyClassesPage({ profileId, onCreateProfile, onJoinClass, onOpenClass, t
 	          setState({
 	            loading: false,
 	            error: '',
-	            classes: classes.filter((classItem) => classItem.status === 'active'),
+	            classes,
 	            requests,
 	            progressByRequest: Object.fromEntries(progressEntries),
 	            teamStatusByClass: Object.fromEntries(teamStatusEntries),
+	            search: '',
+	            copiedCode: '',
 	          });
 	        }
       })
@@ -2102,10 +2176,12 @@ function MyClassesPage({ profileId, onCreateProfile, onJoinClass, onOpenClass, t
           setState({
             loading: false,
             error: getFriendlyError(err, t('classes.loadFail')),
-	            classes: [],
-	            requests: [],
-	            progressByRequest: {},
-	            teamStatusByClass: {},
+            classes: [],
+            requests: [],
+            progressByRequest: {},
+            teamStatusByClass: {},
+            search: '',
+            copiedCode: '',
 	          });
         }
       });
@@ -2130,6 +2206,45 @@ function MyClassesPage({ profileId, onCreateProfile, onJoinClass, onOpenClass, t
 	    return <main className="screen compact"><p className="loading">{t('classes.loading')}</p></main>;
   }
 
+  const normalizedSearch = state.search.trim().toLowerCase();
+  const visibleClasses = state.classes.filter((classItem) => {
+    if (!normalizedSearch) return true;
+    return [
+      classItem.course_name,
+      classItem.course,
+      classItem.course_code,
+      classItem.university,
+      classItem.school,
+      classItem.major,
+      classItem.class_session,
+      classItem.session_code,
+      classItem.class_code,
+      classItem.demo_class_code,
+      classItem.join_code,
+    ].some((value) => String(value || '').toLowerCase().includes(normalizedSearch));
+  });
+
+  const copyClassCode = async (code) => {
+    if (!code) return;
+    try {
+      await navigator.clipboard.writeText(code);
+    } catch {
+      const helper = document.createElement('textarea');
+      helper.value = code;
+      helper.setAttribute('readonly', '');
+      helper.style.position = 'fixed';
+      helper.style.opacity = '0';
+      document.body.appendChild(helper);
+      helper.select();
+      document.execCommand('copy');
+      helper.remove();
+    }
+    setState((current) => ({ ...current, copiedCode: code }));
+    window.setTimeout(() => setState((current) => (
+      current.copiedCode === code ? { ...current, copiedCode: '' } : current
+    )), 1600);
+  };
+
   return (
     <main className="screen">
       <div className="results-header">
@@ -2144,41 +2259,63 @@ function MyClassesPage({ profileId, onCreateProfile, onJoinClass, onOpenClass, t
         </button>
       </div>
 
+      <label className="class-directory-search">
+        <Search size={18} />
+        <span className="sr-only">{t('classes.search')}</span>
+        <input
+          value={state.search}
+          onChange={(event) => setState((current) => ({ ...current, search: event.target.value }))}
+          placeholder={t('classes.searchPlaceholder')}
+        />
+      </label>
+
       {state.error && <p className="error">{state.error}</p>}
 
-      {state.classes.length === 0 ? (
+      {visibleClasses.length === 0 ? (
         <section className="empty-state">
-	          <p>{t('classes.none')}</p>
+	          <p>{state.classes.length === 0 ? t('classes.none') : t('classes.noSearchResults')}</p>
 	          <button className="primary" onClick={onJoinClass}>{t('join.joinClass')}</button>
         </section>
       ) : (
         <div className="match-grid">
-          {state.classes.map((classItem) => {
+	          {visibleClasses.map((classItem) => {
             const request = pickClassRequest(state.requests, classItem.id);
 	            const requestMetrics = request ? getTeamProgress(request, state.progressByRequest[request.id]) : null;
 	            const editableStatus = getTeamStatusFromEditableTeam(state.teamStatusByClass[classItem.id], t);
 	            const metrics = requestMetrics || editableStatus?.metrics;
+	            const isJoined = Boolean(classItem.joined);
+	            const isCreator = Boolean(profile?.lecturer_id && classItem.lecturer_id && profile.lecturer_id === classItem.lecturer_id);
+	            const classCode = classItem.class_code || classItem.demo_class_code || classItem.join_code || '';
 	            const status = requestMetrics
               ? classTeamStatus(classItem, request, requestMetrics, t)
               : editableStatus || classTeamStatus(classItem, request, requestMetrics, t);
 
-            return (
-              <article className="match-card" key={classItem.id}>
-	                <span className={`status-badge ${status.tone}`}>{translateStatusText(status.label, t)}</span>
-                <h3>{getClassDisplay(classItem)}</h3>
-                <p>{classItem.university} | {schoolLabel(classItem.school)} | {classItem.major}</p>
+	            return (
+	              <article className="match-card" key={classItem.id}>
+	                <div className="class-card-topline">
+	                  <span className={`status-badge ${isJoined ? 'success' : 'pending'}`}>{isJoined ? t('classes.joined') : t('classes.available')}</span>
+	                  {classItem.is_demo && <DemoBadge />}
+	                  {isCreator && <span className="status-badge info">{t('classes.createdByYou')}</span>}
+	                </div>
+	                <h3>{getClassDisplay(classItem)}</h3>
+	                <p>{classItem.university} | {schoolLabel(classItem.school)} | {classItem.major}</p>
 	                <p>{getAcademicPeriodDisplay(classItem)} | {t('join.lecturer')}: {classItem.lecturer_name || t('common.notSpecified')}</p>
                 <div className="mini-detail">
-	                  <strong>{t('classes.classCode')}</strong>
-                  <span>{classItem.class_code || classItem.demo_class_code || classItem.join_code}</span>
-                </div>
-                <div className="mini-detail">
+                  <strong>{t('classes.joinCode')}</strong>
+	                  <span className="class-code-value">{classCode || t('common.notSpecified')}</span>
+	                  {classCode && <button className="quiet-action" type="button" onClick={() => copyClassCode(classCode)}>{state.copiedCode === classCode ? t('classes.copied') : t('classes.copy')}</button>}
+	                </div>
+	                {isJoined && <div className="mini-detail">
 	                  <strong>{t('classes.teamStatus')}</strong>
 	                  <span>{metrics ? `${teammateCountSummary(metrics, t)} | ${remainingSummary(metrics, t)}` : translateStatusText(status.detail, t)}</span>
-                </div>
-                <button className="secondary" onClick={() => onOpenClass(classItem.id)}>
-	                  {t('classes.open')}
-                </button>
+	                </div>}
+                {isJoined ? (
+                  <button className="secondary" onClick={() => onOpenClass(classItem.id)}>{t('classes.open')}</button>
+                ) : isCreator ? null : (
+                  <button className="primary" onClick={() => onJoinClass(classItem)} disabled={classItem.status !== 'active'}>
+                    {classItem.status === 'active' ? t('join.joinClass') : t('classes.unavailable')}
+                  </button>
+                )}
               </article>
             );
           })}
@@ -2528,7 +2665,7 @@ function ClassDetailPage({
 		            <div><dt>{t('join.lecturer')}</dt><dd>{state.classItem.lecturer_name || t('common.notSpecified')}</dd></div>
 		            <div><dt>{t('classes.classCode')}</dt><dd>{state.classItem.class_code || state.classItem.demo_class_code || state.classItem.join_code}</dd></div>
 		            <div><dt>{t('class.requiredSize')}</dt><dd>{state.classItem.required_members_per_team || 4}</dd></div>
-		            <div><dt>{t('class.deadline')}</dt><dd>{state.classItem.team_formation_deadline || t('common.notSpecified')}</dd></div>
+            <div><dt>{t('class.deadline')}</dt><dd>{formatDisplayDate(state.classItem.team_formation_deadline) || t('common.notSpecified')}</dd></div>
 		            <div><dt>{t('class.joinStatus')}</dt><dd>{classNetworkStatusLabel(state.classItem.network_status, t)}</dd></div>
 	          </dl>
 	        </section>
@@ -3382,7 +3519,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
 	              </label>
 	              <label>
 	                <FieldLabel required={isRequiredField('academic_field')}>{t('profile.subject')}</FieldLabel>
-	                <SearchableCombobox
+                <SearchableCombobox
                   value={form.academic_field}
                   options={profileSubjectComboOptions}
                   onSelect={updateSubject}
@@ -3885,6 +4022,7 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
         onCreated(createdRequest);
       }
     } catch (err) {
+      console.error('Request save failed', err);
       const fallback = mode === 'edit'
         ? t('request.updateFail')
         : t('request.createFail');
@@ -4501,11 +4639,21 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
         },
         dedupeKey: connection.id ? `connection_requested:${connection.id}` : null,
       });
-      if (currentRequest.class_id && request.profile?.is_demo) {
-        connection = await simulateDemoAcceptance(connection.id, currentProfileId);
+      if (request.profile?.is_demo === true) {
+        connection = await acceptDemoConnection({
+          connection,
+          receiverProfileId: request.profile_id,
+          currentProfileId,
+          context: 'team_request',
+        });
       }
-      let updatedProgress = await getTeamRequestProgress(currentRequest.id, currentProfileId)
-        .catch(() => state.progressById[currentRequest.id] || { found_count: 0, teammates: [] });
+      let updatedProgress;
+      if (request.profile?.is_demo === true) {
+        updatedProgress = await getTeamRequestProgress(currentRequest.id, currentProfileId);
+      } else {
+        updatedProgress = await getTeamRequestProgress(currentRequest.id, currentProfileId)
+          .catch(() => state.progressById[currentRequest.id] || { found_count: 0, teammates: [] });
+      }
       setState((current) => ({
         ...current,
         sendingProfileId: '',
@@ -4719,13 +4867,14 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
   };
 
   const sendDiscoverConnect = async (introMessage) => {
-    if (!state.modalProfile) return;
-    setState((current) => ({ ...current, sendingProfileId: state.modalProfile.id, modalError: '' }));
+    const targetProfile = state.modalProfile;
+    if (!targetProfile) return;
+    setState((current) => ({ ...current, sendingProfileId: targetProfile.id, modalError: '' }));
 
     try {
-      const connection = await sendConnectionRequest({
+      let connection = await sendConnectionRequest({
         senderProfileId: currentProfileId,
-        receiverProfileId: state.modalProfile.id,
+        receiverProfileId: targetProfile.id,
         senderTeamRequestId: null,
         introMessage,
       });
@@ -4734,18 +4883,29 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
         entityType: 'connection',
         entityId: connection.id,
         metadata: {
-          receiver_profile_id: state.modalProfile.id,
+          receiver_profile_id: targetProfile.id,
           source: 'discover',
         },
         dedupeKey: connection.id ? `connection_requested:${connection.id}` : null,
       });
+      if (targetProfile.is_demo === true) {
+        connection = await acceptDemoConnection({
+          connection,
+          receiverProfileId: targetProfile.id,
+          currentProfileId,
+        });
+      }
       setState((current) => ({
         ...current,
         sendingProfileId: '',
         modalProfile: null,
         sentByProfile: {
           ...current.sentByProfile,
-          [state.modalProfile.id]: connection,
+          [targetProfile.id]: connection,
+        },
+        connectionsByProfile: {
+          ...current.connectionsByProfile,
+          [targetProfile.id]: connection,
         },
       }));
     } catch {
@@ -4872,7 +5032,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
               <article className={isPremiumProfile(profile) ? 'discover-card premium-card' : 'discover-card'} key={profile.id}>
                 <div className="avatar">{displayInitial(profile.full_name)}</div>
                 <h3>{displayName(profile.full_name)} {profile.is_demo && <DemoBadge />} {isPremiumProfile(profile) && <PremiumBadge t={t} />}</h3>
-                <p>{universityLabel(profile.university)}</p>
+                <p>{savedUniversityDisplay(profile)}</p>
                 {hasDisplaySchool(profile.school) && <p>{schoolLabel(profile.school)}</p>}
                 <p>{profile.major}</p>
 	                <p className="note">{reviewSummaryLabel(profile, null, t)}</p>
@@ -5031,7 +5191,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, currentProfile, on
     setState((current) => ({ ...current, sending: true, actionError: '' }));
 
     try {
-      const connection = await sendConnectionRequest({
+      let connection = await sendConnectionRequest({
         senderProfileId: currentProfileId,
         receiverProfileId: profile.id,
         senderTeamRequestId: null,
@@ -5047,6 +5207,13 @@ function DiscoverProfileDetail({ profileId, currentProfileId, currentProfile, on
         },
         dedupeKey: connection.id ? `connection_requested:${connection.id}` : null,
       });
+      if (profile.is_demo === true) {
+        connection = await acceptDemoConnection({
+          connection,
+          receiverProfileId: profile.id,
+          currentProfileId,
+        });
+      }
       setState((current) => ({
         ...current,
         sending: false,
@@ -5129,7 +5296,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, currentProfile, on
         <h2>{displayName(profile.full_name)} {profile.is_demo && <DemoBadge />} {isPremiumProfile(profile) && <PremiumBadge t={t} />}</h2>
         <p>{profile.short_bio || t('matches.noBio')}</p>
           <dl>
-          <div><dt>{t('profile.university')}</dt><dd>{universityLabel(profile.university)}</dd></div>
+          <div><dt>{t('profile.university')}</dt><dd>{savedUniversityDisplay(profile)}</dd></div>
           {hasDisplaySchool(profile.school) && <div><dt>{t('profile.school')}</dt><dd>{schoolLabel(profile.school)}</dd></div>}
           <div><dt>{t('profile.major')}</dt><dd>{profile.major}</dd></div>
           <div><dt>{t('matches.skillsHave')}</dt><dd>{joinList(profile.skills)}</dd></div>
@@ -5559,7 +5726,7 @@ function ProfileDetail({
     setState((current) => ({ ...current, actionLoading: true, actionError: '' }));
 
     try {
-      const created = await sendConnectionRequest({
+      let created = await sendConnectionRequest({
         senderProfileId: currentProfileId,
         receiverProfileId: profile.id,
         senderTeamRequestId: currentRequestId || null,
@@ -5576,6 +5743,14 @@ function ProfileDetail({
         },
         dedupeKey: created.id ? `connection_requested:${created.id}` : null,
       });
+      if (profile.is_demo === true) {
+        created = await acceptDemoConnection({
+          connection: created,
+          receiverProfileId: profile.id,
+          currentProfileId,
+          context: currentRequestId ? 'team_request' : '',
+        });
+      }
       setState((current) => ({
         ...current,
         actionLoading: false,
@@ -5819,11 +5994,225 @@ function ProfileDetail({
   );
 }
 
+function RequestDetailPage({
+  request,
+  profile,
+  currentProfileId,
+  isOwner,
+  metrics,
+  skillGap,
+  teammates,
+  teamComplete,
+  noLongerComplete,
+  saving,
+  success,
+  error,
+  dismissedComplete,
+  dismissedReopen,
+  cancelTarget,
+  onBack,
+  onEdit,
+  onViewRecommended,
+  onPin,
+  onCancel,
+  onMarkFound,
+  onReopen,
+  onDismissComplete,
+  onDismissReopen,
+  onCloseCancel,
+  onConfirmCancel,
+  onOpenChat,
+  onViewProfile,
+  t = translate.bind(null, 'en'),
+}) {
+  return (
+    <main className="screen request-detail-screen">
+      <button className="ghost" type="button" onClick={onBack}>
+        <ArrowLeft size={18} />
+        {t('opportunities.backToCollabs')}
+      </button>
+      <div className="results-header">
+        <div>
+          <p className="eyebrow">{t('opportunities.requestDetail')}</p>
+          <h2>{getCourseDisplay(request)} {isPremiumProfile(profile) && <PremiumBadge t={t} />} {isRequestPinned(request) && <span className="premium-badge pinned">{t('premium.pinned')}</span>}</h2>
+        </div>
+      </div>
+
+      <div className={`request-detail-grid${teamComplete ? ' has-feedback' : ''}`}>
+      <section className="request-panel standalone request-detail-info">
+        <dl>
+          <div><dt>{t('request.opportunityType')}</dt><dd>{request.opportunity_type || request.course_code || t('common.notSpecified')}</dd></div>
+          <div><dt>{t('request.field')}</dt><dd>{request.opportunity_field || request.major || t('common.notSpecified')}</dd></div>
+          <div><dt>{t('request.deadline')}</dt><dd>{formatDisplayDate(request.deadline) || t('common.notSpecified')}</dd></div>
+          <div><dt>{t('request.skillsNeeded')}</dt><dd>{joinList(request.skills_needed)}</dd></div>
+          <div><dt>{t('request.teamSize')}</dt><dd>{getTotalTeamSize(request)}</dd></div>
+          <div><dt>{t('opportunities.progress')}</dt><dd>{teammateCountSummary(metrics, t)} · {remainingSummary(metrics, t)}</dd></div>
+          <div><dt>{t('opportunities.initiallyLooking')}</dt><dd>{getInitialNeeded(request)}</dd></div>
+          <div><dt>{t('request.teammateKind')}</dt><dd>{joinList(getWorkStyles(request))}</dd></div>
+          <div><dt>{t('request.requirementsTitle')}</dt><dd>{describeRequirements(request, t)}</dd></div>
+          <PortfolioReference request={request} t={t} />
+          <div><dt>{t('matches.teamStatus')}</dt><dd>{requestStatusLabel(request.status, t)}</dd></div>
+        </dl>
+        <div className="hero-actions">
+          {isOwner && request.status === 'looking' && (
+            <button className="primary" onClick={() => onViewRecommended?.(request.id)}>
+              <Sparkles size={18} />
+              {t('opportunities.findCollaborators')}
+            </button>
+          )}
+          {isOwner && (
+            <button className="secondary" onClick={onEdit}>
+              <Pencil size={18} />
+              {t('common.editRequest')}
+            </button>
+          )}
+          {isOwner && request.status === 'looking' && isPremiumProfile(profile) && !isRequestPinned(request) && (
+            <button className="secondary" onClick={onPin} disabled={saving}>
+              <Sparkles size={18} />
+              {t('premium.pin')}
+            </button>
+          )}
+          {isOwner && request.status === 'looking' && !isPremiumProfile(profile) && (
+            <p className="note inline-note">{t('premium.pinUpgrade')}</p>
+          )}
+          {isOwner && request.status === 'looking' && (
+            <button className="secondary quiet-action" onClick={onCancel}>
+              <Trash2 size={18} />
+              {t('opportunities.cancel')}
+            </button>
+          )}
+        </div>
+      </section>
+
+      <section className="progress-panel request-detail-progress">
+        <div className="progress-header">
+          <strong>{t('opportunities.progress')}</strong>
+          <span>{progressSummary(metrics, t)}</span>
+        </div>
+        <div className="progress-track" aria-label={t('ui.classFormationProgress')}>
+          <div className="progress-fill" style={{ width: `${metrics.percent}%` }} />
+        </div>
+        {teamComplete ? <p className="success">{t('status.teamComplete')}</p> : <p className="note">{remainingSummary(metrics, t)}</p>}
+        {metrics.matchedCount > 0 && !teamComplete && <p className="note">{t('opportunities.foundAnother')} {remainingSummary(metrics, t)}</p>}
+      </section>
+
+      {teamComplete && (
+        <div className="request-detail-usefulness">
+          <MatchUsefulnessPanel
+            request={request}
+            currentProfileId={currentProfileId}
+            teamComplete={teamComplete}
+            t={t}
+          />
+        </div>
+      )}
+
+      <section className="progress-panel request-detail-skills">
+        <div className="progress-header">
+          <strong>{t('opportunities.skillCoverage')}</strong>
+          <span>{t('opportunities.skillsCovered', { covered: skillGap.covered.length, total: skillGap.total })}</span>
+        </div>
+        <div className="connection-context">
+          <div className="mini-detail">
+            <strong>{t('opportunities.coveredSkills')}</strong>
+            <span>{joinList(skillGap.covered)}</span>
+          </div>
+          <div className="mini-detail">
+            <strong>{t('opportunities.missingSkills')}</strong>
+            <span>{joinList(skillGap.missing)}</span>
+          </div>
+        </div>
+      </section>
+
+      <section className="matched-list request-detail-teammates">
+        <h3>{t('opportunities.matchedTeammates')} ({metrics.matchedCount})</h3>
+        {teammates.length === 0 ? (
+          <p className="note">{t('opportunities.noMatched')}</p>
+        ) : (
+          teammates.map((teammate) => (
+            <article className="matched-row" key={teammate.profile_id}>
+              <div>
+                <strong>{displayName(teammate.full_name)} {teammate.is_demo && <DemoBadge />}</strong>
+                <span>{teammate.major || t('common.notSpecified')}</span>
+              </div>
+              <div className="hero-actions">
+                <button className="secondary" onClick={() => onOpenChat(teammate.connection_id)}>
+                  <MessageCircle size={18} />
+                  {t('common.message')}
+                </button>
+                {teammate.active_request_id && (
+                  <button className="secondary" onClick={() => onViewProfile(teammate.active_request_id)}>
+                    {t('common.viewProfile')}
+                  </button>
+                )}
+              </div>
+            </article>
+          ))
+        )}
+      </section>
+      </div>
+
+      {isOwner && teamComplete && request.status === 'looking' && !dismissedComplete && (
+        <section className="inline-prompt">
+          <h3>{t('opportunities.teamCompleteTitle')}</h3>
+          <p>{t('opportunities.teamCompleteQuestion')}</p>
+          <div className="hero-actions">
+            <button className="primary" onClick={onMarkFound} disabled={saving}>
+              {saving ? t('common.updating') : t('opportunities.markComplete')}
+            </button>
+            <button className="secondary" onClick={onDismissComplete}>{t('common.keepLooking')}</button>
+          </div>
+        </section>
+      )}
+
+      {isOwner && noLongerComplete && !dismissedReopen && (
+        <section className="inline-prompt warning-prompt">
+          <h3>{t('opportunities.noLongerComplete')}</h3>
+          <p>{t('opportunities.reopenQuestion')}</p>
+          <div className="hero-actions">
+            <button className="primary" onClick={onReopen} disabled={saving}>
+              {saving ? t('opportunities.reopening') : t('opportunities.reopen')}
+            </button>
+            <button className="secondary" onClick={onDismissReopen}>{t('common.keepClosed')}</button>
+          </div>
+        </section>
+      )}
+
+      {success && <p className="success">{success}</p>}
+      {error && <p className="error">{error}</p>}
+
+      {cancelTarget && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="connect-modal" role="dialog" aria-modal="true" aria-label={t('opportunities.cancelTitle')}>
+            <div className="modal-header">
+              <div>
+                <p className="eyebrow">{t('opportunities.cancelTitle')}</p>
+                <h2>{t('opportunities.cancelQuestion')}</h2>
+              </div>
+              <button className="ghost" onClick={onCloseCancel} type="button">{t('common.close')}</button>
+            </div>
+            <p className="note">{t('opportunities.cancelHelper')}</p>
+            <div className="hero-actions">
+              <button className="secondary" onClick={onCloseCancel} type="button">{t('opportunities.keep')}</button>
+              <button className="primary danger-action" onClick={onConfirmCancel} disabled={saving}>
+                {saving ? t('opportunities.cancelling') : t('opportunities.cancel')}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+    </main>
+  );
+}
+
 function CurrentRequest({
   requestId,
   currentProfileId,
   profile,
-  onBack,
+	pageMode = 'list',
+	onOpenRequestDetail,
+	onOpenRequestEdit,
+	onBackToCollabs,
   onOpenChat,
 	  onViewProfile,
     onOpenProfile,
@@ -5842,7 +6231,6 @@ function CurrentRequest({
     collabSendingProfileId: '',
     progressById: {},
     selectedId: requestId || '',
-    editingRequest: null,
     cancelTarget: null,
     saving: false,
     success: '',
@@ -5865,9 +6253,21 @@ function CurrentRequest({
       getActiveTeamRequests().catch(() => []),
     ])
       .then(async ([requests, profiles, activeRequests]) => {
-        const standaloneRequests = sortRequestsByVisibility(
-          requests.filter((request) => !request.class_id),
+        const profileById = Object.fromEntries(
+          [...(profiles || []), profile].filter((item) => item?.id).map((item) => [item.id, item]),
         );
+        const requestById = new Map();
+        [...(activeRequests || []), ...(requests || [])]
+          .filter((request) => !request.class_id)
+          .filter((request) => request.status === 'looking')
+          .filter((request) => request.request_scope === 'open_opportunity' || request.opportunity_name)
+          .forEach((request) => {
+            requestById.set(request.id, {
+              ...request,
+              profile: request.profile || profileById[request.profile_id] || null,
+            });
+          });
+        const standaloneRequests = sortRequestsByVisibility([...requestById.values()]);
         const visibleProfiles = (profiles || [])
           .filter((candidate) => getProfileRole(candidate) === 'student')
           .filter((candidate) => candidate.id !== currentProfileId);
@@ -5899,6 +6299,7 @@ function CurrentRequest({
         );
 
         if (alive) {
+          const requestedRequestExists = Boolean(requestId) && standaloneRequests.some((request) => request.id === requestId);
           const stillSelected = standaloneRequests.some((request) => request.id === (requestId || state.selectedId));
           const currentMatchRequest = standaloneRequests.find((request) => request.id === requestId && request.status === 'looking');
           const nextMatchRequest = currentMatchRequest || standaloneRequests.find((request) => request.status === 'looking') || null;
@@ -5919,7 +6320,7 @@ function CurrentRequest({
             saving: false,
           }));
 
-          if ((nextMatchRequest?.id || '') !== requestId) {
+          if (!requestedRequestExists && (nextMatchRequest?.id || '') !== requestId) {
             onSelectRequest(nextMatchRequest?.id || '');
           }
         }
@@ -6086,6 +6487,7 @@ function CurrentRequest({
       success: '',
       error: '',
     }));
+    onOpenRequestDetail?.(request.id);
   };
 
   const getCandidateCollabRequests = (candidate) =>
@@ -6185,13 +6587,23 @@ function CurrentRequest({
         },
         dedupeKey: connection.id ? `connection_requested:${connection.id}` : null,
       });
-      if (candidate.is_demo) {
-        connection = await simulateDemoAcceptance(connection.id, currentProfileId).catch(() => connection);
+      if (candidate.is_demo === true) {
+        connection = await acceptDemoConnection({
+          connection,
+          receiverProfileId: candidate.id,
+          currentProfileId,
+          context: selectedRequest?.status === 'looking' ? 'team_request' : '',
+        });
       }
+      const refreshedProgress = candidate.is_demo === true && selectedRequest?.status === 'looking'
+        ? await getTeamRequestProgress(selectedRequest.id, currentProfileId)
+        : null;
       setState((current) => ({
         ...current,
         collabSendingProfileId: '',
-        success: t('connections.requestSent'),
+        success: connection.status === 'accepted'
+          ? t('connections.connectedStatus')
+          : t('connections.requestSent'),
         collabConnectionsByProfile: {
           ...current.collabConnectionsByProfile,
           [candidate.id]: {
@@ -6200,6 +6612,9 @@ function CurrentRequest({
             receiver_profile_id: candidate.id,
           },
         },
+        ...(refreshedProgress
+          ? { progressById: { ...current.progressById, [selectedRequest.id]: refreshedProgress } }
+          : {}),
       }));
     } catch (err) {
       console.error('Collab connect failed', err);
@@ -6255,11 +6670,6 @@ function CurrentRequest({
   const teamComplete = metrics.complete;
   const skillGap = calculateSkillGap(selectedRequest, profile, teammates);
   const noLongerComplete = selectedRequest?.status === 'found' && !teamComplete;
-  const groupedRequests = {
-    active: state.requests.filter((request) => request.status === 'looking'),
-    completed: state.requests.filter((request) => request.status === 'found'),
-    cancelled: state.requests.filter((request) => request.status === 'cancelled'),
-  };
   const collabProfiles = [...state.collabProfiles]
     .sort((a, b) => {
       const requestForScoring = selectedRequest?.status === 'looking' ? selectedRequest : null;
@@ -6267,6 +6677,9 @@ function CurrentRequest({
         || Number(isPremiumProfile(b)) - Number(isPremiumProfile(a));
     })
     .slice(0, selectedRequest?.status === 'looking' ? 8 : 12);
+  const myRequests = state.requests.filter((request) => request.profile_id === currentProfileId);
+  const myRequest = myRequests[0] || null;
+  const marketplaceRequests = state.requests.filter((request) => request.profile_id !== currentProfileId);
 
   const renderCollabHeader = () => (
     <div className="results-header collabs-page-header">
@@ -6275,10 +6688,6 @@ function CurrentRequest({
         <h2>{t('opportunities.profileIntro')}</h2>
       </div>
       <div className="collabs-header-actions">
-        <button className="ghost collabs-inline-back" type="button" onClick={onBack}>
-          <ArrowLeft size={18} />
-          {t('common.back')}
-        </button>
         <button className="primary" onClick={onCreateNew}>
           <Plus size={18} />
           {t('opportunities.new')}
@@ -6359,75 +6768,116 @@ function CurrentRequest({
     </section>
   );
 
-  const RequestRow = ({ request }) => {
-    const requestProgress = state.progressById[request.id] || { found_count: 0 };
+  const renderCollabRequestCard = (request) => {
+    const requestProgress = state.progressById[request.id] || { found_count: 0, teammates: [] };
     const requestMetrics = getTeamProgress(request, requestProgress);
-    const isSelected = selectedRequest?.id === request.id;
+    const isOwner = request.profile_id === currentProfileId;
+    const visibleSkills = (request.skills_needed || []).slice(0, 3);
+    const extraSkills = Math.max(0, (request.skills_needed || []).length - visibleSkills.length);
+    const ownerName = request.profile_id === currentProfileId
+      ? profile?.full_name
+      : request.profile?.full_name;
 
     return (
-      <article className={[
-        'request-list-row',
-        isSelected ? 'selected' : '',
-        (isPremiumProfile(request.profile || profile) || isRequestPinned(request)) ? 'premium-card' : '',
-      ].filter(Boolean).join(' ')}>
-        <div>
-          <h3>{getCourseDisplay(request)} {isPremiumProfile(request.profile || profile) && <PremiumBadge t={t} />} {isRequestPinned(request) && <span className="premium-badge pinned">{t('premium.pinned')}</span>}</h3>
-          <p>{getLocalizedSessionDisplay(request, t)} | {requestStatusLabel(request.status, t)}</p>
-          <p className="note">
-            {progressSummary(requestMetrics, t)}
-            {request.status === 'looking' ? ` | ${remainingSummary(requestMetrics, t)}` : ''}
+      <article className="request-list-row collab-request-card" key={request.id}>
+        <div className="collab-request-card-main">
+          <h3>{getCourseDisplay(request)}</h3>
+          <p className="request-row-detail">
+            {isOwner && <span className="request-owner-badge">{t('opportunities.myRequest')}</span>}
+            {ownerName || t('common.notSpecified')}
           </p>
+          <p>{getOpportunityMeta(request, t)} · {requestStatusLabel(request.status, t)}</p>
+          <p className="request-row-detail"><strong>{t('request.deadline')}:</strong> {formatDisplayDate(request.deadline) || t('common.notSpecified')}</p>
+          <p className="note">{teammateCountSummary(requestMetrics, t)} · {remainingSummary(requestMetrics, t)}</p>
+          <p className="request-row-detail"><strong>{t('request.skillsNeeded')}:</strong> {joinList(visibleSkills) || t('common.notSpecified')}{extraSkills > 0 ? ` ${t('common.moreCount', { count: extraSkills })}` : ''}</p>
         </div>
-        <div className="request-row-actions">
-          <button className="secondary" onClick={() => selectRequest(request)}>{t('common.viewDetails')}</button>
-          <button className="secondary" onClick={() => setState((current) => ({ ...current, editingRequest: request, success: '', error: '' }))}>
-            <Pencil size={18} />
-            {t('common.editRequest')}
-          </button>
-          {request.status === 'looking' && isPremiumProfile(profile) && !isRequestPinned(request) && (
-            <button className="secondary" onClick={() => pinRequest(request)} disabled={state.saving}>
-              <Sparkles size={18} />
-              {t('premium.pin')}
+        <div className="collab-request-card-side">
+          <div className="collab-card-stat">
+            <span className="eyebrow">{t('opportunities.progress')}</span>
+            <strong>{Math.round(requestMetrics.percent)}%</strong>
+            <span>{teammateCountSummary(requestMetrics, t)}</span>
+          </div>
+          <div className="collab-card-stat">
+            <span className="eyebrow">{t('matches.teamStatus')}</span>
+            <span>{requestStatusLabel(request.status, t)}</span>
+          </div>
+          <div className="request-row-actions">
+            <button className="secondary" type="button" onClick={() => selectRequest(request)}>
+              {t('common.viewDetails')}
             </button>
-          )}
-          {request.status === 'looking' && (
-            <button className="secondary quiet-action" onClick={() => setState((current) => ({ ...current, cancelTarget: request, success: '', error: '' }))}>
-              <Trash2 size={18} />
-              {t('opportunities.cancel')}
-            </button>
-          )}
+            {isOwner && (
+              <button className="secondary" type="button" onClick={() => onOpenRequestEdit?.(request.id)}>
+                <Pencil size={18} />
+                {t('common.editRequest')}
+              </button>
+            )}
+          </div>
         </div>
       </article>
     );
   };
 
-  const RequestSection = ({ title, requests }) => (
-    <section className="request-list-section">
-      <h3>{title}</h3>
-      {requests.length === 0 ? (
-        <p className="note">{t('opportunities.noSection', { section: title.toLowerCase() })}</p>
-      ) : (
-        <div className="request-list">
-          {requests.map((request) => <RequestRow request={request} key={request.id} />)}
-        </div>
-      )}
-    </section>
-  );
+  const renderMyRequestPanel = () => {
+    if (!myRequest) {
+      return (
+        <section className="request-panel standalone collab-my-request-panel">
+          <p className="eyebrow">{t('opportunities.myRequest')}</p>
+          <p className="note">{t('opportunities.noOwnRequest')}</p>
+        </section>
+      );
+    }
 
-  if (state.editingRequest && profile) {
+    const requestProgress = state.progressById[myRequest.id] || { found_count: 0, teammates: [] };
+    const requestMetrics = getTeamProgress(myRequest, requestProgress);
+    const visibleSkills = (myRequest.skills_needed || []).slice(0, 3);
+    const extraSkills = Math.max(0, (myRequest.skills_needed || []).length - visibleSkills.length);
+
+    return (
+      <section className="request-panel standalone collab-my-request-panel">
+        <p className="eyebrow">{t('opportunities.myRequest')}</p>
+        <h3>{getCourseDisplay(myRequest)}</h3>
+        <p>{getOpportunityMeta(myRequest, t)}</p>
+        <p className="request-row-detail"><strong>{t('request.deadline')}:</strong> {formatDisplayDate(myRequest.deadline) || t('common.notSpecified')}</p>
+        <div className="collab-my-request-stats">
+          <div className="collab-card-stat">
+            <span className="eyebrow">{t('opportunities.progress')}</span>
+            <strong>{Math.round(requestMetrics.percent)}%</strong>
+            <span>{teammateCountSummary(requestMetrics, t)}</span>
+          </div>
+          <div className="collab-card-stat">
+            <span className="eyebrow">{t('status.stillLooking')}</span>
+            <span>{remainingSummary(requestMetrics, t)}</span>
+          </div>
+        </div>
+        {visibleSkills.length > 0 && (
+          <p className="request-row-detail"><strong>{t('request.skillsNeeded')}:</strong> {joinList(visibleSkills)}{extraSkills > 0 ? ` ${t('common.moreCount', { count: extraSkills })}` : ''}</p>
+        )}
+        <div className="request-row-actions">
+          <button className="secondary" type="button" onClick={() => selectRequest(myRequest)}>
+            {t('common.viewDetails')}
+          </button>
+          <button className="secondary" type="button" onClick={() => onOpenRequestEdit?.(myRequest.id)}>
+            <Pencil size={18} />
+            {t('common.editRequest')}
+          </button>
+        </div>
+      </section>
+    );
+  };
+
+  if (pageMode === 'edit' && selectedRequest && profile) {
     return (
       <RequestForm
         profile={profile}
-        request={state.editingRequest}
+        request={selectedRequest}
         mode="edit"
-	        onBack={() => setState((current) => ({ ...current, editingRequest: null, error: '', success: '' }))}
+	        onBack={onBackToCollabs}
 	        t={t}
         onUpdated={async (updatedRequest) => {
           const updatedProgress = await getTeamRequestProgress(updatedRequest.id, currentProfileId)
             .catch(() => ({ found_count: 0, teammates: [] }));
           setState((current) => ({
             ...current,
-            editingRequest: null,
             requests: current.requests.map((request) =>
               request.id === updatedRequest.id ? { ...request, ...updatedRequest } : request,
             ),
@@ -6441,198 +6891,78 @@ function CurrentRequest({
           if (updatedRequest.status === 'looking') {
             onSelectRequest(updatedRequest.id);
           }
+          onBackToCollabs?.();
         }}
       />
     );
   }
 
-  if (!selectedRequest) {
+  if (pageMode === 'detail' && selectedRequest) {
+    const detailRequest = selectedRequest;
+    const detailProgress = state.progressById[detailRequest.id] || { found_count: 0, teammates: [] };
+    const detailTeammates = detailProgress.teammates || [];
+    const detailMetrics = getTeamProgress(detailRequest, detailProgress);
+    const detailTeamComplete = detailMetrics.complete;
+    const detailSkillGap = calculateSkillGap(detailRequest, profile, detailTeammates);
+    const detailNoLongerComplete = detailRequest.status === 'found' && !detailTeamComplete;
+
     return (
-      <main className="screen collabs-screen">
-        {renderCollabHeader()}
-        {renderCollabProfiles(null)}
-      </main>
+      <RequestDetailPage
+        request={detailRequest}
+        profile={profile}
+        currentProfileId={currentProfileId}
+        isOwner={detailRequest.profile_id === currentProfileId}
+        metrics={detailMetrics}
+        skillGap={detailSkillGap}
+        teammates={detailTeammates}
+        teamComplete={detailTeamComplete}
+        noLongerComplete={detailNoLongerComplete}
+        saving={state.saving}
+        success={state.success}
+        error={state.error}
+        dismissedComplete={state.dismissedComplete}
+        dismissedReopen={state.dismissedReopen}
+        cancelTarget={state.cancelTarget}
+        onBack={onBackToCollabs}
+        onEdit={() => onOpenRequestEdit?.(detailRequest.id)}
+        onViewRecommended={onViewRecommended}
+        onPin={() => pinRequest(detailRequest)}
+        onCancel={() => setState((current) => ({ ...current, cancelTarget: detailRequest, success: '', error: '' }))}
+        onMarkFound={markFound}
+        onReopen={reopenRequest}
+        onDismissComplete={() => setState((current) => ({ ...current, dismissedComplete: true }))}
+        onDismissReopen={() => setState((current) => ({ ...current, dismissedReopen: true }))}
+        onCloseCancel={() => setState((current) => ({ ...current, cancelTarget: null }))}
+        onConfirmCancel={cancelRequest}
+        onOpenChat={onOpenChat}
+        onViewProfile={onViewProfile}
+        t={t}
+      />
     );
   }
-
-  const request = selectedRequest;
 
   return (
     <main className="screen collabs-screen">
       {renderCollabHeader()}
-
-      {renderCollabProfiles(request.status === 'looking' ? request : null)}
-
-      <div className="request-management-grid">
-        <section className="request-list-panel">
-          <RequestSection title={t('common.active')} requests={groupedRequests.active} />
-          <RequestSection title={t('common.completed')} requests={groupedRequests.completed} />
-          <RequestSection title={t('common.cancelled')} requests={groupedRequests.cancelled} />
-        </section>
-
-      <section className="request-panel standalone">
-	        <p className="eyebrow">{t('opportunities.selected')}</p>
-	        <h2>{getCourseDisplay(request)} {isPremiumProfile(profile) && <PremiumBadge t={t} />} {isRequestPinned(request) && <span className="premium-badge pinned">{t('premium.pinned')}</span>}</h2>
-	        <dl>
-	          <div><dt>{t('request.opportunityType')}</dt><dd>{request.opportunity_type || request.course_code || t('common.notSpecified')}</dd></div>
-	          <div><dt>{t('request.field')}</dt><dd>{request.opportunity_field || request.major || t('common.notSpecified')}</dd></div>
-	          <div><dt>{t('request.deadline')}</dt><dd>{request.deadline || t('common.notSpecified')}</dd></div>
-	          <div><dt>{t('request.skillsNeeded')}</dt><dd>{joinList(request.skills_needed)}</dd></div>
-	          <div><dt>{t('request.teamSize')}</dt><dd>{getTotalTeamSize(request)}</dd></div>
-          <div><dt>{t('opportunities.progress')}</dt><dd>{teammateCountSummary(metrics, t)} · {remainingSummary(metrics, t)}</dd></div>
-          <div><dt>{t('opportunities.initiallyLooking')}</dt><dd>{getInitialNeeded(request)}</dd></div>
-          <div><dt>{t('request.teammateKind')}</dt><dd>{joinList(getWorkStyles(request))}</dd></div>
-          <div><dt>{t('request.requirementsTitle')}</dt><dd>{describeRequirements(request, t)}</dd></div>
-          <PortfolioReference request={request} t={t} />
-          <div><dt>{t('matches.teamStatus')}</dt><dd>{requestStatusLabel(request.status, t)}</dd></div>
-        </dl>
-	        <div className="hero-actions">
-	          {request.status === 'looking' && (
-	            <button className="primary" onClick={() => onViewRecommended?.(request.id)}>
-	              <Sparkles size={18} />
-	              {t('matches.viewRecommended')}
-	            </button>
-	          )}
-          <button className="secondary" onClick={() => setState((current) => ({ ...current, editingRequest: request, success: '', error: '' }))}>
-            <Pencil size={18} />
-            {t('common.editRequest')}
-          </button>
-          {request.status === 'looking' && isPremiumProfile(profile) && !isRequestPinned(request) && (
-            <button className="secondary" onClick={() => pinRequest(request)} disabled={state.saving}>
-              <Sparkles size={18} />
-              {t('premium.pin')}
-            </button>
-          )}
-          {request.status === 'looking' && !isPremiumProfile(profile) && (
-            <p className="note inline-note">{t('premium.pinUpgrade')}</p>
-          )}
-          {request.status === 'looking' && (
-            <button className="secondary quiet-action" onClick={() => setState((current) => ({ ...current, cancelTarget: request, success: '', error: '' }))}>
-              <Trash2 size={18} />
-              {t('opportunities.cancel')}
-            </button>
-          )}
-        </div>
-        <section className="progress-panel">
-          <div className="progress-header">
-            <strong>{t('opportunities.progress')}</strong>
-            <span>{progressSummary(metrics, t)}</span>
-          </div>
-          <div className="progress-track" aria-label={t('ui.classFormationProgress')}>
-            <div className="progress-fill" style={{ width: `${metrics.percent}%` }} />
-          </div>
-	          {teamComplete ? <p className="success">{t('status.teamComplete')}</p> : <p className="note">{remainingSummary(metrics, t)}</p>}
-          {metrics.matchedCount > 0 && !teamComplete && <p className="note">{t('opportunities.foundAnother')} {remainingSummary(metrics, t)}</p>}
-        </section>
-
-        <MatchUsefulnessPanel
-          request={request}
-          currentProfileId={currentProfileId}
-          teamComplete={teamComplete}
-          t={t}
-        />
-
-        <section className="progress-panel">
-          <div className="progress-header">
-            <strong>{t('opportunities.skillCoverage')}</strong>
-            <span>{t('opportunities.skillsCovered', { covered: skillGap.covered.length, total: skillGap.total })}</span>
-          </div>
-          <div className="connection-context">
-            <div className="mini-detail">
-              <strong>{t('opportunities.coveredSkills')}</strong>
-              <span>{joinList(skillGap.covered)}</span>
-            </div>
-            <div className="mini-detail">
-              <strong>{t('opportunities.missingSkills')}</strong>
-              <span>{joinList(skillGap.missing)}</span>
+      <div className="collabs-marketplace">
+        <section className="request-panel standalone collab-requests-panel collab-marketplace-list">
+          <div className="compact-header">
+            <div>
+              <p className="eyebrow">{t('opportunities.existingRequests')}</p>
             </div>
           </div>
-        </section>
-
-        <section className="matched-list">
-          <h3>{t('opportunities.matchedTeammates')} ({metrics.matchedCount})</h3>
-          {teammates.length === 0 ? (
-            <p className="note">{t('opportunities.noMatched')}</p>
+          {marketplaceRequests.length === 0 ? (
+            <p className="note">{t('opportunities.noOtherRequests')}</p>
           ) : (
-            teammates.map((teammate) => (
-              <article className="matched-row" key={teammate.profile_id}>
-                <div>
-	                  <strong>{displayName(teammate.full_name)} {teammate.is_demo && <DemoBadge />}</strong>
-                  <span>{teammate.major || t('common.notSpecified')}</span>
-                </div>
-                <div className="hero-actions">
-                  <button className="secondary" onClick={() => onOpenChat(teammate.connection_id)}>
-                    <MessageCircle size={18} />
-                    {t('common.message')}
-                  </button>
-                  {teammate.active_request_id && (
-                    <button className="secondary" onClick={() => onViewProfile(teammate.active_request_id)}>
-                      {t('common.viewProfile')}
-                    </button>
-                  )}
-                </div>
-              </article>
-            ))
+            <div className="request-list">
+              {marketplaceRequests.map((item) => renderCollabRequestCard(item))}
+            </div>
           )}
         </section>
-
-        {teamComplete && request.status === 'looking' && !state.dismissedComplete && (
-          <section className="inline-prompt">
-            <h3>{t('opportunities.teamCompleteTitle')}</h3>
-            <p>{t('opportunities.teamCompleteQuestion')}</p>
-            <div className="hero-actions">
-              <button className="primary" onClick={markFound} disabled={state.saving}>
-                {state.saving ? t('common.updating') : t('opportunities.markComplete')}
-              </button>
-              <button className="secondary" onClick={() => setState((current) => ({ ...current, dismissedComplete: true }))}>
-                {t('common.keepLooking')}
-              </button>
-            </div>
-          </section>
-        )}
-
-        {noLongerComplete && !state.dismissedReopen && (
-          <section className="inline-prompt warning-prompt">
-            <h3>{t('opportunities.noLongerComplete')}</h3>
-            <p>{t('opportunities.reopenQuestion')}</p>
-            <div className="hero-actions">
-              <button className="primary" onClick={reopenRequest} disabled={state.saving}>
-                {state.saving ? t('opportunities.reopening') : t('opportunities.reopen')}
-              </button>
-              <button className="secondary" onClick={() => setState((current) => ({ ...current, dismissedReopen: true }))}>
-                {t('common.keepClosed')}
-              </button>
-            </div>
-          </section>
-        )}
-
-        {state.success && <p className="success">{state.success}</p>}
-        {state.error && <p className="error">{state.error}</p>}
-      </section>
+        <aside className="collabs-my-request-column">
+          {renderMyRequestPanel()}
+        </aside>
       </div>
-
-      {state.cancelTarget && (
-        <div className="modal-backdrop" role="presentation">
-          <section className="connect-modal" role="dialog" aria-modal="true" aria-label={t('opportunities.cancelTitle')}>
-            <div className="modal-header">
-              <div>
-                <p className="eyebrow">{t('opportunities.cancelTitle')}</p>
-                <h2>{t('opportunities.cancelQuestion')}</h2>
-              </div>
-              <button className="ghost" onClick={() => setState((current) => ({ ...current, cancelTarget: null }))} type="button">{t('common.close')}</button>
-            </div>
-            <p className="note">{t('opportunities.cancelHelper')}</p>
-            <div className="hero-actions">
-              <button className="secondary" onClick={() => setState((current) => ({ ...current, cancelTarget: null }))} type="button">
-                {t('opportunities.keep')}
-              </button>
-              <button className="primary danger-action" onClick={cancelRequest} disabled={state.saving}>
-                {state.saving ? t('opportunities.cancelling') : t('opportunities.cancel')}
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
     </main>
   );
 }
@@ -8214,12 +8544,16 @@ function MyProfile({
                     <FieldLabel required={isRequiredField('university')}>{t('profile.university')}</FieldLabel>
                     <SearchableCombobox
                       value={form.university_choice}
+                      customValue={form.custom_university}
                       options={profileUniversityComboOptions.map((university) => ({
                         value: university.value,
                         label: localizedOption(university.value, 'options.university', t),
                       }))}
                       onSelect={updateUniversityChoice}
                       onCustom={updateCustomUniversity}
+                      onQueryChange={(nextValue) => {
+                        if (form.university_choice === OTHER_UNIVERSITY_VALUE) updateCustomUniversity(nextValue);
+                      }}
                       placeholder={t('profile.searchUniversity')}
                       otherLabel={t('profile.otherUniversity')}
                       addLabel={t('profile.addValue')}
@@ -8229,39 +8563,24 @@ function MyProfile({
                     />
                     <FieldError message={fieldErrors.university} />
                   </label>
-                  {usesOtherUniversity && (
-                    <label>
-                      <FieldLabel required={isRequiredField('custom_university')}>{t('profile.universityName')}</FieldLabel>
-                      <input
-                        value={form.custom_university}
-                        onChange={(event) => updateCustomUniversity(event.target.value)}
-                        placeholder={t('profile.universityNamePlaceholder')}
-                        required
-                      />
-                      <FieldError message={fieldErrors.university} />
-                    </label>
-                  )}
                   {(editingAsLecturer || !usesOtherUniversity) && (
                   <label>
                     <FieldLabel required={isRequiredField('school')}>{editingAsLecturer ? t('profile.department') : t('profile.school')}</FieldLabel>
                     <SearchableCombobox
                       value={form.school}
+                      customValue={form.custom_school}
                       options={profileSchoolComboOptions}
                       onSelect={updateSchool}
+                      onCustom={updateCustomSchool}
+                      onQueryChange={(nextValue) => {
+                        if (form.school === OTHER_OPTION_VALUE) updateCustomSchool(nextValue);
+                      }}
                       placeholder={t('profile.searchSchool')}
                       otherLabel={t('profile.other')}
                       addLabel={t('profile.addValue')}
                       noResultsLabel={t('profile.noResults')}
                       t={t}
                     />
-                    {form.school === OTHER_OPTION_VALUE && (
-                      <input
-                        value={form.custom_school}
-                        onChange={(event) => updateCustomSchool(event.target.value)}
-                        placeholder={t('profile.enterSchool')}
-                        required
-                      />
-                    )}
                     <FieldError message={fieldErrors.school} />
                   </label>
                   )}
@@ -8279,22 +8598,19 @@ function MyProfile({
                         <FieldLabel required={isRequiredField('academic_field')}>{t('profile.subject')}</FieldLabel>
                         <SearchableCombobox
                           value={form.academic_field}
+                          customValue={form.custom_subject}
                           options={profileSubjectComboOptions}
                           onSelect={updateSubject}
+                          onCustom={updateCustomSubject}
+                          onQueryChange={(nextValue) => {
+                            if (form.academic_field === OTHER_OPTION_VALUE) updateCustomSubject(nextValue);
+                          }}
                           placeholder={t('profile.searchSubject')}
                           otherLabel={t('profile.other')}
                           addLabel={t('profile.addValue')}
                           noResultsLabel={t('profile.noResults')}
                           t={t}
                         />
-                        {form.academic_field === OTHER_OPTION_VALUE && (
-                          <input
-                            value={form.custom_subject}
-                            onChange={(event) => updateCustomSubject(event.target.value)}
-                            placeholder={t('profile.enterSubject')}
-                            required
-                          />
-                        )}
                         <FieldError message={fieldErrors.academic_field} />
                       </label>
                       <label>
@@ -8337,23 +8653,19 @@ function MyProfile({
                         <FieldLabel required={isRequiredField('major')}>{t('profile.major')}</FieldLabel>
                         <SearchableCombobox
                           value={form.major}
+                          customValue={form.custom_major}
                           options={profileMajorComboOptions}
                           onSelect={updateMajor}
                           onCustom={updateCustomMajor}
+                          onQueryChange={(nextValue) => {
+                            if (form.major === OTHER_OPTION_VALUE) updateCustomMajor(nextValue);
+                          }}
                           placeholder={t('profile.searchMajor')}
                           otherLabel={t('profile.other')}
                           addLabel={t('profile.addValue')}
                           noResultsLabel={t('profile.noResults')}
                           t={t}
                         />
-                        {form.major === OTHER_OPTION_VALUE && (
-                          <input
-                            value={form.custom_major}
-                            onChange={(event) => updateCustomMajor(event.target.value)}
-                            placeholder={t('profile.enterMajor')}
-                            required
-                          />
-                        )}
                         <FieldError message={fieldErrors.major} />
                       </label>
                       <label>
@@ -8520,6 +8832,7 @@ export default function App() {
   const [activeRole, setActiveRole] = useState('student');
   const [lecturerSession, setLecturerSession] = useState(null);
   const [selectedClassId, setSelectedClassId] = useState('');
+  const [joinClassCode, setJoinClassCode] = useState('');
   const [requestClassContext, setRequestClassContext] = useState(null);
   const [selectedRequestId, setSelectedRequestId] = useState('');
   const [selectedMatchScore, setSelectedMatchScore] = useState(null);
@@ -8957,6 +9270,16 @@ export default function App() {
     setRequestId(nextRequestId || '');
   };
 
+  const openCollabRequestDetail = (nextRequestId) => {
+    selectCurrentRequest(nextRequestId);
+    navigate('collab-request-detail');
+  };
+
+  const openCollabRequestEdit = (nextRequestId) => {
+    selectCurrentRequest(nextRequestId);
+    navigate('collab-request-edit');
+  };
+
   const openChat = (connectionId) => {
     setSelectedConnectionId(connectionId);
     navigate('chat');
@@ -8983,6 +9306,7 @@ export default function App() {
   };
 
   const handleClassJoined = (classId) => {
+    setJoinClassCode('');
     openClass(classId);
   };
 
@@ -9005,7 +9329,7 @@ export default function App() {
     'my-classes': ['my-classes', 'join-class', 'class-detail'],
     discover: ['discover', 'discover-profile'],
     lecturer: ['lecturer'],
-    'current-request': ['current-request', 'request', 'matches', 'profile-detail', 'found'],
+    'current-request': ['current-request', 'collab-request-detail', 'collab-request-edit', 'request', 'matches', 'profile-detail', 'found'],
     connections: ['connections', 'messages', 'chat'],
     'my-profile': ['my-profile', 'profile', 'profile-saved'],
   };
@@ -9114,6 +9438,7 @@ export default function App() {
         <JoinClassPage
 	          profile={profile}
 	          profileId={profileId}
+	          initialCode={joinClassCode}
 	          onCreateProfile={() => openProfileForm('student')}
 	          onJoined={handleClassJoined}
 	          t={t}
@@ -9123,8 +9448,12 @@ export default function App() {
       {view === 'my-classes' && (
         <MyClassesPage
           profileId={profileId}
+	          profile={profile}
 	          onCreateProfile={() => openProfileForm('student')}
-	          onJoinClass={() => navigate('join-class')}
+	          onJoinClass={(classItem) => {
+	            setJoinClassCode(classItem?.class_code || classItem?.demo_class_code || classItem?.join_code || '');
+	            navigate('join-class');
+	          }}
 	          onOpenClass={openClass}
 	          t={t}
 	        />
@@ -9136,7 +9465,10 @@ export default function App() {
           profile={profile}
           profileId={profileId}
           onBack={() => navigate('my-classes')}
-          onJoinClass={() => navigate('join-class')}
+	          onJoinClass={() => {
+	            setJoinClassCode('');
+	            navigate('join-class');
+	          }}
 	          onFindTeammates={openClassRequest}
 	          onViewMatches={openMatchesForRequest}
 	          onOpenChat={openChat}
@@ -9213,12 +9545,15 @@ export default function App() {
         />
       )}
 
-      {view === 'current-request' && profileId && (
+      {['current-request', 'collab-request-detail', 'collab-request-edit'].includes(view) && profileId && (
         <CurrentRequest
           requestId={requestId}
           currentProfileId={profileId}
           profile={profile}
-          onBack={() => goBack(requestId ? 'matches' : 'home')}
+          pageMode={view === 'collab-request-detail' ? 'detail' : view === 'collab-request-edit' ? 'edit' : 'list'}
+          onOpenRequestDetail={openCollabRequestDetail}
+          onOpenRequestEdit={openCollabRequestEdit}
+          onBackToCollabs={() => navigate('current-request')}
           onOpenChat={openChat}
           onViewProfile={(id) => {
             setSelectedRequestId(id);

@@ -680,6 +680,20 @@ export const listMyClassesWithStatus = async (profileId) => {
   return data || [];
 };
 
+// The directory intentionally reads the real classes table so newly created
+// lecturer classes appear without frontend constants. Membership/status details
+// continue to come from the existing authoritative per-profile RPC above.
+export const listAllClasses = async () => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client
+    .from('classes')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+};
+
 export const listLecturerClasses = async () => {
   const { client } = await getAuthenticatedClient();
   const { data, error } = await client.rpc('list_lecturer_classes');
