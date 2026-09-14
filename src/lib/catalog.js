@@ -421,8 +421,125 @@ export const academicData = {
   },
 };
 
+const normalizeAcademicText = (value) => String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+
+const academicEntry = (value, en, vi, aliases = []) => ({
+  value,
+  en,
+  vi,
+  aliases: [value, en, vi, ...aliases],
+});
+
+export const academicValueEntries = {
+  university: [
+    academicEntry('RMIT University', 'RMIT University', 'RMIT University', ['Đại học RMIT', 'RMIT University Vietnam', 'RMIT']),
+    academicEntry(
+      'University of Economics Ho Chi Minh City',
+      'University of Economics Ho Chi Minh City',
+      'Đại học Kinh tế TP. Hồ Chí Minh',
+      ['Đại học Kinh tế Thành phố Hồ Chí Minh', 'Đại học Kinh tế TP.HCM', 'UEH', 'UEH University'],
+    ),
+    academicEntry(
+      'University of Technology Ho Chi Minh City',
+      'University of Technology Ho Chi Minh City',
+      'Đại học Bách khoa TP. Hồ Chí Minh',
+      ['Bách Khoa', 'Đại học Bách khoa', 'Đại học Bách khoa Thành phố Hồ Chí Minh', 'Đại học Bách khoa TP.HCM', 'Đại học Công nghệ TP. Hồ Chí Minh', 'Đại học Công nghệ Thành phố Hồ Chí Minh', 'HCMUT', 'BKU'],
+    ),
+    academicEntry(
+      'University of Information Technology',
+      'University of Information Technology',
+      'Đại học Công nghệ Thông tin',
+      ['UIT'],
+    ),
+    academicEntry(
+      'Foreign Trade University',
+      'Foreign Trade University',
+      'Đại học Ngoại thương',
+      ['FTU'],
+    ),
+    academicEntry(
+      'University of Medicine and Pharmacy at Ho Chi Minh City',
+      'University of Medicine and Pharmacy at Ho Chi Minh City',
+      'Đại học Y Dược Thành phố Hồ Chí Minh',
+      ['Đại học Y', 'Đại học Y Dược', 'Đại học Y Dược TP.HCM'],
+    ),
+    academicEntry(
+      'Ho Chi Minh City Open University',
+      'Ho Chi Minh City Open University',
+      'Trường Đại học Mở Thành phố Hồ Chí Minh',
+      ['Đại học Mở', 'Open University', 'HCM Open University'],
+    ),
+  ],
+  school: [
+    academicEntry('SCD', 'School of Communication & Design (SCD)', 'Khoa Truyền thông & Thiết kế (SCD)', [
+      'School of Communication and Design (SCD)',
+    ]),
+    academicEntry('TBS', 'The Business School (TBS)', 'Khoa Kinh doanh (TBS)', [
+      'Business School (TBS)',
+    ]),
+    academicEntry('SSET', 'School of Science, Engineering & Technology (SSET)', 'Khoa Khoa học, Kỹ thuật & Công nghệ (SSET)', [
+      'School of Science, Engineering and Technology (SSET)',
+    ]),
+    academicEntry('English Department', 'English Department', 'Khoa Tiếng Anh'),
+  ],
+  major: [
+    academicEntry('Digital Media', 'Digital Media', 'Truyền thông số'),
+    academicEntry('Design Studies', 'Design Studies', 'Nghiên cứu thiết kế'),
+    academicEntry('Professional Communication', 'Professional Communication', 'Truyền thông chuyên nghiệp'),
+    academicEntry('Digital Film and Video', 'Digital Film and Video', 'Phim và video kỹ thuật số'),
+    academicEntry('Business', 'Business', 'Kinh doanh'),
+    academicEntry('Marketing', 'Marketing', 'Marketing'),
+    academicEntry('Business Analytics', 'Business Analytics', 'Phân tích kinh doanh'),
+    academicEntry('Information Technology', 'Information Technology', 'Công nghệ thông tin'),
+    academicEntry('Software Engineering', 'Software Engineering', 'Kỹ thuật phần mềm'),
+    academicEntry('Computer Science', 'Computer Science', 'Khoa học máy tính'),
+    academicEntry('Data Science', 'Data Science', 'Khoa học dữ liệu'),
+    academicEntry('Engineering', 'Engineering', 'Kỹ thuật'),
+    academicEntry('Mechanical Engineering', 'Mechanical Engineering', 'Kỹ thuật Cơ khí'),
+    academicEntry('Business Administration', 'Business Administration', 'Quản trị kinh doanh'),
+    academicEntry('English Language', 'English Language', 'Ngôn ngữ Anh', ['Ngôn ngữ anh']),
+  ],
+  subject: [
+    academicEntry('Design', 'Design', 'Thiết kế'),
+    academicEntry('Digital Media', 'Digital Media', 'Truyền thông số'),
+    academicEntry('Computer Science', 'Computer Science', 'Khoa học máy tính'),
+    academicEntry('Information Technology', 'Information Technology', 'Công nghệ thông tin'),
+    academicEntry('Business', 'Business', 'Kinh doanh'),
+    academicEntry('Marketing', 'Marketing', 'Marketing'),
+    academicEntry('Engineering', 'Engineering', 'Kỹ thuật'),
+    academicEntry('Data Science', 'Data Science', 'Khoa học dữ liệu'),
+    academicEntry('Communication', 'Communication', 'Truyền thông'),
+    academicEntry('Entrepreneurship', 'Entrepreneurship', 'Khởi nghiệp'),
+    academicEntry('Mechanical Engineering', 'Mechanical Engineering', 'Kỹ thuật Cơ khí'),
+    academicEntry('Business Administration', 'Business Administration', 'Quản trị kinh doanh'),
+    academicEntry('English Language', 'English Language', 'Ngôn ngữ Anh', ['Ngôn ngữ anh']),
+  ],
+};
+
+const academicEntryByValue = Object.fromEntries(
+  Object.entries(academicValueEntries).map(([kind, entries]) => [
+    kind,
+    new Map(entries.flatMap((entry) => entry.aliases.map((alias) => [normalizeAcademicText(alias), entry]))),
+  ]),
+);
+
+const getAcademicEntry = (kind, value) =>
+  academicEntryByValue[kind]?.get(normalizeAcademicText(value)) || null;
+
+export const normalizeAcademicValue = (kind, value) =>
+  getAcademicEntry(kind, value)?.value || value;
+
+export const getLocalizedAcademicValue = (kind, value, language = 'en') => {
+  const entry = getAcademicEntry(kind, value);
+  if (!entry) return value;
+  return language === 'vi' ? entry.vi : entry.en;
+};
+
+export const getAcademicSearchText = (kind, value) =>
+  getAcademicEntry(kind, value)?.aliases.join(' ') || value;
+
 export const getSchoolsForUniversity = (university) =>
-  academicData[university]?.schools || academicCatalog;
+  academicData[normalizeAcademicValue('university', university)]?.schools || academicCatalog;
 
 export const uniqueList = (items) => [...new Set(items.filter(Boolean))];
 

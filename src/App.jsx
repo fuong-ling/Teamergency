@@ -59,6 +59,8 @@ import {
   listAllClasses,
   listMyClassesWithStatus,
   getTeamRequestProgress,
+  getTeamRequestJoinState,
+  requestToJoinTeamRequest,
   getTeamRequestById,
   getPortfolioReferenceUrl,
   markNotificationsRead,
@@ -100,7 +102,10 @@ import {
   getSessionsForCourse,
   getSchoolsForUniversity,
   getProfileSkillSuggestions,
+  getLocalizedAcademicValue,
+  getAcademicSearchText,
   majorsBySchool,
+  normalizeAcademicValue as normalizeCatalogAcademicValue,
   OTHER_UNIVERSITY_VALUE,
   opportunityFields,
   opportunityTypes,
@@ -277,22 +282,27 @@ const emptyProfile = {
 
 const createProfileFormState = (initialRole = 'student', initialData = {}) => {
   const role = initialRole === 'lecturer' ? 'lecturer' : 'student';
-  const initialSchool = initialData.school || '';
+  const initialUniversity = initialData.university || emptyProfile.university;
+  const initialSchool = normalizeCatalogAcademicValue('school', initialData.school || '');
+  const initialMajor = normalizeCatalogAcademicValue('major', initialData.major || '');
+  const initialSubject = normalizeCatalogAcademicValue('subject', initialData.academic_field || '');
   const knownSchool = schoolOptions.some((option) => option.value === initialSchool);
+  const universityChoice = getUniversityChoice(initialUniversity);
   return {
     ...emptyProfile,
     ...initialData,
     role,
-    university: initialData.university || emptyProfile.university,
-    university_choice: getUniversityChoice(initialData.university || emptyProfile.university),
-    custom_university: getUniversityChoice(initialData.university || emptyProfile.university) === OTHER_UNIVERSITY_VALUE
+    university: initialUniversity,
+    university_choice: universityChoice,
+    custom_university: universityChoice === OTHER_UNIVERSITY_VALUE
       ? initialData.university || ''
       : '',
     school: knownSchool || !initialSchool ? initialSchool : OTHER_OPTION_VALUE,
     custom_school: knownSchool ? '' : initialSchool,
-    major: role === 'lecturer' ? 'Lecturer' : initialData.major || '',
+    major: role === 'lecturer' ? 'Lecturer' : initialMajor,
     custom_major: '',
-    custom_subject: initialData.academic_field && !opportunityFields.includes(initialData.academic_field)
+    academic_field: role === 'lecturer' ? initialSubject : initialData.academic_field || '',
+    custom_subject: initialSubject && !opportunityFields.includes(initialSubject)
       ? initialData.academic_field
       : '',
     skills: Array.isArray(initialData.skills) ? initialData.skills : [],
@@ -406,7 +416,7 @@ const buildRequestFormState = (profile, request = null, classContext = null) => 
 		    opportunity_field: selectOrOther(request.opportunity_field || (!request.class_id ? request.major || profile.major : ''), opportunityFields),
 		    other_opportunity_field: customOptionValue(request.opportunity_field || (!request.class_id ? request.major || profile.major : ''), opportunityFields),
 	    opportunity_name: request.opportunity_name || (!request.class_id ? request.course_name || request.course || '' : ''),
-	    deadline: request.deadline || '',
+	    deadline: formatDateInputValue(request.deadline || ''),
 	    class_day: request.class_day || parsedSession.day,
     class_start_time: request.class_start_time || parsedSession.startTime,
     class_end_time: request.class_end_time || parsedSession.endTime,
@@ -569,44 +579,49 @@ const contactLabel = (value) => {
   return titleCase(value);
 };
 
-const schoolLabel = (value) =>
-  schoolOptions.find((school) => school.value === value)
-    ? translate(currentUiLanguage(), `options.school.${String(value).toLowerCase()}`)
-    : value || translate(currentUiLanguage(), 'common.notSpecified');
+const academicDisplayLabel = (kind, value, fallback = '') => {
+  if (!String(value || '').trim()) return fallback;
+  const displayValue = getLocalizedAcademicValue(kind, value, currentUiLanguage());
+  return displayValue || fallback;
+};
+
+const schoolLabel = (value) => academicDisplayLabel('school', value, translate(currentUiLanguage(), 'common.notSpecified'));
+
+const majorLabel = (value) => academicDisplayLabel('major', value);
+
+const subjectLabel = (value) => academicDisplayLabel('subject', value);
 
 const hasDisplaySchool = (value) => Boolean(String(value || '').trim());
 
 const formatSchoolMajorLine = (school, major, separator = ' | ') =>
   [
     hasDisplaySchool(school) ? schoolLabel(school) : '',
-    major,
+    majorLabel(major),
   ].filter(Boolean).join(separator);
 
 const formatProfileAcademicLine = (profile = {}, separator = ' | ') =>
   [
     universityLabel(profile.university),
     hasDisplaySchool(profile.school) ? schoolLabel(profile.school) : '',
-    profile.major,
+    majorLabel(profile.major),
   ].filter(Boolean).join(separator);
 
 const universityLabel = (value) =>
-  universityOptions.find((university) => university.value === value)
-    ? translate(currentUiLanguage(), `options.university.${String(value).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')}`)
-    : value || 'RMIT University';
+  academicDisplayLabel('university', value || 'RMIT University', 'RMIT University');
 
 const savedUniversityDisplay = (profile = {}) =>
-  normalizeAcademicValue(profile?.university) || 'RMIT University';
+  universityLabel(profile?.university);
 
 const isKnownUniversity = (value = '') =>
-  universityOptions.some((university) => university.value === value);
+  universityOptions.some((university) => university.value === normalizeCatalogAcademicValue('university', value));
 
 const isRmitUniversity = (value = '') =>
-  normalizeFilterValue(value) === normalizeFilterValue('RMIT University')
-  || normalizeFilterValue(value) === normalizeFilterValue('RMIT University Vietnam');
+  normalizeFilterValue(normalizeCatalogAcademicValue('university', value)) === normalizeFilterValue('RMIT University');
 
 const getUniversityChoice = (value = '') => {
   if (!value) return 'RMIT University';
-  return isKnownUniversity(value) ? value : OTHER_UNIVERSITY_VALUE;
+  const canonicalValue = normalizeCatalogAcademicValue('university', value);
+  return isKnownUniversity(canonicalValue) ? canonicalValue : OTHER_UNIVERSITY_VALUE;
 };
 
 const resolveProfileUniversity = (form = {}) =>
@@ -768,6 +783,48 @@ const formatDisplayDate = (value) => {
   return match ? `${match[3]}/${match[2]}/${match[1]}` : text;
 };
 
+const formatDateInputValue = (value) => {
+  const text = String(value || '').trim();
+  const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
+
+  const digits = text.replace(/\D/g, '').slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+};
+
+const parseDateInputValue = (value) => {
+  const match = String(value || '').trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!match) return null;
+
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    date.getUTCFullYear() !== year
+    || date.getUTCMonth() !== month - 1
+    || date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return `${year.toString().padStart(4, '0')}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+};
+
+const DateInput = ({ value, onChange, ...props }) => (
+  <input
+    {...props}
+    type="text"
+    inputMode="numeric"
+    maxLength={10}
+    placeholder="DD/MM/YYYY"
+    value={formatDateInputValue(value)}
+    onChange={(event) => onChange(formatDateInputValue(event.target.value))}
+  />
+);
+
 const getSessionDisplay = (request = {}) => {
   if (request.request_scope === 'open_opportunity' || request.opportunity_name) {
     return request.deadline
@@ -819,10 +876,20 @@ const normalizeFilterValue = (value) => String(value || '').trim().toLowerCase()
 
 const normalizeAcademicValue = (value) => String(value || '').trim().replace(/\s+/g, ' ');
 
-const dedupeAcademicValues = (values = []) => {
+const normalizeAcademicFilterValue = (kind, value) =>
+  normalizeFilterValue(normalizeCatalogAcademicValue(kind, value));
+
+const normalizeComparableAcademicValue = (value) =>
+  normalizeAcademicFilterValue(
+    'major',
+    normalizeCatalogAcademicValue('subject', value),
+  );
+
+const dedupeAcademicValues = (values = [], kind = '') => {
   const seen = new Set();
   return values.reduce((result, value) => {
-    const clean = normalizeAcademicValue(value);
+    const canonicalValue = kind ? normalizeCatalogAcademicValue(kind, value) : value;
+    const clean = normalizeAcademicValue(canonicalValue);
     const key = clean.toLowerCase();
     if (!clean || seen.has(key)) return result;
     seen.add(key);
@@ -852,10 +919,10 @@ const getAcademicValuesFromProfiles = (profiles = []) => {
   const studentProfiles = rows.filter((profile) => getProfileRole(profile) === 'student');
   const lecturerProfiles = rows.filter((profile) => getProfileRole(profile) === 'lecturer');
   return {
-    universities: dedupeAcademicValues(rows.map((profile) => profile.university)),
-    schools: dedupeAcademicValues(rows.map((profile) => profile.school)),
-    majors: dedupeAcademicValues(studentProfiles.map((profile) => profile.major)),
-    subjects: dedupeAcademicValues(lecturerProfiles.map((profile) => profile.academic_field)),
+    universities: dedupeAcademicValues(rows.map((profile) => profile.university), 'university'),
+    schools: dedupeAcademicValues(rows.map((profile) => profile.school), 'school'),
+    majors: dedupeAcademicValues(studentProfiles.map((profile) => profile.major), 'major'),
+    subjects: dedupeAcademicValues(lecturerProfiles.map((profile) => profile.academic_field), 'subject'),
   };
 };
 
@@ -923,6 +990,28 @@ const getTeamProgress = (request, progress = {}) => {
     complete: found >= total,
     percent: total ? Math.min(100, (found / total) * 100) : 0,
   };
+};
+
+const getCollabJoinAction = (request, joinState, metrics, t = translate.bind(null, 'en')) => {
+  if (joinState?.status === 'accepted') {
+    return { label: t('opportunities.joined'), disabled: true, available: false };
+  }
+
+  if (joinState?.status === 'pending') {
+    return { label: t('opportunities.requestSent'), disabled: true, available: false };
+  }
+
+  const requestStatus = request?.team_status || {};
+  const reportedRemaining = requestStatus.remaining_members ?? requestStatus.remaining_spots;
+  const isFull = Boolean(metrics?.complete)
+    || requestStatus.status === 'complete'
+    || (reportedRemaining !== undefined && Number(reportedRemaining) <= 0);
+
+  if (isFull) {
+    return { label: t('opportunities.teamFull'), disabled: true, available: false };
+  }
+
+  return { label: t('opportunities.requestToJoin'), disabled: false, available: true };
 };
 
 const getRequestStatusMetrics = (request = {}) => {
@@ -1207,6 +1296,9 @@ function SearchableCombobox({
   onSelect,
   onCustom,
   onQueryChange,
+  onClear,
+  showOther = true,
+  clearLabel = 'Clear selection',
   placeholder,
   otherLabel,
   addLabel,
@@ -1225,6 +1317,14 @@ function SearchableCombobox({
     : String(value || '');
   const [query, setQuery] = useState(initialQuery);
   const [queryDirty, setQueryDirty] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+
+  const optionValue = (option) => typeof option === 'string' ? option : String(option?.value ?? '');
+  const optionLabel = (option) => typeof option === 'string' ? option : option?.label || option?.value || '';
+  const normalizeSearchText = (text) => String(text || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
 
   useEffect(() => {
     if (selectedValueRef.current === value && !(hasCustomValue && value === otherValue && customValue && !queryDirty)) return;
@@ -1243,6 +1343,10 @@ function SearchableCombobox({
   }, [otherLabel, value, customValue, otherValue, queryDirty, hasCustomValue]);
 
   useEffect(() => {
+    setHighlightedIndex(0);
+  }, [query, options.length]);
+
+  useEffect(() => {
     const handlePointerDown = (event) => {
       if (!rootRef.current?.contains(event.target)) setOpen(false);
     };
@@ -1250,18 +1354,18 @@ function SearchableCombobox({
     return () => document.removeEventListener('pointerdown', handlePointerDown);
   }, []);
 
-  const normalizedQuery = queryDirty ? query.trim().toLowerCase() : '';
+  const normalizedQuery = queryDirty ? normalizeSearchText(query.trim()) : '';
   const filteredOptions = options
     .filter((option) => {
-      const optionValue = String(option.value || option).toLowerCase();
-      const optionLabel = String(option.label || option.value || option).toLowerCase();
-      return optionValue.includes(normalizedQuery) || optionLabel.includes(normalizedQuery);
+      const searchableText = [optionValue(option), optionLabel(option), option?.searchText]
+        .map(normalizeSearchText)
+        .join(' ');
+      return searchableText.includes(normalizedQuery);
     })
     .slice(0, 40);
   const exactOption = options.some((option) => {
-    const optionValue = String(option.value || option).trim().toLowerCase();
-    const optionLabel = String(option.label || option.value || option).trim().toLowerCase();
-    return optionValue === normalizedQuery || optionLabel === normalizedQuery;
+    return normalizeSearchText(optionValue(option).trim()) === normalizedQuery
+      || normalizeSearchText(optionLabel(option).trim()) === normalizedQuery;
   });
   const selectOption = (nextValue) => {
     if (nextValue === otherValue) {
@@ -1269,8 +1373,8 @@ function SearchableCombobox({
       setQueryDirty(false);
       onSelect(otherValue);
     } else {
-      const option = options.find((item) => String(item.value || item) === nextValue);
-      const nextLabel = option?.label || option?.value || option || nextValue;
+      const option = options.find((item) => optionValue(item) === nextValue);
+      const nextLabel = optionLabel(option) || nextValue;
       setQuery(String(nextLabel));
       setQueryDirty(false);
       onSelect(nextValue);
@@ -1278,27 +1382,28 @@ function SearchableCombobox({
     setOpen(false);
   };
 
-  const selectedOption = options.find((option) => String(option.value || option) === String(value));
-  const selectedLabel = selectedOption?.label || selectedOption?.value || value;
-  // Keep the live query visible in the same input. For the "Other" sentinel,
-  // show its localized label (or the saved custom value) until the user types.
-  const displayValue = open
-    ? query
-    : (value === otherValue
-      ? (hasCustomValue ? query || customText || String(otherLabel || otherValue) : '')
-      : (query || String(selectedLabel || '')));
+  const selectedOption = options.find((option) => optionValue(option) === String(value));
+  const selectedLabel = optionLabel(selectedOption) || value;
+  // Keep the selected label visible until the user starts a new search. This
+  // keeps the field useful when opening an "All" selection and lets the same
+  // localized label update when the app language changes.
+  const selectedDisplayValue = value === otherValue
+    ? (hasCustomValue ? query || customText || String(otherLabel || otherValue) : '')
+    : String(selectedLabel || '');
+  const displayValue = queryDirty ? query : selectedDisplayValue;
 
   return (
-    <div className="searchable-combobox" ref={rootRef}>
+    <div className={onClear ? 'searchable-combobox has-clear' : 'searchable-combobox'} ref={rootRef}>
       <input
         role="combobox"
         aria-expanded={open}
         aria-autocomplete="list"
+        aria-controls={open ? 'searchable-combobox-options' : undefined}
         value={displayValue}
         placeholder={placeholder}
         onFocus={(event) => {
           inputFocusedRef.current = true;
-          if (!queryDirty && query) event.currentTarget.select();
+          if (!queryDirty && event.currentTarget.value) event.currentTarget.select();
           setOpen(true);
         }}
         onBlur={() => {
@@ -1313,27 +1418,53 @@ function SearchableCombobox({
         }}
         onKeyDown={(event) => {
           if (event.key === 'Escape') setOpen(false);
-          if (event.key === 'Enter' && open && filteredOptions[0]) {
+          if (event.key === 'ArrowDown' && open && filteredOptions.length) {
             event.preventDefault();
-            selectOption(String(filteredOptions[0].value || filteredOptions[0]));
+            setHighlightedIndex((current) => Math.min(current + 1, filteredOptions.length - 1));
+          }
+          if (event.key === 'ArrowUp' && open && filteredOptions.length) {
+            event.preventDefault();
+            setHighlightedIndex((current) => Math.max(current - 1, 0));
+          }
+          if (event.key === 'Enter' && open && filteredOptions[highlightedIndex]) {
+            event.preventDefault();
+            selectOption(optionValue(filteredOptions[highlightedIndex]));
           }
         }}
       />
+      {onClear && (value || queryDirty) && (
+        <button
+          className="searchable-combobox-clear"
+          type="button"
+          aria-label={clearLabel}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            setQuery('');
+            setQueryDirty(false);
+            setOpen(false);
+            onClear();
+          }}
+        >
+          ×
+        </button>
+      )}
       {open && (
-        <div className="searchable-combobox-menu" role="listbox">
+        <div className="searchable-combobox-menu" id="searchable-combobox-options" role="listbox">
           {filteredOptions.map((option) => {
-            const optionValue = String(option.value || option);
-            const optionLabel = option.label || option.value || option;
+            const currentOptionValue = optionValue(option);
+            const currentOptionLabel = optionLabel(option);
+            const currentIndex = filteredOptions.indexOf(option);
             return (
               <button
-                className="searchable-combobox-option"
+                className={currentIndex === highlightedIndex ? 'searchable-combobox-option highlighted' : 'searchable-combobox-option'}
                 type="button"
                 role="option"
-                key={optionValue}
+                aria-selected={currentOptionValue === String(value)}
+                key={currentOptionValue}
                 onMouseDown={(event) => event.preventDefault()}
-                onClick={() => selectOption(optionValue)}
+                onClick={() => selectOption(currentOptionValue)}
               >
-                {optionLabel}
+                {currentOptionLabel}
               </button>
             );
           })}
@@ -1352,7 +1483,7 @@ function SearchableCombobox({
               {addLabel?.replace('{value}', query.trim())}
             </button>
           )}
-          {onSelect && otherLabel && (
+          {showOther && onSelect && otherLabel && (
             <button
               className="searchable-combobox-option other-option"
               type="button"
@@ -1727,6 +1858,16 @@ const optionTranslationKey = (prefix, option = '') =>
   `${prefix}.${String(option).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')}`;
 
 const localizedOption = (option, prefix, t = translate.bind(null, 'en')) => {
+  const academicKindByPrefix = {
+    'options.university': 'university',
+    'options.school': 'school',
+    'options.major': 'major',
+    'options.field': 'subject',
+  };
+  const academicKind = academicKindByPrefix[prefix];
+  if (academicKind) {
+    return getLocalizedAcademicValue(academicKind, option, currentUiLanguage()) || option;
+  }
   const key = optionTranslationKey(prefix, option);
   const label = t(key);
   return label === key ? option : label;
@@ -2075,8 +2216,8 @@ function JoinClassPage({ profile, profileId, initialCode = '', onCreateProfile, 
           <section className="request-summary-box">
 	            <p className="eyebrow">{t('join.classPreview')}</p>
             <h3>{getClassDisplay(preview)}</h3>
-            <p>{preview.university} · {getAcademicPeriodDisplay(preview)}</p>
-            <p>{schoolLabel(preview.school)} · {preview.major}</p>
+            <p>{universityLabel(preview.university)} · {getAcademicPeriodDisplay(preview)}</p>
+            <p>{schoolLabel(preview.school)} · {majorLabel(preview.major)}</p>
 	            {preview.lecturer_name && <p>{t('join.lecturer')}: {preview.lecturer_name}</p>}
             <label>
 	              {t('join.question')}
@@ -2298,7 +2439,7 @@ function MyClassesPage({ profileId, profile, onCreateProfile, onJoinClass, onOpe
 	                  {isCreator && <span className="status-badge info">{t('classes.createdByYou')}</span>}
 	                </div>
 	                <h3>{getClassDisplay(classItem)}</h3>
-	                <p>{classItem.university} | {schoolLabel(classItem.school)} | {classItem.major}</p>
+                <p>{universityLabel(classItem.university)} | {schoolLabel(classItem.school)} | {majorLabel(classItem.major)}</p>
 	                <p>{getAcademicPeriodDisplay(classItem)} | {t('join.lecturer')}: {classItem.lecturer_name || t('common.notSpecified')}</p>
                 <div className="mini-detail">
                   <strong>{t('classes.joinCode')}</strong>
@@ -2650,7 +2791,7 @@ function ClassDetailPage({
         <div>
 	          <p className="eyebrow">{t('class.detail')}</p>
           <h2>{getClassDisplay(state.classItem)}</h2>
-          <p>{state.classItem.university} | {schoolLabel(state.classItem.school)} | {state.classItem.major}</p>
+          <p>{universityLabel(state.classItem.university)} | {schoolLabel(state.classItem.school)} | {majorLabel(state.classItem.major)}</p>
         </div>
       </div>
 
@@ -2785,7 +2926,7 @@ function ClassDetailPage({
                 <article className="matched-row" key={teammate.profile_id}>
                   <div>
                     <strong>{displayName(teammate.full_name)} {teammate.is_demo && <DemoBadge />}</strong>
-                    <span>{teammate.major || t('common.notSpecified')}</span>
+                    <span>{majorLabel(teammate.major) || t('common.notSpecified')}</span>
                   </div>
                   <button className="secondary" onClick={() => onOpenChat(teammate.connection_id)}>
                     <MessageCircle size={18} />
@@ -2949,8 +3090,15 @@ function LecturerDashboard({ activeRole, lecturerSession, profileId, onOpenProfi
     setCreatingClass(true);
 
     try {
+      const formationDeadline = parseDateInputValue(classForm.team_formation_deadline);
+      if (classForm.team_formation_deadline && !formationDeadline) {
+        setActionError(t('request.invalidDeadline'));
+        setCreatingClass(false);
+        return;
+      }
       const created = await createLecturerClass({
         ...classForm,
+        team_formation_deadline: formationDeadline,
         lecturer_profile_id: profileId,
         university: lecturerSession.university,
         lecturer_name: lecturerSession.lecturerName,
@@ -3066,7 +3214,7 @@ function LecturerDashboard({ activeRole, lecturerSession, profileId, onOpenProfi
 	        <div>
 		          <p className="eyebrow">{t('lecturer.dashboard')}</p>
 	          <h2>{t('lecturer.demoClassesFor', { name: lecturerSession.lecturerName })}</h2>
-	          <p>{lecturerSession.university} · {t('lecturer.demoId', { id: lecturerSession.lecturerId })}</p>
+	          <p>{universityLabel(lecturerSession.university)} · {t('lecturer.demoId', { id: lecturerSession.lecturerId })}</p>
 	        </div>
 	        <button className="primary" type="button" onClick={() => setCreateOpen((current) => !current)}>
 	          <Plus size={18} />
@@ -3108,7 +3256,10 @@ function LecturerDashboard({ activeRole, lecturerSession, profileId, onOpenProfi
 	            </label>
 	            <label className="wide">
 		              {t('class.deadline')}
-	              <input type="date" value={classForm.team_formation_deadline} onChange={(event) => updateClassForm('team_formation_deadline', event.target.value)} />
+              <DateInput
+                value={classForm.team_formation_deadline}
+                onChange={(value) => updateClassForm('team_formation_deadline', value)}
+              />
 	            </label>
 	            <button className="primary wide" type="submit" disabled={creatingClass}>
 		              {creatingClass ? t('request.creating') : t('lecturer.createClass')}
@@ -3131,7 +3282,7 @@ function LecturerDashboard({ activeRole, lecturerSession, profileId, onOpenProfi
               <article className={selectedClassId === classItem.id ? 'request-list-row selected' : 'request-list-row'} key={classItem.id}>
                 <div>
                   <h3>{getClassDisplay(classItem)}</h3>
-                  <p>{schoolLabel(classItem.school)} · {classItem.major}</p>
+                  <p>{schoolLabel(classItem.school)} · {majorLabel(classItem.major)}</p>
                   <p className="note">{t('lecturer.classCode', { code: classItem.class_code })}</p>
                 </div>
                 <button className="secondary" type="button" onClick={() => setSelectedClassId(classItem.id)}>
@@ -3204,7 +3355,7 @@ function LecturerDashboard({ activeRole, lecturerSession, profileId, onOpenProfi
 	                  <article className="matched-row" key={student.profile_id}>
 	                    <div>
 	                      <strong>{displayName(student.full_name)}</strong>
-		                      <span>{student.major || t('common.notSpecified')} · {student.status}</span>
+		                      <span>{majorLabel(student.major) || t('common.notSpecified')} · {student.status}</span>
 	                      {Number(student.total_team_size) > 0 && (
 	                        <span>
 	                          {t('status.memberProgress', { current: student.found_count || 0, total: student.total_team_size })}
@@ -3249,16 +3400,22 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
     getProfileSkillSuggestions({ major: form.major, school: form.school }),
     form.skills,
   );
-  const profileUniversityComboOptions = mergeAcademicOptions(universityOptions, academicValues.universities);
+  const profileUniversityComboOptions = mergeAcademicOptions(
+    universityOptions,
+    academicValues.universities.map((value) => normalizeCatalogAcademicValue('university', value)),
+  );
   const profileSchoolOptions = getSchoolsForUniversity(resolvedUniversity);
-  const profileSchoolComboOptions = mergeAcademicOptions(profileSchoolOptions, academicValues.schools).map((school) => ({
+  const profileSchoolComboOptions = mergeAcademicOptions(
+    profileSchoolOptions,
+    academicValues.schools.map((value) => normalizeCatalogAcademicValue('school', value)),
+  ).map((school) => ({
     value: school.value,
     label: localizedOption(school.value, 'options.school', t),
   }));
   const profileMajorValues = mergeOptionSets(
     ...Object.values(majorsBySchool),
     form.major === OTHER_OPTION_VALUE ? '' : form.major,
-    ...academicValues.majors,
+    ...academicValues.majors.map((value) => normalizeCatalogAcademicValue('major', value)),
   );
   const profileMajorComboOptions = profileMajorValues.map((major) => ({
     value: major,
@@ -3266,7 +3423,9 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
   }));
   const profileSubjectComboOptions = mergeAcademicOptions(
     opportunityFields.filter((field) => field !== 'Other'),
-    academicValues.subjects.filter((field) => field !== 'Other'),
+      academicValues.subjects
+        .filter((field) => field !== 'Other')
+        .map((value) => normalizeCatalogAcademicValue('subject', value)),
   ).map((field) => ({
     value: field.value,
     label: localizedOption(field.value, 'options.field', t),
@@ -3284,11 +3443,12 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
   };
 
   const updateSchool = (value) => {
+    const canonicalSchool = normalizeCatalogAcademicValue('school', value);
     setForm((current) => ({
       ...current,
-      school: value,
-      custom_school: value === OTHER_OPTION_VALUE ? current.custom_school : '',
-      major: majorsBySchool[value]?.includes(current.major) ? current.major : '',
+      school: canonicalSchool,
+      custom_school: canonicalSchool === OTHER_OPTION_VALUE ? current.custom_school : '',
+      major: majorsBySchool[canonicalSchool]?.includes(current.major) ? current.major : '',
     }));
     setFieldErrors((current) => ({ ...current, school: '', major: '', skills: '' }));
   };
@@ -3299,19 +3459,21 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
   };
 
   const updateSubject = (value) => {
+    const canonicalSubject = normalizeCatalogAcademicValue('subject', value);
     setForm((current) => ({
       ...current,
-      academic_field: value,
-      custom_subject: value === OTHER_OPTION_VALUE ? current.custom_subject : '',
+      academic_field: canonicalSubject,
+      custom_subject: canonicalSubject === OTHER_OPTION_VALUE ? current.custom_subject : '',
     }));
     setFieldErrors((current) => ({ ...current, academic_field: '' }));
   };
 
   const updateMajor = (value) => {
+    const canonicalMajor = normalizeCatalogAcademicValue('major', value);
     setForm((current) => ({
       ...current,
-      major: value,
-      custom_major: value === OTHER_OPTION_VALUE ? current.custom_major : '',
+      major: canonicalMajor,
+      custom_major: canonicalMajor === OTHER_OPTION_VALUE ? current.custom_major : '',
     }));
     setFieldErrors((current) => ({ ...current, major: '' }));
   };
@@ -3327,13 +3489,14 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
   };
 
   const updateUniversityChoice = (value) => {
+    const canonicalUniversity = normalizeCatalogAcademicValue('university', value);
     setForm((current) => ({
       ...current,
-      university_choice: value,
-      custom_university: value === OTHER_UNIVERSITY_VALUE ? current.custom_university : '',
-      university: value === OTHER_UNIVERSITY_VALUE ? current.custom_university : value,
-      school: isRmitUniversity(value) ? current.school : '',
-      major: isRmitUniversity(value) ? current.major : '',
+      university_choice: canonicalUniversity,
+      custom_university: canonicalUniversity === OTHER_UNIVERSITY_VALUE ? current.custom_university : '',
+      university: canonicalUniversity === OTHER_UNIVERSITY_VALUE ? current.custom_university : canonicalUniversity,
+      school: isRmitUniversity(canonicalUniversity) ? current.school : '',
+      major: isRmitUniversity(canonicalUniversity) ? current.major : '',
     }));
     setFieldErrors((current) => ({ ...current, university: '', school: '', major: '' }));
   };
@@ -3380,9 +3543,9 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
       const role = isLecturer ? 'lecturer' : 'student';
       const profilePayload = {
         full_name: form.full_name.trim(),
-        university: resolvedUniversity || 'RMIT University',
-        school: getFormSchoolValue(form),
-        major: isLecturer ? 'Lecturer' : getFormMajorValue(form),
+        university: normalizeCatalogAcademicValue('university', resolvedUniversity) || 'RMIT University',
+        school: normalizeCatalogAcademicValue('school', getFormSchoolValue(form)),
+        major: isLecturer ? 'Lecturer' : normalizeCatalogAcademicValue('major', getFormMajorValue(form)),
         skills: isLecturer ? ['Teaching'] : skills,
         avatar_url: form.avatar_url || null,
         availability: [],
@@ -3398,7 +3561,9 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
 	        role,
 	        lecturer_title: isLecturer ? form.lecturer_title.trim() || null : null,
 	        lecturer_id: isLecturer ? form.lecturer_id.trim() : null,
-        academic_field: isLecturer ? getFormSubjectValue(form) : getFormMajorValue(form),
+        academic_field: isLecturer
+          ? normalizeCatalogAcademicValue('subject', getFormSubjectValue(form))
+          : normalizeCatalogAcademicValue('major', getFormMajorValue(form)),
 	        lecturer_contact_method: isLecturer ? form.lecturer_contact_method : null,
 	        lecturer_contact_detail: isLecturer ? form.lecturer_contact_detail.trim() : null,
 	        student_id: isLecturer ? null : form.student_id || null,
@@ -3927,6 +4092,7 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
     const portfolioFileError = validatePortfolioFile(form.portfolio_file, t);
     const totalTeamSize = Number(form.total_team_size);
     const teammatesNeededInitial = Number(form.teammates_needed_initial);
+    const deadline = parseDateInputValue(form.deadline);
 
     const classSession = isClassLocked ? formatClassSession(form) : 'Collab';
     const opportunityName = form.opportunity_name.trim();
@@ -3938,6 +4104,11 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
       setError(isClassLocked
         ? t('request.classRequired')
         : t('request.collabRequired'));
+      return;
+    }
+
+    if (form.deadline && !deadline) {
+      setError(t('request.invalidDeadline'));
       return;
     }
 
@@ -3973,7 +4144,7 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
         opportunity_type: isClassLocked ? null : opportunityType,
         opportunity_field: isClassLocked ? null : opportunityField,
         opportunity_name: isClassLocked ? null : opportunityName,
-        deadline: isClassLocked ? null : form.deadline || null,
+        deadline: isClassLocked ? null : deadline,
         course: isClassLocked ? form.course_name.trim() : opportunityName,
         course_name: isClassLocked ? form.course_name.trim() : opportunityName,
         course_code: isClassLocked ? form.course_code.trim() : opportunityType,
@@ -4067,7 +4238,7 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
 	            <div className="request-summary-box wide">
 	              <p className="eyebrow">{isClassLocked ? t('request.belongsTo') : t('request.selectedClass')}</p>
 	              <h3>{getClassDisplay(selectedClass)}</h3>
-	              <p>{selectedClass.university} · {schoolLabel(selectedClass.school)} · {selectedClass.major}</p>
+	              <p>{universityLabel(selectedClass.university)} · {schoolLabel(selectedClass.school)} · {majorLabel(selectedClass.major)}</p>
 	              <p>{getAcademicPeriodDisplay(selectedClass)} · {t('classes.classCode')} {selectedClass.class_code || selectedClass.demo_class_code || selectedClass.join_code}</p>
 	              {selectedClass.lecturer_name && <p>{t('join.lecturer')}: {selectedClass.lecturer_name}</p>}
 	            </div>
@@ -4132,11 +4303,10 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
 	              </label>
 		              <label className="wide">
 		                {t('request.deadline')}
-	                <input
-	                  type="date"
-	                  value={form.deadline}
-	                  onChange={(event) => updateField('deadline', event.target.value)}
-	                />
+                    <DateInput
+                      value={form.deadline}
+                      onChange={(value) => updateField('deadline', value)}
+                    />
 	              </label>
 	            </>
 	          )}
@@ -4829,28 +4999,70 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
   ).filter((course, index, list) => list.findIndex((item) => item.code === course.code) === index);
   const discoverUniversityOptions = mergeAcademicOptions(
     universityOptions,
-    state.profiles.map((profile) => profile.university),
+    state.profiles.map((profile) => normalizeCatalogAcademicValue('university', profile.university)),
   );
   const discoverSchoolOptions = mergeAcademicOptions(
     schoolOptions,
-    state.profiles.map((profile) => profile.school),
+    state.profiles.map((profile) => normalizeCatalogAcademicValue('school', profile.school)),
   );
   const filteredProfiles = state.profiles
     .filter((profile) => profile.id !== currentProfileId)
-    .filter((profile) => !filters.university || normalizeAcademicValue(profile.university || 'RMIT University').toLowerCase() === normalizeAcademicValue(filters.university).toLowerCase())
-    .filter((profile) => !filters.school || normalizeAcademicValue(profile.school).toLowerCase() === normalizeAcademicValue(filters.school).toLowerCase())
-    .filter((profile) => !filters.major || normalizeAcademicValue(profile.major).toLowerCase() === normalizeAcademicValue(filters.major).toLowerCase())
+    .filter((profile) => !filters.university || normalizeAcademicFilterValue('university', profile.university || 'RMIT University') === normalizeAcademicFilterValue('university', filters.university))
+    .filter((profile) => !filters.school || normalizeAcademicFilterValue('school', profile.school) === normalizeAcademicFilterValue('school', filters.school))
+    .filter((profile) => !filters.major || normalizeAcademicFilterValue('major', profile.major) === normalizeAcademicFilterValue('major', filters.major))
     .filter((profile) => !filters.course || requestsByProfile[profile.id]?.some((request) => courseMatchesFilter(request, filters.course)))
     .filter((profile) => !filters.skill || profile.skills?.includes(filters.skill));
 
   const schoolFilteredProfiles = filters.school
-    ? state.profiles.filter((profile) => normalizeAcademicValue(profile.school).toLowerCase() === normalizeAcademicValue(filters.school).toLowerCase())
+    ? state.profiles.filter((profile) => normalizeAcademicFilterValue('school', profile.school) === normalizeAcademicFilterValue('school', filters.school))
     : state.profiles;
   const availableMajors = mergeAcademicOptions(
     filters.school ? majorsBySchool[filters.school] || [] : [...new Set(Object.values(majorsBySchool).flat())],
-    schoolFilteredProfiles.map((profile) => profile.major),
+    schoolFilteredProfiles.map((profile) => normalizeCatalogAcademicValue('major', profile.major)),
   );
   const discoverSkillOptions = getAllSkills().filter((skill) => skill !== 'Other');
+  const discoverAcademicFilterOptions = (kind, prefix, options, allLabel) => [
+    { value: '', label: allLabel, searchText: allLabel },
+    ...options.map((option) => ({
+      ...option,
+      label: localizedOption(option.value, prefix, t),
+      searchText: getAcademicSearchText(kind, option.value),
+    })),
+  ];
+  const discoverUniversityFilterOptions = discoverAcademicFilterOptions(
+    'university',
+    'options.university',
+    discoverUniversityOptions,
+    t('discover.allUniversities'),
+  );
+  const discoverSchoolFilterOptions = discoverAcademicFilterOptions(
+    'school',
+    'options.school',
+    discoverSchoolOptions,
+    t('discover.allSchools'),
+  );
+  const discoverMajorFilterOptions = discoverAcademicFilterOptions(
+    'major',
+    'options.major',
+    availableMajors,
+    t('discover.allMajors'),
+  );
+  const discoverCourseFilterOptions = [
+    { value: '', label: t('discover.allCourses'), searchText: t('discover.allCourses') },
+    ...discoverCourseOptions.map((course) => ({
+      value: course.code,
+      label: formatCourseOption(course),
+      searchText: `${course.name || ''} ${course.code || ''}`,
+    })),
+  ];
+  const discoverSkillFilterOptions = [
+    { value: '', label: t('discover.allSkills'), searchText: t('discover.allSkills') },
+    ...discoverSkillOptions.map((skill) => ({
+      value: skill,
+      label: localizedOption(skill, 'options.skill', t),
+      searchText: skill,
+    })),
+  ];
   const updateDiscoveryFilters = (nextFilters, filterName) => {
     const changed = filters[filterName] !== nextFilters[filterName];
     setFilters(nextFilters);
@@ -4955,59 +5167,68 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
       <section className="filter-panel">
         <label>
           {t('profile.university')}
-          <select
+          <SearchableCombobox
             value={filters.university}
-            onChange={(event) => updateDiscoveryFilters({ ...filters, university: event.target.value }, 'university')}
-          >
-            <option value="">{t('discover.allUniversities')}</option>
-            {discoverUniversityOptions.map((university) => (
-              <option value={university.value} key={university.value}>{localizedOption(university.value, 'options.university', t)}</option>
-            ))}
-          </select>
+            options={discoverUniversityFilterOptions}
+            onSelect={(value) => updateDiscoveryFilters({ ...filters, university: value }, 'university')}
+            onClear={() => updateDiscoveryFilters({ ...filters, university: '' }, 'university')}
+            clearLabel={t('discover.clearFilter')}
+            showOther={false}
+            noResultsLabel={t('discover.none')}
+          />
         </label>
         <label>
           {t('profile.school')}
-          <select
+          <SearchableCombobox
             value={filters.school}
-            onChange={(event) => updateDiscoveryFilters({
+            options={discoverSchoolFilterOptions}
+            onSelect={(value) => updateDiscoveryFilters({
               ...filters,
-              school: event.target.value,
+              school: value,
               major: '',
               course: '',
             }, 'school')}
-          >
-            <option value="">{t('discover.allSchools')}</option>
-            {discoverSchoolOptions.map((school) => (
-              <option value={school.value} key={school.value}>{localizedOption(school.value, 'options.school', t)}</option>
-            ))}
-          </select>
+            onClear={() => updateDiscoveryFilters({ ...filters, school: '', major: '', course: '' }, 'school')}
+            clearLabel={t('discover.clearFilter')}
+            showOther={false}
+            noResultsLabel={t('discover.none')}
+          />
         </label>
         <label>
           {t('profile.major')}
-          <select value={filters.major} onChange={(event) => updateDiscoveryFilters({ ...filters, major: event.target.value }, 'major')}>
-            <option value="">{t('discover.allMajors')}</option>
-            {availableMajors.map((major) => (
-              <option value={major.value} key={major.value}>{localizedOption(major.value, 'options.major', t)}</option>
-            ))}
-          </select>
+          <SearchableCombobox
+            value={filters.major}
+            options={discoverMajorFilterOptions}
+            onSelect={(value) => updateDiscoveryFilters({ ...filters, major: value }, 'major')}
+            onClear={() => updateDiscoveryFilters({ ...filters, major: '' }, 'major')}
+            clearLabel={t('discover.clearFilter')}
+            showOther={false}
+            noResultsLabel={t('discover.none')}
+          />
         </label>
         <label>
           {t('class.course')}
-          <select value={filters.course} onChange={(event) => updateDiscoveryFilters({ ...filters, course: event.target.value }, 'course')}>
-            <option value="">{t('discover.allCourses')}</option>
-            {discoverCourseOptions.map((course) => (
-              <option value={course.code} key={course.code}>{formatCourseOption(course)}</option>
-            ))}
-          </select>
+          <SearchableCombobox
+            value={filters.course}
+            options={discoverCourseFilterOptions}
+            onSelect={(value) => updateDiscoveryFilters({ ...filters, course: value }, 'course')}
+            onClear={() => updateDiscoveryFilters({ ...filters, course: '' }, 'course')}
+            clearLabel={t('discover.clearFilter')}
+            showOther={false}
+            noResultsLabel={t('discover.none')}
+          />
         </label>
         <label>
           {t('profile.skills')}
-          <select value={filters.skill} onChange={(event) => updateDiscoveryFilters({ ...filters, skill: event.target.value }, 'skill')}>
-            <option value="">{t('discover.allSkills')}</option>
-            {discoverSkillOptions.map((skill) => (
-              <option value={skill} key={skill}>{localizedOption(skill, 'options.skill', t)}</option>
-            ))}
-          </select>
+          <SearchableCombobox
+            value={filters.skill}
+            options={discoverSkillFilterOptions}
+            onSelect={(value) => updateDiscoveryFilters({ ...filters, skill: value }, 'skill')}
+            onClear={() => updateDiscoveryFilters({ ...filters, skill: '' }, 'skill')}
+            clearLabel={t('discover.clearFilter')}
+            showOther={false}
+            noResultsLabel={t('discover.none')}
+          />
         </label>
       </section>
 
@@ -5034,7 +5255,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
                 <h3>{displayName(profile.full_name)} {profile.is_demo && <DemoBadge />} {isPremiumProfile(profile) && <PremiumBadge t={t} />}</h3>
                 <p>{savedUniversityDisplay(profile)}</p>
                 {hasDisplaySchool(profile.school) && <p>{schoolLabel(profile.school)}</p>}
-                <p>{profile.major}</p>
+                <p>{majorLabel(profile.major) || t('common.notSpecified')}</p>
 	                <p className="note">{reviewSummaryLabel(profile, null, t)}</p>
                 {requestsByProfile[profile.id]?.[0] && (
                   <p>{getCourseDisplay(requestsByProfile[profile.id][0])}</p>
@@ -5298,7 +5519,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, currentProfile, on
           <dl>
           <div><dt>{t('profile.university')}</dt><dd>{savedUniversityDisplay(profile)}</dd></div>
           {hasDisplaySchool(profile.school) && <div><dt>{t('profile.school')}</dt><dd>{schoolLabel(profile.school)}</dd></div>}
-          <div><dt>{t('profile.major')}</dt><dd>{profile.major}</dd></div>
+          <div><dt>{t('profile.major')}</dt><dd>{majorLabel(profile.major) || t('common.notSpecified')}</dd></div>
           <div><dt>{t('matches.skillsHave')}</dt><dd>{joinList(profile.skills)}</dd></div>
           <div>
             <dt>{t('profile.contact')}</dt>
@@ -5910,7 +6131,7 @@ function ProfileDetail({
 	          <dl>
 	            <div><dt>{t('profile.university')}</dt><dd>{universityLabel(profile.university)}</dd></div>
 	            {hasDisplaySchool(profile.school) && <div><dt>{t('profile.school')}</dt><dd>{schoolLabel(profile.school)}</dd></div>}
-	            <div><dt>{t('profile.major')}</dt><dd>{profile.major}</dd></div>
+            <div><dt>{t('profile.major')}</dt><dd>{majorLabel(profile.major) || t('common.notSpecified')}</dd></div>
 	            <div><dt>{t('profile.reviews')}</dt><dd>{reviewSummaryLabel(profile, null, t)}</dd></div>
             <div>
 	              <dt>{t('profile.contact')}</dt>
@@ -5950,7 +6171,7 @@ function ProfileDetail({
           <dl>
 	            {typeof matchScore === 'number' && <div><dt>{t('matches.matchScore')}</dt><dd>{t('matches.matchPercent', { score: matchScore })}</dd></div>}
 	            {hasDisplaySchool(request.school || profile.school) && <div><dt>{t('profile.school')}</dt><dd>{schoolLabel(request.school || profile.school)}</dd></div>}
-	            <div><dt>{t('profile.major')}</dt><dd>{request.major || profile.major}</dd></div>
+            <div><dt>{t('profile.major')}</dt><dd>{majorLabel(request.major || profile.major) || t('common.notSpecified')}</dd></div>
 	            <div><dt>{t('matches.classSession')}</dt><dd>{getLocalizedSessionDisplay(request, t)}</dd></div>
 	            <div><dt>{t('request.skillsNeeded')}</dt><dd>{joinList(request.skills_needed)}</dd></div>
 	            <div><dt>{t('matches.teamSize')}</dt><dd>{getTotalTeamSize(request)}</dd></div>
@@ -5997,6 +6218,7 @@ function ProfileDetail({
 function RequestDetailPage({
   request,
   profile,
+  creatorProfile,
   currentProfileId,
   isOwner,
   metrics,
@@ -6022,9 +6244,20 @@ function RequestDetailPage({
   onCloseCancel,
   onConfirmCancel,
   onOpenChat,
+  onOpenProfile,
   onViewProfile,
+  joinAction,
+  joinLoading,
+  onRequestToJoin,
   t = translate.bind(null, 'en'),
 }) {
+  const creator = creatorProfile || (isOwner ? profile : null) || {};
+  const creatorAcademic = [
+    creator.university && universityLabel(creator.university),
+    creator.school && schoolLabel(creator.school),
+    creator.major && majorLabel(creator.major),
+  ].filter(Boolean).join(' · ');
+
   return (
     <main className="screen request-detail-screen">
       <button className="ghost" type="button" onClick={onBack}>
@@ -6038,11 +6271,25 @@ function RequestDetailPage({
         </div>
       </div>
 
-      <div className={`request-detail-grid${teamComplete ? ' has-feedback' : ''}`}>
-      <section className="request-panel standalone request-detail-info">
+      <div className="request-detail-grid">
+        <div className="request-detail-left-column">
+          <section className="request-panel standalone request-detail-info">
+        <div className="request-creator-section">
+          <div className="avatar">{displayInitial(creator.full_name)}</div>
+          <div className="request-creator-content">
+            <p className="eyebrow">{isOwner ? t('opportunities.myRequest') : t('opportunities.createdBy')}</p>
+            <strong>{isOwner ? t('opportunities.yourRequest') : displayName(creator.full_name) || t('common.notSpecified')}</strong>
+            {creatorAcademic && <span className="request-creator-academic">{creatorAcademic}</span>}
+          </div>
+          {!isOwner && creator.id && (
+            <button className="secondary" type="button" onClick={() => onOpenProfile?.(creator.id)}>
+              {t('common.viewProfile')}
+            </button>
+          )}
+        </div>
         <dl>
           <div><dt>{t('request.opportunityType')}</dt><dd>{request.opportunity_type || request.course_code || t('common.notSpecified')}</dd></div>
-          <div><dt>{t('request.field')}</dt><dd>{request.opportunity_field || request.major || t('common.notSpecified')}</dd></div>
+          <div><dt>{t('request.field')}</dt><dd>{localizedOption(request.opportunity_field || request.major, 'options.field', t) || t('common.notSpecified')}</dd></div>
           <div><dt>{t('request.deadline')}</dt><dd>{formatDisplayDate(request.deadline) || t('common.notSpecified')}</dd></div>
           <div><dt>{t('request.skillsNeeded')}</dt><dd>{joinList(request.skills_needed)}</dd></div>
           <div><dt>{t('request.teamSize')}</dt><dd>{getTotalTeamSize(request)}</dd></div>
@@ -6081,10 +6328,22 @@ function RequestDetailPage({
               {t('opportunities.cancel')}
             </button>
           )}
+          {!isOwner && joinAction && (
+            <button
+              className={joinAction.available ? 'primary' : 'secondary'}
+              type="button"
+              onClick={onRequestToJoin}
+              disabled={joinLoading || joinAction.disabled}
+            >
+              {joinLoading ? t('opportunities.joining') : joinAction.label}
+            </button>
+          )}
         </div>
-      </section>
+          </section>
+        </div>
 
-      <section className="progress-panel request-detail-progress">
+        <div className="request-detail-right-column">
+          <section className="progress-panel request-detail-progress">
         <div className="progress-header">
           <strong>{t('opportunities.progress')}</strong>
           <span>{progressSummary(metrics, t)}</span>
@@ -6094,25 +6353,13 @@ function RequestDetailPage({
         </div>
         {teamComplete ? <p className="success">{t('status.teamComplete')}</p> : <p className="note">{remainingSummary(metrics, t)}</p>}
         {metrics.matchedCount > 0 && !teamComplete && <p className="note">{t('opportunities.foundAnother')} {remainingSummary(metrics, t)}</p>}
-      </section>
+          </section>
 
-      {teamComplete && (
-        <div className="request-detail-usefulness">
-          <MatchUsefulnessPanel
-            request={request}
-            currentProfileId={currentProfileId}
-            teamComplete={teamComplete}
-            t={t}
-          />
-        </div>
-      )}
-
-      <section className="progress-panel request-detail-skills">
+          <section className="progress-panel request-detail-skills">
         <div className="progress-header">
           <strong>{t('opportunities.skillCoverage')}</strong>
           <span>{t('opportunities.skillsCovered', { covered: skillGap.covered.length, total: skillGap.total })}</span>
         </div>
-        <div className="connection-context">
           <div className="mini-detail">
             <strong>{t('opportunities.coveredSkills')}</strong>
             <span>{joinList(skillGap.covered)}</span>
@@ -6121,10 +6368,9 @@ function RequestDetailPage({
             <strong>{t('opportunities.missingSkills')}</strong>
             <span>{joinList(skillGap.missing)}</span>
           </div>
-        </div>
-      </section>
+          </section>
 
-      <section className="matched-list request-detail-teammates">
+          <section className="matched-list request-detail-teammates">
         <h3>{t('opportunities.matchedTeammates')} ({metrics.matchedCount})</h3>
         {teammates.length === 0 ? (
           <p className="note">{t('opportunities.noMatched')}</p>
@@ -6133,7 +6379,7 @@ function RequestDetailPage({
             <article className="matched-row" key={teammate.profile_id}>
               <div>
                 <strong>{displayName(teammate.full_name)} {teammate.is_demo && <DemoBadge />}</strong>
-                <span>{teammate.major || t('common.notSpecified')}</span>
+                <span>{majorLabel(teammate.major) || t('common.notSpecified')}</span>
               </div>
               <div className="hero-actions">
                 <button className="secondary" onClick={() => onOpenChat(teammate.connection_id)}>
@@ -6149,7 +6395,19 @@ function RequestDetailPage({
             </article>
           ))
         )}
-      </section>
+          </section>
+
+          {teamComplete && (
+            <div className="request-detail-usefulness">
+              <MatchUsefulnessPanel
+                request={request}
+                currentProfileId={currentProfileId}
+                teamComplete={teamComplete}
+                t={t}
+              />
+            </div>
+          )}
+        </div>
       </div>
 
       {isOwner && teamComplete && request.status === 'looking' && !dismissedComplete && (
@@ -6229,6 +6487,8 @@ function CurrentRequest({
     collabRequestsByProfile: {},
     collabConnectionsByProfile: {},
     collabSendingProfileId: '',
+    joinStateById: {},
+    joinSendingRequestId: '',
     progressById: {},
     selectedId: requestId || '',
     cancelTarget: null,
@@ -6243,7 +6503,13 @@ function CurrentRequest({
     let alive = true;
 
     if (!currentProfileId) {
-      setState((current) => ({ ...current, loading: false, requests: [], progressById: {} }));
+      setState((current) => ({
+        ...current,
+        loading: false,
+        requests: [],
+        joinStateById: {},
+        progressById: {},
+      }));
       return () => { alive = false; };
     }
 
@@ -6297,6 +6563,17 @@ function CurrentRequest({
             }
           }),
         );
+        const joinStateEntries = await Promise.all(
+          standaloneRequests
+            .filter((request) => request.profile_id !== currentProfileId)
+            .map(async (request) => {
+              try {
+                return [request.id, await getTeamRequestJoinState(request.id, currentProfileId)];
+              } catch {
+                return [request.id, null];
+              }
+            }),
+        );
 
         if (alive) {
           const requestedRequestExists = Boolean(requestId) && standaloneRequests.some((request) => request.id === requestId);
@@ -6315,6 +6592,7 @@ function CurrentRequest({
             collabProfiles: visibleProfiles,
             collabRequestsByProfile,
             collabConnectionsByProfile: Object.fromEntries(connectionEntries),
+            joinStateById: Object.fromEntries(joinStateEntries),
             progressById: Object.fromEntries(progressEntries),
             selectedId: nextSelectedId,
             saving: false,
@@ -6490,6 +6768,46 @@ function CurrentRequest({
     onOpenRequestDetail?.(request.id);
   };
 
+  const requestToJoin = async (request) => {
+    if (!request?.id || request.profile_id === currentProfileId || request.status !== 'looking') return;
+
+    const requestProgress = state.progressById[request.id] || { found_count: 0, teammates: [] };
+    const requestMetrics = getTeamProgress(request, requestProgress);
+    const joinAction = getCollabJoinAction(request, state.joinStateById[request.id], requestMetrics, t);
+    if (!joinAction.available) return;
+
+    setState((current) => ({
+      ...current,
+      joinSendingRequestId: request.id,
+      error: '',
+      success: '',
+    }));
+
+    try {
+      const created = await requestToJoinTeamRequest({
+        targetRequest: request.id,
+        joiningProfile: currentProfileId,
+      });
+      const refreshed = await getTeamRequestJoinState(request.id, currentProfileId).catch(() => null);
+      setState((current) => ({
+        ...current,
+        joinSendingRequestId: '',
+        success: t('opportunities.requestSent'),
+        joinStateById: {
+          ...current.joinStateById,
+          [request.id]: refreshed || created,
+        },
+      }));
+    } catch (err) {
+      console.error('Collab join request failed', err);
+      setState((current) => ({
+        ...current,
+        joinSendingRequestId: '',
+        error: t('opportunities.joinFail'),
+      }));
+    }
+  };
+
   const getCandidateCollabRequests = (candidate) =>
     state.collabRequestsByProfile[candidate.id] || [];
 
@@ -6504,7 +6822,7 @@ function CurrentRequest({
 
     const requestName = normalizeFilterValue(request.opportunity_name || request.course_name || request.course);
     const requestType = normalizeFilterValue(request.opportunity_type || request.course_code);
-    const requestField = normalizeFilterValue(request.opportunity_field || request.major);
+    const requestField = normalizeComparableAcademicValue(request.opportunity_field || request.major);
     const sameCompetition = candidateRequests.some((candidateRequest) =>
       requestName && normalizeFilterValue(candidateRequest.opportunity_name || candidateRequest.course_name || candidateRequest.course) === requestName,
     );
@@ -6512,9 +6830,9 @@ function CurrentRequest({
       requestType && normalizeFilterValue(candidateRequest.opportunity_type || candidateRequest.course_code) === requestType,
     );
     const sameField = requestField && (
-      normalizeFilterValue(candidate.major) === requestField
+      normalizeComparableAcademicValue(candidate.major) === requestField
       || candidateRequests.some((candidateRequest) =>
-        normalizeFilterValue(candidateRequest.opportunity_field || candidateRequest.major) === requestField,
+        normalizeComparableAcademicValue(candidateRequest.opportunity_field || candidateRequest.major) === requestField,
       )
     );
     const complementaryNeeds = Math.max(
@@ -6546,7 +6864,7 @@ function CurrentRequest({
     )) {
       reasons.push(t('opportunities.reasonCompetition'));
     }
-    if (request && normalizeFilterValue(candidate.major) === normalizeFilterValue(request.opportunity_field || request.major)) {
+    if (request && normalizeComparableAcademicValue(candidate.major) === normalizeComparableAcademicValue(request.opportunity_field || request.major)) {
       reasons.push(t('opportunities.reasonField'));
     }
     if (arrayOverlapCount(candidate.skills, request?.skills_needed || profile?.skills || []) > 0) {
@@ -6774,17 +7092,20 @@ function CurrentRequest({
     const isOwner = request.profile_id === currentProfileId;
     const visibleSkills = (request.skills_needed || []).slice(0, 3);
     const extraSkills = Math.max(0, (request.skills_needed || []).length - visibleSkills.length);
-    const ownerName = request.profile_id === currentProfileId
-      ? profile?.full_name
-      : request.profile?.full_name;
+    const ownerProfile = isOwner ? profile : request.profile;
+    const ownerName = ownerProfile?.full_name;
+    const joinAction = !isOwner
+      ? getCollabJoinAction(request, state.joinStateById[request.id], requestMetrics, t)
+      : null;
 
     return (
       <article className="request-list-row collab-request-card" key={request.id}>
         <div className="collab-request-card-main">
           <h3>{getCourseDisplay(request)}</h3>
           <p className="request-row-detail">
-            {isOwner && <span className="request-owner-badge">{t('opportunities.myRequest')}</span>}
-            {ownerName || t('common.notSpecified')}
+            {isOwner
+              ? <span className="request-owner-badge">{t('opportunities.myRequest')}</span>
+              : <><strong>{t('opportunities.createdBy')}:</strong> {ownerName || t('common.notSpecified')}</>}
           </p>
           <p>{getOpportunityMeta(request, t)} · {requestStatusLabel(request.status, t)}</p>
           <p className="request-row-detail"><strong>{t('request.deadline')}:</strong> {formatDisplayDate(request.deadline) || t('common.notSpecified')}</p>
@@ -6809,6 +7130,16 @@ function CurrentRequest({
               <button className="secondary" type="button" onClick={() => onOpenRequestEdit?.(request.id)}>
                 <Pencil size={18} />
                 {t('common.editRequest')}
+              </button>
+            )}
+            {!isOwner && joinAction && (
+              <button
+                className={joinAction.available ? 'primary' : 'secondary'}
+                type="button"
+                onClick={() => requestToJoin(request)}
+                disabled={state.joinSendingRequestId === request.id || joinAction.disabled}
+              >
+                {state.joinSendingRequestId === request.id ? t('opportunities.joining') : joinAction.label}
               </button>
             )}
           </div>
@@ -6905,11 +7236,15 @@ function CurrentRequest({
     const detailTeamComplete = detailMetrics.complete;
     const detailSkillGap = calculateSkillGap(detailRequest, profile, detailTeammates);
     const detailNoLongerComplete = detailRequest.status === 'found' && !detailTeamComplete;
+    const detailJoinAction = detailRequest.profile_id !== currentProfileId
+      ? getCollabJoinAction(detailRequest, state.joinStateById[detailRequest.id], detailMetrics, t)
+      : null;
 
     return (
       <RequestDetailPage
         request={detailRequest}
         profile={profile}
+        creatorProfile={detailRequest.profile}
         currentProfileId={currentProfileId}
         isOwner={detailRequest.profile_id === currentProfileId}
         metrics={detailMetrics}
@@ -6935,7 +7270,11 @@ function CurrentRequest({
         onCloseCancel={() => setState((current) => ({ ...current, cancelTarget: null }))}
         onConfirmCancel={cancelRequest}
         onOpenChat={onOpenChat}
+        onOpenProfile={onOpenProfile}
         onViewProfile={onViewProfile}
+        joinAction={detailJoinAction}
+        joinLoading={state.joinSendingRequestId === detailRequest.id}
+        onRequestToJoin={() => requestToJoin(detailRequest)}
         t={t}
       />
     );
@@ -7245,8 +7584,8 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
       )}
 
 	      {currentProfileId && !state.loading && showingMessages && (
-	        <MessagesList
-	          currentProfileId={currentProfileId}
+	          <MessagesList
+	            currentProfileId={currentProfileId}
 	          onOpenChat={onOpenChat}
 	          onViewProfile={onViewProfile}
 	          onNotificationsChanged={onNotificationsChanged}
@@ -7261,7 +7600,7 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
 	            <article className="discover-card" key={friend.connection_id}>
 	              <div className="avatar">{displayInitial(friend.teammate_full_name)}</div>
 	              <h3>{displayName(friend.teammate_full_name)} {friend.teammate_is_demo && <DemoBadge />}</h3>
-	              <p>{friend.teammate_university || 'RMIT University'}</p>
+              <p>{universityLabel(friend.teammate_university)}</p>
 	              <p>{formatSchoolMajorLine(friend.teammate_school, friend.teammate_major)}</p>
 	              <div className="mini-detail">
 	                <strong>{t('connections.relationship')}</strong>
@@ -7606,8 +7945,8 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile, t = translat
     const friendSkills = new Set((friend.teammate_skills || []).map(normalizeFilterValue));
     const neededSkills = (request.skills_needed || []).map(normalizeFilterValue);
     const skillOverlap = neededSkills.some((skill) => friendSkills.has(skill));
-    const sameSchool = normalizeFilterValue(friend.teammate_school) === normalizeFilterValue(request.school);
-    const sameMajor = normalizeFilterValue(friend.teammate_major) === normalizeFilterValue(request.major);
+    const sameSchool = normalizeAcademicFilterValue('school', friend.teammate_school) === normalizeAcademicFilterValue('school', request.school);
+    const sameMajor = normalizeComparableAcademicValue(friend.teammate_major) === normalizeComparableAcademicValue(request.major);
     return skillOverlap || sameSchool || sameMajor;
   };
 
@@ -8246,16 +8585,22 @@ function MyProfile({
     getProfileSkillSuggestions({ major: form.major, school: form.school }),
     form.skills,
   );
-  const profileUniversityComboOptions = mergeAcademicOptions(universityOptions, academicValues.universities);
+  const profileUniversityComboOptions = mergeAcademicOptions(
+    universityOptions,
+    academicValues.universities.map((value) => normalizeCatalogAcademicValue('university', value)),
+  );
   const profileSchoolOptions = getSchoolsForUniversity(resolvedUniversity);
-  const profileSchoolComboOptions = mergeAcademicOptions(profileSchoolOptions, academicValues.schools).map((school) => ({
+  const profileSchoolComboOptions = mergeAcademicOptions(
+    profileSchoolOptions,
+    academicValues.schools.map((value) => normalizeCatalogAcademicValue('school', value)),
+  ).map((school) => ({
     value: school.value,
     label: localizedOption(school.value, 'options.school', t),
   }));
   const profileMajorValues = mergeOptionSets(
     ...Object.values(majorsBySchool),
     form.major === OTHER_OPTION_VALUE ? '' : form.major,
-    ...academicValues.majors,
+    ...academicValues.majors.map((value) => normalizeCatalogAcademicValue('major', value)),
   );
   const profileMajorComboOptions = profileMajorValues.map((major) => ({
     value: major,
@@ -8263,7 +8608,9 @@ function MyProfile({
   }));
   const profileSubjectComboOptions = mergeAcademicOptions(
     opportunityFields.filter((field) => field !== 'Other'),
-    academicValues.subjects.filter((field) => field !== 'Other'),
+    academicValues.subjects
+      .filter((field) => field !== 'Other')
+      .map((value) => normalizeCatalogAcademicValue('subject', value)),
   ).map((field) => ({
     value: field.value,
     label: localizedOption(field.value, 'options.field', t),
@@ -8310,22 +8657,26 @@ function MyProfile({
   }, [lecturerSession?.university, lecturerSession?.lecturerId]);
 
   const startEdit = () => {
-    const knownSchool = schoolOptions.some((option) => option.value === profile.school);
-    const school = knownSchool || !profile.school ? profile.school || '' : OTHER_OPTION_VALUE;
+    const profileUniversity = normalizeCatalogAcademicValue('university', profile.university || 'RMIT University');
+    const profileSchool = normalizeCatalogAcademicValue('school', profile.school || '');
+    const profileMajor = normalizeCatalogAcademicValue('major', profile.major || '');
+    const profileSubject = normalizeCatalogAcademicValue('subject', profile.academic_field || '');
+    const knownSchool = schoolOptions.some((option) => option.value === profileSchool);
+    const school = knownSchool || !profileSchool ? profileSchool : OTHER_OPTION_VALUE;
     const roleForEdit = currentRole;
     setForm({
       role: roleForEdit,
       full_name: profile.full_name || '',
-      university: profile.university || 'RMIT University',
-      university_choice: getUniversityChoice(profile.university || 'RMIT University'),
-      custom_university: getUniversityChoice(profile.university || 'RMIT University') === OTHER_UNIVERSITY_VALUE
+      university: profileUniversity,
+      university_choice: getUniversityChoice(profileUniversity),
+      custom_university: getUniversityChoice(profileUniversity) === OTHER_UNIVERSITY_VALUE
         ? profile.university || ''
         : '',
       school,
-      custom_school: knownSchool ? '' : profile.school || '',
+      custom_school: knownSchool ? '' : profileSchool,
       major: roleForEdit === 'lecturer'
         ? 'Lecturer'
-        : school && majorsBySchool[school]?.includes(profile.major) ? profile.major : profile.major || '',
+        : profileMajor || '',
       custom_major: '',
       skills: profile.skills || [],
       other_skill: '',
@@ -8336,8 +8687,8 @@ function MyProfile({
 	      short_bio: profile.short_bio || '',
 	      lecturer_title: profile.lecturer_title || '',
 	      lecturer_id: profile.lecturer_id || '',
-	      academic_field: profile.academic_field || '',
-	      custom_subject: profile.academic_field && !opportunityFields.includes(profile.academic_field)
+      academic_field: profileSubject,
+      custom_subject: profileSubject && !opportunityFields.includes(profileSubject)
         ? profile.academic_field
         : '',
 	      lecturer_contact_method: profile.lecturer_contact_method || 'Email',
@@ -8359,11 +8710,12 @@ function MyProfile({
   };
 
   const updateSchool = (value) => {
+    const canonicalSchool = normalizeCatalogAcademicValue('school', value);
     setForm((current) => ({
       ...current,
-      school: value,
-      custom_school: value === OTHER_OPTION_VALUE ? current.custom_school : '',
-      major: majorsBySchool[value]?.includes(current.major) ? current.major : '',
+      school: canonicalSchool,
+      custom_school: canonicalSchool === OTHER_OPTION_VALUE ? current.custom_school : '',
+      major: majorsBySchool[canonicalSchool]?.includes(current.major) ? current.major : '',
     }));
     setFieldErrors((current) => ({ ...current, school: '', major: '', skills: '' }));
   };
@@ -8374,19 +8726,21 @@ function MyProfile({
   };
 
   const updateSubject = (value) => {
+    const canonicalSubject = normalizeCatalogAcademicValue('subject', value);
     setForm((current) => ({
       ...current,
-      academic_field: value,
-      custom_subject: value === OTHER_OPTION_VALUE ? current.custom_subject : '',
+      academic_field: canonicalSubject,
+      custom_subject: canonicalSubject === OTHER_OPTION_VALUE ? current.custom_subject : '',
     }));
     setFieldErrors((current) => ({ ...current, academic_field: '' }));
   };
 
   const updateMajor = (value) => {
+    const canonicalMajor = normalizeCatalogAcademicValue('major', value);
     setForm((current) => ({
       ...current,
-      major: value,
-      custom_major: value === OTHER_OPTION_VALUE ? current.custom_major : '',
+      major: canonicalMajor,
+      custom_major: canonicalMajor === OTHER_OPTION_VALUE ? current.custom_major : '',
     }));
     setFieldErrors((current) => ({ ...current, major: '' }));
   };
@@ -8402,13 +8756,14 @@ function MyProfile({
   };
 
   const updateUniversityChoice = (value) => {
+    const canonicalUniversity = normalizeCatalogAcademicValue('university', value);
     setForm((current) => ({
       ...current,
-      university_choice: value,
-      custom_university: value === OTHER_UNIVERSITY_VALUE ? current.custom_university : '',
-      university: value === OTHER_UNIVERSITY_VALUE ? current.custom_university : value,
-      school: isRmitUniversity(value) ? current.school : '',
-      major: isRmitUniversity(value) ? current.major : '',
+      university_choice: canonicalUniversity,
+      custom_university: canonicalUniversity === OTHER_UNIVERSITY_VALUE ? current.custom_university : '',
+      university: canonicalUniversity === OTHER_UNIVERSITY_VALUE ? current.custom_university : canonicalUniversity,
+      school: isRmitUniversity(canonicalUniversity) ? current.school : '',
+      major: isRmitUniversity(canonicalUniversity) ? current.major : '',
     }));
     setFieldErrors((current) => ({ ...current, university: '', school: '', major: '' }));
   };
@@ -8473,9 +8828,9 @@ function MyProfile({
     try {
       const updated = await updateProfile(profile.id, {
         full_name: form.full_name.trim(),
-        university: resolveProfileUniversity(form) || 'RMIT University',
-        school: getFormSchoolValue(form),
-        major: editingAsLecturer ? 'Lecturer' : getFormMajorValue(form),
+        university: normalizeCatalogAcademicValue('university', resolveProfileUniversity(form)) || 'RMIT University',
+        school: normalizeCatalogAcademicValue('school', getFormSchoolValue(form)),
+        major: editingAsLecturer ? 'Lecturer' : normalizeCatalogAcademicValue('major', getFormMajorValue(form)),
         skills: editingAsLecturer ? ['Teaching'] : skills,
         avatar_url: form.avatar_url || null,
         availability: [],
@@ -8490,7 +8845,9 @@ function MyProfile({
 	        role: editingAsLecturer ? 'lecturer' : 'student',
 	        lecturer_title: editingAsLecturer ? form.lecturer_title.trim() || null : null,
 	        lecturer_id: editingAsLecturer ? form.lecturer_id.trim() : null,
-        academic_field: editingAsLecturer ? getFormSubjectValue(form) : getFormMajorValue(form),
+        academic_field: editingAsLecturer
+          ? normalizeCatalogAcademicValue('subject', getFormSubjectValue(form))
+          : normalizeCatalogAcademicValue('major', getFormMajorValue(form)),
 	        lecturer_contact_method: editingAsLecturer ? form.lecturer_contact_method : null,
 	        lecturer_contact_detail: editingAsLecturer ? form.lecturer_contact_detail.trim() : null,
 	        student_id: editingAsLecturer ? null : form.student_id || null,
@@ -8764,7 +9121,7 @@ function MyProfile({
                     <div><dt>{t('premium.subscription')}</dt><dd>{subscriptionLabel(profile, t)} {isPremiumProfile(profile) && <PremiumBadge t={t} />}</dd></div>
                   <div><dt>{t('profile.university')}</dt><dd>{universityLabel(profile.university)}</dd></div>
                   {hasDisplaySchool(profile.school) && <div><dt>{t('profile.school')}</dt><dd>{schoolLabel(profile.school)}</dd></div>}
-                  <div><dt>{t('profile.major')}</dt><dd>{profile.major}</dd></div>
+                  <div><dt>{t('profile.major')}</dt><dd>{majorLabel(profile.major) || t('common.notSpecified')}</dd></div>
 	                  <div>
                     <dt>{t('profile.reviews')}</dt>
                     <dd>{reviewsState.loading ? t('profile.loadingReviews') : reviewSummaryLabel(profile, reviewsState.reviews, t)}</dd>
@@ -8799,7 +9156,7 @@ function MyProfile({
                   <div><dt>{t('profile.role')}</dt><dd>{t('profile.lecturer')}</dd></div>
                   <div><dt>{t('profile.university')}</dt><dd>{universityLabel(profile.university)}</dd></div>
                   {hasDisplaySchool(profile.school) && <div><dt>{t('profile.department')}</dt><dd>{schoolLabel(profile.school)}</dd></div>}
-                  <div><dt>{t('profile.subject')}</dt><dd>{profile.academic_field || t('common.notSpecified')}</dd></div>
+                  <div><dt>{t('profile.subject')}</dt><dd>{subjectLabel(profile.academic_field) || t('common.notSpecified')}</dd></div>
                   <div><dt>{t('profile.lecturerId')}</dt><dd>{profile.lecturer_id || lecturerSession?.lecturerId || t('common.notSpecified')}</dd></div>
                   <div><dt>{t('profile.contact')}</dt><dd>{profile.lecturer_contact_detail || profile.contact_value || t('common.notSpecified')}</dd></div>
                   <div><dt>{t('profile.bio')}</dt><dd>{profile.short_bio || t('common.notSpecified')}</dd></div>

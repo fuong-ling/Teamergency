@@ -6500,6 +6500,38 @@ option {
   border-left: 1px solid var(--app-border);
 }
 
+.request-creator-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--app-border);
+}
+
+.request-creator-content {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 3px;
+}
+
+.request-creator-content > * {
+  margin: 0;
+}
+
+.request-creator-content .eyebrow {
+  font-size: 0.7rem;
+}
+
+.request-creator-academic {
+  overflow: hidden;
+  color: var(--app-muted);
+  font-size: 0.86rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .collab-card-stat {
   display: grid;
   gap: 3px;
@@ -6540,43 +6572,26 @@ option {
 
 .request-detail-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
-  gap: 20px;
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 1fr);
+  gap: 22px;
   align-items: start;
   margin-top: 18px;
 }
 
-.request-detail-grid > .request-detail-info {
-  grid-column: 1;
-  grid-row: 1;
+.request-detail-left-column,
+.request-detail-right-column {
+  display: grid;
+  align-content: start;
+  gap: 20px;
+  min-width: 0;
+}
+
+.request-detail-left-column > .request-detail-info,
+.request-detail-right-column > .request-detail-progress,
+.request-detail-right-column > .request-detail-skills,
+.request-detail-right-column > .request-detail-teammates,
+.request-detail-right-column > .request-detail-usefulness {
   margin-top: 0;
-}
-
-.request-detail-grid > .request-detail-teammates {
-  grid-column: 1;
-  grid-row: 2;
-  margin-top: 0;
-}
-
-.request-detail-grid > .request-detail-progress {
-  grid-column: 2;
-  grid-row: 1;
-  margin-top: 0;
-}
-
-.request-detail-grid > .request-detail-usefulness {
-  grid-column: 2;
-  grid-row: 2;
-}
-
-.request-detail-grid > .request-detail-skills {
-  grid-column: 2;
-  grid-row: 2;
-  margin-top: 0;
-}
-
-.request-detail-grid.has-feedback > .request-detail-skills {
-  grid-row: 3;
 }
 
 .request-detail-grid .request-detail-usefulness > * {
@@ -6606,7 +6621,7 @@ option {
     display: block;
   }
 
-  .request-detail-grid > * + * {
+  .request-detail-grid > .request-detail-right-column {
     margin-top: 18px;
   }
 }
@@ -6647,6 +6662,19 @@ option {
 
   .collab-my-request-panel .request-row-actions {
     flex-wrap: wrap;
+  }
+
+  .request-creator-section {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .request-creator-section > .secondary {
+    margin-left: 52px;
+  }
+
+  .request-creator-academic {
+    white-space: normal;
   }
 
   .collabs-screen .compact-discover-grid {
@@ -7137,6 +7165,16 @@ option {
 
 .app.theme-dark .connection-context .mini-detail span {
   color: #c5d0de !important;
+}
+
+.app.theme-light .request-detail-skills .mini-detail strong {
+  color: var(--app-text) !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+
+.app.theme-dark .request-detail-skills .mini-detail strong {
+  color: var(--app-text) !important;
+  -webkit-text-fill-color: currentColor !important;
 }
 
 .app:is(.view-profile-detail, .view-discover-profile) .stacked-actions .link-button,
@@ -7892,6 +7930,37 @@ option {
   width: 100%;
 }
 
+.searchable-combobox.has-clear > input[role="combobox"] {
+  padding-right: 40px;
+}
+
+.searchable-combobox-clear {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  color: var(--app-text-soft);
+  background: transparent;
+  font-size: 1.15rem;
+  line-height: 1;
+  transform: translateY(-50%);
+  cursor: pointer;
+}
+
+.searchable-combobox-clear:hover,
+.searchable-combobox-clear:focus-visible {
+  color: var(--app-text);
+  background: color-mix(in srgb, var(--app-blue-soft) 62%, transparent);
+  outline: none;
+}
+
 .searchable-combobox-menu {
   position: absolute;
   z-index: 30;
@@ -7907,6 +7976,34 @@ option {
   box-shadow: 0 14px 28px rgba(15, 23, 42, 0.2);
 }
 
+/* Keep filter suggestions above the result grid without changing its layout. */
+.app.view-discover .filter-panel {
+  position: relative;
+  z-index: 20;
+  overflow: visible;
+}
+
+.app.view-discover .filter-panel > label {
+  position: relative;
+  z-index: 21;
+  min-width: 0;
+}
+
+.app.view-discover .filter-panel > label:focus-within {
+  z-index: 22;
+}
+
+.app.view-discover .filter-panel .searchable-combobox {
+  z-index: 21;
+}
+
+.app.view-discover .filter-panel .searchable-combobox-menu {
+  z-index: 40;
+  max-height: 240px;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+
 .searchable-combobox-option {
   display: block;
   width: 100%;
@@ -7920,7 +8017,8 @@ option {
 }
 
 .searchable-combobox-option:hover,
-.searchable-combobox-option:focus-visible {
+.searchable-combobox-option:focus-visible,
+.searchable-combobox-option.highlighted {
   color: #fff;
   background: linear-gradient(135deg, var(--app-blue), var(--app-red));
   outline: none;
@@ -7971,8 +8069,31 @@ option {
 }
 
 .app.theme-dark .searchable-combobox-menu {
-  background: var(--app-surface, #17213b);
-  box-shadow: 0 16px 30px rgba(0, 0, 0, 0.4);
+  border-color: rgba(255, 255, 255, 0.16);
+  background:
+    linear-gradient(180deg, rgba(30, 54, 82, 0.96), rgba(13, 30, 52, 0.94));
+  box-shadow:
+    0 18px 38px rgba(4, 12, 24, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(18px) saturate(135%);
+  -webkit-backdrop-filter: blur(18px) saturate(135%);
+}
+
+.app.theme-light .searchable-combobox-menu {
+  border-color: rgba(148, 163, 184, 0.38);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 252, 0.88));
+  box-shadow:
+    0 18px 36px rgba(71, 85, 105, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(18px) saturate(130%);
+  -webkit-backdrop-filter: blur(18px) saturate(130%);
+}
+
+@media (max-width: 760px) {
+  .app.view-discover .filter-panel .searchable-combobox-menu {
+    max-height: 220px;
+  }
 }
 
 .app.theme-light .score,

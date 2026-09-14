@@ -1345,6 +1345,37 @@ export const getTeamRequestProgress = async (requestId, profileId) => {
   return data?.[0] || { found_count: 0, teammates: [] };
 };
 
+export const requestToJoinTeamRequest = async ({
+  targetRequest,
+  joiningProfile,
+  introMessage,
+}) => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc('request_to_join_team_request', {
+    target_request: targetRequest,
+    joining_profile: joiningProfile,
+    intro_message: introMessage || '',
+  });
+
+  if (error) throw error;
+  if (!data?.length) {
+    throw new Error('Join request was not created.');
+  }
+
+  return data[0];
+};
+
+export const getTeamRequestJoinState = async (targetRequest, joiningProfile) => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc('get_team_request_join_state', {
+    target_request: targetRequest,
+    joining_profile: joiningProfile,
+  });
+
+  if (error) throw error;
+  return data?.[0] || null;
+};
+
 export const sendConnectionRequest = async ({
   senderProfileId,
   receiverProfileId,
