@@ -8749,7 +8749,7 @@ option {
   --app-shadow-elevated: 0 16px 38px color-mix(in srgb, var(--app-text) 10%, transparent);
 }
 
-.app.theme-light:not(.landing-mode) {
+.app.theme-light {
   --app-bg: #f7f8fc;
   --app-bg-soft: #eef2f8;
   --app-surface: #ffffff;
@@ -8772,7 +8772,7 @@ option {
     var(--app-bg) !important;
 }
 
-.app.theme-dark:not(.landing-mode) {
+.app.theme-dark {
   --app-bg: #050506;
   --app-bg-soft: #0b0b10;
   --app-surface: #101014;
