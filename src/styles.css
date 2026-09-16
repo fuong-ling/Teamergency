@@ -1,9 +1,10 @@
 :root {
+  --font-ui:
+    -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", Inter,
+    "Segoe UI", sans-serif;
   color: #1d2433;
   background: #f6f5f1;
-  font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
+  font-family: var(--font-ui);
   font-synthesis: none;
   letter-spacing: 0;
   text-rendering: optimizeLegibility;
@@ -1182,6 +1183,7 @@ select:focus {
 }
 
 .inline-score {
+  position: static;
   width: fit-content;
   margin: 8px 0;
 }
@@ -1753,9 +1755,7 @@ dd {
   --radius: 12px;
   color: var(--ink);
   background: var(--bg);
-  font-family:
-    "Encode Sans Semi Expanded", Inter, ui-sans-serif,
-    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--font-ui);
 }
 
 .app {
@@ -2412,7 +2412,7 @@ dd {
 
 .landing-mode .topbar {
   top: 36px;
-  width: min(1290px, calc(100% - 150px));
+  width: min(1472px, calc(100% - 112px));
   min-height: 69px;
   margin-top: 36px;
   padding: 10px 20px;
@@ -2441,7 +2441,7 @@ dd {
 
 .landing-mode .home-grid {
   display: block;
-  width: min(1290px, calc(100% - 150px));
+  width: min(1472px, calc(100% - 112px));
   padding: 42px 0 40px;
 }
 
@@ -2544,7 +2544,7 @@ dd {
 
   .landing-mode .topbar,
   .landing-mode .home-grid {
-    width: min(100% - 36px, 1290px);
+    width: min(100% - 64px, 1472px);
   }
 
   .landing-mode .topbar {
@@ -3932,10 +3932,10 @@ option {
   --tm-text-soft: #c8d1e4;
   --tm-muted: #92a0bb;
   --tm-faint: #71809a;
-  --tm-blue: #2f6bff;
-  --tm-blue-2: #2563eb;
-  --tm-red: #ef3340;
-  --tm-red-2: #ff4655;
+  --tm-blue: #2755c0;
+  --tm-blue-2: #2755c0;
+  --tm-red: #ec3138;
+  --tm-red-2: #ec3138;
   --tm-green: #44d782;
   --tm-yellow: #ffd166;
   --tm-shadow: 0 20px 70px rgba(0, 0, 0, 0.34);
@@ -4506,8 +4506,8 @@ option {
   --landing-muted: #667085;
   --landing-line: rgba(37, 99, 235, 0.12);
   --landing-line-strong: rgba(37, 99, 235, 0.24);
-  --landing-blue: #2563eb;
-  --landing-red: #f43f5e;
+  --landing-blue: #2755c0;
+  --landing-red: #ec3138;
   --landing-soft-blue: #eef3ff;
   --landing-soft-pink: #fff1f3;
   --landing-shadow: 0 22px 70px rgba(16, 24, 40, 0.09);
@@ -4532,8 +4532,8 @@ option {
   --landing-muted: #aab4c5;
   --landing-line: rgba(148, 163, 184, 0.18);
   --landing-line-strong: rgba(59, 130, 246, 0.35);
-  --landing-blue: #3b82f6;
-  --landing-red: #fb4d6d;
+  --landing-blue: #2755c0;
+  --landing-red: #ec3138;
   --landing-soft-blue: rgba(59, 130, 246, 0.16);
   --landing-soft-pink: rgba(251, 77, 109, 0.15);
   --landing-shadow: 0 24px 80px rgba(0, 0, 0, 0.36);
@@ -4701,7 +4701,12 @@ option {
   max-width: 100%;
   margin: 0;
   color: transparent !important;
-  background: linear-gradient(100deg, var(--landing-blue) 12%, #7c3aed 45%, var(--landing-red) 88%);
+  background: linear-gradient(
+    100deg,
+    var(--landing-blue) 12%,
+    color-mix(in srgb, var(--landing-blue) 50%, var(--landing-red) 50%) 45%,
+    var(--landing-red) 88%
+  );
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -5066,32 +5071,7 @@ option {
 /* Global Teamergency light/dark theme system */
 .app.theme-light,
 .app.theme-dark {
-  --app-bg: #f7f8fc;
-  --app-bg-soft: #eef3ff;
-  --app-surface: #ffffff;
-  --app-surface-2: #f1f5f9;
-  --app-surface-3: #f8fafc;
-  --app-text: #101828;
-  --app-text-soft: #344054;
-  --app-muted: #667085;
-  --app-border: #e4e7ec;
-  --app-border-strong: rgba(37, 99, 235, 0.24);
-  --app-blue: #2563eb;
-  --app-blue-soft: #eef3ff;
-  --app-red: #f43f5e;
-  --app-red-soft: #fff1f3;
-  --app-green: #16a34a;
-  --app-green-soft: #ecfdf3;
-  --app-yellow: #b7791f;
-  --app-yellow-soft: #fffaeb;
-  --app-input: #ffffff;
-  --app-shadow: 0 18px 52px rgba(16, 24, 40, 0.08);
   min-height: 100vh;
-  color: var(--app-text) !important;
-  background:
-    radial-gradient(circle at 10% 18%, rgba(37, 99, 235, 0.12), transparent 28rem),
-    radial-gradient(circle at 92% 18%, rgba(244, 63, 94, 0.11), transparent 28rem),
-    linear-gradient(180deg, #ffffff 0%, var(--app-bg) 42%, #f4f7fb 100%) !important;
   transition:
     background 180ms ease,
     color 180ms ease,
@@ -5099,30 +5079,6 @@ option {
 }
 
 .app.theme-dark {
-  --app-bg: #07111f;
-  --app-bg-soft: #0d1b2f;
-  --app-surface: #111c30;
-  --app-surface-2: #0d1b2f;
-  --app-surface-3: #132238;
-  --app-text: #f8fafc;
-  --app-text-soft: #d7deea;
-  --app-muted: #aab4c5;
-  --app-border: rgba(148, 163, 184, 0.18);
-  --app-border-strong: rgba(59, 130, 246, 0.36);
-  --app-blue: #3b82f6;
-  --app-blue-soft: rgba(59, 130, 246, 0.16);
-  --app-red: #fb4d6d;
-  --app-red-soft: rgba(251, 77, 109, 0.15);
-  --app-green: #44d782;
-  --app-green-soft: rgba(68, 215, 130, 0.12);
-  --app-yellow: #ffd166;
-  --app-yellow-soft: rgba(255, 209, 102, 0.12);
-  --app-input: #081327;
-  --app-shadow: 0 22px 72px rgba(0, 0, 0, 0.34);
-  background:
-    radial-gradient(circle at 14% 18%, rgba(59, 130, 246, 0.18), transparent 30rem),
-    radial-gradient(circle at 88% 20%, rgba(251, 77, 109, 0.15), transparent 30rem),
-    linear-gradient(180deg, #07111f 0%, #0a1424 52%, #050b14 100%) !important;
 }
 
 .app.theme-light .topbar,
@@ -5263,9 +5219,8 @@ option {
 ) {
   border-color: var(--app-border) !important;
   color: var(--app-text) !important;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--app-surface) 96%, transparent), var(--app-surface)) !important;
-  box-shadow: var(--app-shadow) !important;
+  background: var(--app-surface) !important;
+  box-shadow: none !important;
 }
 
 .app.theme-light :is(.status-grid div, .profile-strip, .demo-step, .compact-info, .class-code-box),
@@ -5584,39 +5539,6 @@ option {
 }
 
 /* Approved animated landing background and brighter global dark theme */
-.app.theme-dark {
-  --app-bg: #0b1b2f;
-  --app-bg-soft: #102742;
-  --app-surface: #102742;
-  --app-surface-2: #0d1e34;
-  --app-surface-3: #132f4f;
-  --app-text: #f7f8fc;
-  --app-text-soft: #dbe4f0;
-  --app-muted: #b3bfd0;
-  --app-border: rgba(255, 255, 255, 0.11);
-  --app-border-strong: rgba(96, 165, 250, 0.34);
-  --app-blue: #3b82f6;
-  --app-blue-soft: rgba(59, 130, 246, 0.18);
-  --app-red: #fb4d6d;
-  --app-red-soft: rgba(251, 77, 109, 0.16);
-  --app-input: #0d1e34;
-  --app-shadow: 0 22px 70px rgba(4, 12, 24, 0.26);
-  background:
-    radial-gradient(circle at 11% 18%, rgba(59, 130, 246, 0.24), transparent 31rem),
-    radial-gradient(circle at 91% 16%, rgba(251, 77, 109, 0.17), transparent 29rem),
-    radial-gradient(ellipse at 52% 96%, rgba(124, 58, 237, 0.13), transparent 34rem),
-    linear-gradient(180deg, #0b1b2f 0%, #102742 48%, #0d1e34 100%) !important;
-}
-
-.app.theme-dark .topbar {
-  background: color-mix(in srgb, var(--app-bg) 78%, transparent) !important;
-  backdrop-filter: blur(18px) saturate(130%);
-}
-
-.app.theme-dark :is(input, textarea, select) {
-  background: color-mix(in srgb, var(--app-input) 88%, transparent) !important;
-}
-
 .app.landing-mode {
   --landing-cursor-x: 50%;
   --landing-cursor-y: 42%;
@@ -5808,74 +5730,6 @@ option {
   }
 }
 
-.app.theme-dark.view-discover .filter-panel,
-.app.theme-dark.view-current-request .request-list-panel {
-  border: 1px solid rgba(255, 255, 255, 0.14) !important;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.035)),
-    rgba(19, 42, 68, 0.42) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.10),
-    0 22px 56px rgba(4, 12, 24, 0.26) !important;
-  backdrop-filter: blur(22px) saturate(135%);
-}
-
-.app.theme-dark.view-discover .discover-card,
-.app.theme-dark.view-current-request .collab-discovery-panel .discover-card,
-.app.theme-dark.view-current-request .request-list-row {
-  border: 1px solid rgba(255, 255, 255, 0.15) !important;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.05)),
-    rgba(17, 35, 58, 0.44) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    0 24px 60px rgba(4, 12, 24, 0.30) !important;
-  backdrop-filter: blur(24px) saturate(135%);
-}
-
-.app.theme-light.view-discover .filter-panel {
-  border: 1px solid rgba(255, 255, 255, 0.72) !important;
-  background:
-    radial-gradient(circle at 12% 8%, rgba(37, 99, 235, 0.12), transparent 18rem),
-    radial-gradient(circle at 92% 18%, rgba(244, 63, 94, 0.10), transparent 18rem),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.42)) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.85),
-    0 14px 40px rgba(71, 85, 105, 0.10) !important;
-  backdrop-filter: blur(20px) saturate(135%);
-  -webkit-backdrop-filter: blur(20px) saturate(135%);
-}
-
-.app.theme-light.view-discover .discover-card,
-.app.theme-light.view-current-request .collab-discovery-panel .discover-card,
-.app.theme-light.view-current-request .request-list-row {
-  border: 1px solid rgba(255, 255, 255, 0.72) !important;
-  background:
-    radial-gradient(circle at 18% 0%, rgba(37, 99, 235, 0.10), transparent 15rem),
-    radial-gradient(circle at 90% 0%, rgba(244, 63, 94, 0.08), transparent 14rem),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.42)) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.85),
-    0 14px 40px rgba(71, 85, 105, 0.10) !important;
-  backdrop-filter: blur(22px) saturate(135%);
-  -webkit-backdrop-filter: blur(22px) saturate(135%);
-}
-
-.app.theme-dark.view-discover .filter-panel :is(input, textarea, select),
-.app.theme-dark.view-current-request .collab-discovery-panel :is(input, textarea, select) {
-  border-color: rgba(255, 255, 255, 0.13) !important;
-  background: rgba(13, 30, 52, 0.72) !important;
-  backdrop-filter: blur(10px) saturate(120%);
-}
-
-.app.theme-light.view-discover .filter-panel :is(input, textarea, select) {
-  border: 1px solid rgba(148, 163, 184, 0.22) !important;
-  color: var(--app-text) !important;
-  background: rgba(255, 255, 255, 0.56) !important;
-  backdrop-filter: blur(10px) saturate(120%);
-  -webkit-backdrop-filter: blur(10px) saturate(120%);
-}
-
 @media (max-width: 760px) {
   .app.landing-mode .landing-background {
     inset: 68px 0 0;
@@ -5896,13 +5750,6 @@ option {
     display: none;
   }
 
-  .app.theme-dark.view-discover .filter-panel,
-  .app.theme-dark.view-discover .discover-card,
-  .app.theme-dark.view-current-request .collab-discovery-panel .discover-card,
-  .app.theme-dark.view-current-request .request-list-panel,
-  .app.theme-dark.view-current-request .request-list-row {
-    backdrop-filter: blur(14px) saturate(125%);
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -5917,25 +5764,15 @@ option {
   }
 }
 
-.app.theme-dark:not(.landing-mode) {
-  background:
-    radial-gradient(circle at 11% 18%, rgba(59, 130, 246, 0.24), transparent 31rem),
-    radial-gradient(circle at 91% 16%, rgba(251, 77, 109, 0.17), transparent 29rem),
-    radial-gradient(ellipse at 52% 96%, rgba(124, 58, 237, 0.13), transparent 34rem),
-    linear-gradient(180deg, #0b1b2f 0%, #102742 48%, #0d1e34 100%) !important;
-  animation: none !important;
-}
-
 .app.landing-mode.landing-dark {
-  --landing-bg: #0b1b2f;
   --landing-surface: #102742;
   --landing-surface-2: #0d1e34;
   --landing-text: #f7f8fc;
   --landing-muted: #b3bfd0;
   --landing-line: rgba(255, 255, 255, 0.11);
   --landing-line-strong: rgba(96, 165, 250, 0.34);
-  --landing-blue: #3b82f6;
-  --landing-red: #fb4d6d;
+  --landing-blue: #2755c0;
+  --landing-red: #ec3138;
   --landing-soft-blue: rgba(59, 130, 246, 0.18);
   --landing-soft-pink: rgba(251, 77, 109, 0.16);
   --landing-shadow: 0 22px 70px rgba(4, 12, 24, 0.26);
@@ -5999,18 +5836,10 @@ option {
 
 .app.theme-light .top-actions .ghost.active,
 .app.theme-dark .top-actions .ghost.active {
-  color: #ffffff !important;
-  border-color: rgba(255, 255, 255, 0.18) !important;
-  background:
-    linear-gradient(
-      135deg,
-      rgba(59, 130, 246, 0.90),
-      rgba(139, 92, 246, 0.80),
-      rgba(251, 77, 109, 0.78)
-    ) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 0 20px rgba(80, 120, 255, 0.15) !important;
+  color: var(--nav-active-text) !important;
+  border-color: var(--nav-active-border) !important;
+  background: var(--nav-active-bg) !important;
+  box-shadow: none !important;
 }
 
 .app.theme-light .top-actions .ghost:active,
@@ -6042,8 +5871,8 @@ option {
 
 .app.theme-light .language-switch button.active,
 .app.theme-dark .language-switch button.active {
-  background:
-    linear-gradient(135deg, rgba(59, 130, 246, 0.95), rgba(91, 140, 255, 0.92)) !important;
+  color: #ffffff !important;
+  background: var(--action-primary) !important;
 }
 
 .app.theme-light .discover-card .hero-actions,
@@ -6069,33 +5898,33 @@ option {
 
 .app.theme-light .discover-card .hero-actions .secondary,
 .app.theme-dark .discover-card .hero-actions .secondary {
-  border: 1px solid rgba(255, 255, 255, 0.12) !important;
-  color: #f7f8fc !important;
-  background: rgba(10, 24, 42, 0.45) !important;
+  border: 1px solid var(--action-secondary-border) !important;
+  color: var(--text-secondary) !important;
+  background: var(--action-secondary-bg) !important;
   box-shadow: none !important;
-  backdrop-filter: blur(10px) saturate(120%);
+  backdrop-filter: none;
 }
 
 .app.theme-light .discover-card .hero-actions .secondary:hover,
 .app.theme-dark .discover-card .hero-actions .secondary:hover {
-  color: #ffffff !important;
-  border-color: rgba(147, 197, 253, 0.36) !important;
-  background: rgba(18, 39, 67, 0.62) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-strong) !important;
+  background: var(--action-secondary-hover) !important;
   transform: translateY(-1px);
 }
 
 .app.theme-light .discover-card .hero-actions .primary,
 .app.theme-dark .discover-card .hero-actions .primary {
-  border: 1px solid rgba(147, 197, 253, 0.48) !important;
+  border: 1px solid color-mix(in srgb, var(--action-primary) 60%, transparent) !important;
   color: #ffffff !important;
-  background: linear-gradient(135deg, #3b82f6, #5b8cff) !important;
-  box-shadow: 0 14px 30px rgba(59, 130, 246, 0.26) !important;
+  background: var(--action-primary) !important;
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--action-primary) 18%, transparent) !important;
 }
 
 .app.theme-light .discover-card .hero-actions .primary:hover,
 .app.theme-dark .discover-card .hero-actions .primary:hover {
-  filter: brightness(1.06);
-  box-shadow: 0 18px 38px rgba(59, 130, 246, 0.34) !important;
+  background: var(--action-primary-hover) !important;
+  box-shadow: 0 10px 22px color-mix(in srgb, var(--action-primary) 24%, transparent) !important;
   transform: translateY(-1px);
 }
 
@@ -6166,18 +5995,10 @@ option {
 
 .app.theme-light.view-connections .segmented button.selected,
 .app.theme-dark.view-connections .segmented button.selected {
-  color: #ffffff !important;
-  border-color: rgba(255, 255, 255, 0.18) !important;
-  background:
-    linear-gradient(
-      135deg,
-      rgba(59, 130, 246, 0.90),
-      rgba(139, 92, 246, 0.80),
-      rgba(251, 77, 109, 0.78)
-    ) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 0 20px rgba(80, 120, 255, 0.15) !important;
+  color: var(--nav-active-text) !important;
+  border-color: var(--control-selected-border) !important;
+  background: var(--control-selected-bg) !important;
+  box-shadow: none !important;
 }
 
 .app.theme-light.view-connections .segmented button:active,
@@ -6215,7 +6036,7 @@ option {
 
 /* Chat readability */
 .app.theme-light {
-  --chat-own-bg: #2563eb;
+  --chat-own-bg: #2755c0;
   --chat-own-text: #ffffff;
   --chat-own-meta: rgba(255, 255, 255, 0.82);
   --chat-other-bg: rgba(255, 255, 255, 0.82);
@@ -6225,7 +6046,7 @@ option {
 }
 
 .app.theme-dark {
-  --chat-own-bg: #3b82f6;
+  --chat-own-bg: #2755c0;
   --chat-own-text: #ffffff;
   --chat-own-meta: #d6e4ff;
   --chat-other-bg: rgba(16, 39, 66, 0.88);
@@ -6600,16 +6421,11 @@ option {
 
 .app.theme-light.view-current-request .collab-discovery-panel .discover-card,
 .app.theme-light.view-current-request .request-list-row {
-  border: 1px solid rgba(255, 255, 255, 0.72) !important;
-  background:
-    radial-gradient(circle at 18% 0%, rgba(37, 99, 235, 0.10), transparent 15rem),
-    radial-gradient(circle at 90% 0%, rgba(244, 63, 94, 0.08), transparent 14rem),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.42)) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.85),
-    0 14px 40px rgba(71, 85, 105, 0.10) !important;
-  backdrop-filter: blur(22px) saturate(135%);
-  -webkit-backdrop-filter: blur(22px) saturate(135%);
+  border: 1px solid var(--border-subtle) !important;
+  background: var(--surface-primary) !important;
+  box-shadow: none !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 @media (max-width: 900px) {
@@ -6684,13 +6500,10 @@ option {
 
 /* Connections and messaging glass refinement */
 .app.theme-light {
-  --connections-card-bg:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0.42));
-  --connections-card-border: rgba(255, 255, 255, 0.72);
-  --connections-card-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.85),
-    0 14px 40px rgba(71, 85, 105, 0.10);
-  --connections-action-bg: rgba(255, 255, 255, 0.54);
+  --connections-card-bg: var(--surface-primary);
+  --connections-card-border: var(--border-subtle);
+  --connections-card-shadow: none;
+  --connections-action-bg: var(--surface-secondary);
   --connections-primary-text: #101828;
   --connections-secondary-text: #475467;
   --connections-muted-text: #667085;
@@ -6698,31 +6511,26 @@ option {
   --request-message-bg: rgba(255, 255, 255, 0.52);
   --request-message-border: rgba(148, 163, 184, 0.18);
   --request-message-text: #1d2939;
-  --chat-shell-bg:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.42));
-  --chat-shell-border: rgba(255, 255, 255, 0.72);
-  --chat-window-glass-bg: rgba(255, 255, 255, 0.38);
-  --chat-input-bg: rgba(255, 255, 255, 0.58);
-  --chat-input-border: rgba(148, 163, 184, 0.22);
-  --chat-send-bg: rgba(255, 255, 255, 0.58);
-  --chat-send-border: rgba(148, 163, 184, 0.24);
+  --chat-shell-bg: var(--surface-primary);
+  --chat-shell-border: var(--border-subtle);
+  --chat-window-glass-bg: var(--surface-secondary);
+  --chat-input-bg: var(--control-bg);
+  --chat-input-border: var(--control-border);
+  --chat-send-bg: var(--surface-secondary);
+  --chat-send-border: var(--control-border);
   --chat-send-text: #344054;
   --chat-other-bg: rgba(255, 255, 255, 0.62);
   --chat-other-text: #1d2939;
   --chat-other-meta: #667085;
-  --chat-own-bg: linear-gradient(135deg, rgba(59, 130, 246, 0.82), rgba(91, 140, 255, 0.76));
+  --chat-own-bg: var(--brand-blue);
   --chat-own-meta: rgba(255, 255, 255, 0.78);
 }
 
 .app.theme-dark {
-  --connections-card-bg:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.045)),
-    rgba(17, 35, 58, 0.44);
-  --connections-card-border: rgba(255, 255, 255, 0.14);
-  --connections-card-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 16px 42px rgba(0, 0, 0, 0.16);
-  --connections-action-bg: rgba(255, 255, 255, 0.07);
+  --connections-card-bg: var(--surface-primary);
+  --connections-card-border: var(--border-subtle);
+  --connections-card-shadow: none;
+  --connections-action-bg: var(--surface-secondary);
   --connections-primary-text: #f8fafc;
   --connections-secondary-text: #c0ccda;
   --connections-muted-text: #9fb0c3;
@@ -6730,20 +6538,18 @@ option {
   --request-message-bg: rgba(7, 20, 36, 0.36);
   --request-message-border: rgba(255, 255, 255, 0.10);
   --request-message-text: #f2f6fa;
-  --chat-shell-bg:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.04)),
-    rgba(15, 32, 54, 0.48);
-  --chat-shell-border: rgba(255, 255, 255, 0.12);
-  --chat-window-glass-bg: rgba(7, 20, 36, 0.32);
-  --chat-input-bg: rgba(7, 20, 36, 0.42);
-  --chat-input-border: rgba(255, 255, 255, 0.10);
-  --chat-send-bg: rgba(255, 255, 255, 0.07);
-  --chat-send-border: rgba(255, 255, 255, 0.12);
+  --chat-shell-bg: var(--surface-primary);
+  --chat-shell-border: var(--border-subtle);
+  --chat-window-glass-bg: var(--surface-secondary);
+  --chat-input-bg: var(--control-bg);
+  --chat-input-border: var(--control-border);
+  --chat-send-bg: var(--surface-secondary);
+  --chat-send-border: var(--control-border);
   --chat-send-text: #f8fafc;
   --chat-other-bg: rgba(17, 35, 58, 0.62);
   --chat-other-text: #f8fafc;
   --chat-other-meta: #aebcce;
-  --chat-own-bg: linear-gradient(135deg, rgba(59, 130, 246, 0.90), rgba(91, 140, 255, 0.82));
+  --chat-own-bg: var(--brand-blue);
   --chat-own-meta: #dce8ff;
 }
 
@@ -6758,9 +6564,9 @@ option {
   border: 1px solid var(--connections-card-border) !important;
   color: var(--connections-primary-text) !important;
   background: var(--connections-card-bg) !important;
-  box-shadow: var(--connections-card-shadow) !important;
-  backdrop-filter: blur(22px) saturate(135%);
-  -webkit-backdrop-filter: blur(22px) saturate(135%);
+  box-shadow: none !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .app.theme-light.view-connections .connection-row p,
@@ -6812,9 +6618,9 @@ option {
   border-left: 3px solid var(--app-blue) !important;
   color: var(--request-message-text) !important;
   background: var(--request-message-bg) !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(14px) saturate(125%);
-  -webkit-backdrop-filter: blur(14px) saturate(125%);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .messages-tab-panel {
@@ -6831,9 +6637,9 @@ option {
 .app.theme-dark.view-connections .messages-tab-panel .empty-state {
   border: 1px solid var(--connections-card-border) !important;
   background: var(--connections-card-bg) !important;
-  box-shadow: var(--connections-card-shadow) !important;
-  backdrop-filter: blur(20px) saturate(135%);
-  -webkit-backdrop-filter: blur(20px) saturate(135%);
+  box-shadow: none !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .app.theme-light.view-connections .connection-actions .secondary,
@@ -6847,9 +6653,9 @@ option {
   border: 1px solid var(--connections-card-border) !important;
   color: var(--connections-label-text) !important;
   background: var(--connections-action-bg) !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10) !important;
-  backdrop-filter: blur(14px) saturate(125%);
-  -webkit-backdrop-filter: blur(14px) saturate(125%);
+  box-shadow: none !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .app.theme-light.view-connections .connection-actions .secondary:hover,
@@ -6870,9 +6676,9 @@ option {
   border: 1px solid var(--chat-shell-border) !important;
   color: var(--connections-primary-text) !important;
   background: var(--chat-shell-bg) !important;
-  box-shadow: var(--connections-card-shadow) !important;
-  backdrop-filter: blur(22px) saturate(135%);
-  -webkit-backdrop-filter: blur(22px) saturate(135%);
+  box-shadow: none !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .app.theme-light.view-chat .chat-header,
@@ -6894,8 +6700,8 @@ option {
 .app.theme-dark.view-chat .message-window {
   border: 1px solid var(--chat-shell-border) !important;
   background: var(--chat-window-glass-bg) !important;
-  backdrop-filter: blur(18px) saturate(130%);
-  -webkit-backdrop-filter: blur(18px) saturate(130%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .app.theme-light.view-chat .message-bubble,
@@ -6903,9 +6709,9 @@ option {
   border: 1px solid var(--request-message-border) !important;
   color: var(--chat-other-text) !important;
   background: var(--chat-other-bg) !important;
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08) !important;
-  backdrop-filter: blur(14px) saturate(125%);
-  -webkit-backdrop-filter: blur(14px) saturate(125%);
+  box-shadow: none !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .app.theme-light.view-chat .message-bubble span,
@@ -6950,9 +6756,9 @@ option {
   border: 1px solid var(--chat-input-border) !important;
   border-radius: 12px;
   background: var(--chat-input-bg) !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
-  backdrop-filter: blur(16px) saturate(130%);
-  -webkit-backdrop-filter: blur(16px) saturate(130%);
+  box-shadow: none !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .app.theme-light.view-chat .message-compose input,
@@ -6975,8 +6781,8 @@ option {
   color: var(--chat-send-text) !important;
   background: var(--chat-send-bg) !important;
   box-shadow: none !important;
-  backdrop-filter: blur(14px) saturate(125%);
-  -webkit-backdrop-filter: blur(14px) saturate(125%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   transition:
     transform 200ms ease,
     color 200ms ease,
@@ -6995,9 +6801,9 @@ option {
 .app.theme-light.view-chat .message-compose .primary:hover:not(:disabled),
 .app.theme-dark.view-chat .message-compose .primary:hover:not(:disabled) {
   color: #ffffff !important;
-  border-color: transparent !important;
-  background: linear-gradient(135deg, #3b82f6, #fb4d6d) !important;
-  box-shadow: 0 8px 24px rgba(59, 130, 246, 0.18) !important;
+  border-color: color-mix(in srgb, var(--action-primary-hover) 60%, transparent) !important;
+  background: var(--action-primary-hover) !important;
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--action-primary) 18%, transparent) !important;
   transform: translateY(-1px);
 }
 
@@ -7256,126 +7062,6 @@ option {
 }
 
 /* Task 1 UI cleanup: shared glass surfaces and compact action groups. */
-.app.theme-light :is(
-  .flow-panel,
-  .form-shell,
-  .confirmation,
-  .empty-state,
-  .profile-panel,
-  .request-panel,
-  .match-card,
-  .discover-card,
-  .connection-row,
-  .chat-shell,
-  .thread-row,
-  .request-list-panel,
-  .request-list-section,
-  .request-list-row,
-  .progress-panel,
-  .matched-list,
-  .inline-prompt,
-  .review-card,
-  .locked-box,
-  .request-switcher-panel,
-  .filter-panel,
-  .collab-discovery-panel,
-  .auth-card
-),
-.app.theme-dark :is(
-  .flow-panel,
-  .form-shell,
-  .confirmation,
-  .empty-state,
-  .profile-panel,
-  .request-panel,
-  .match-card,
-  .discover-card,
-  .connection-row,
-  .chat-shell,
-  .thread-row,
-  .request-list-panel,
-  .request-list-section,
-  .request-list-row,
-  .progress-panel,
-  .matched-list,
-  .inline-prompt,
-  .review-card,
-  .locked-box,
-  .request-switcher-panel,
-  .filter-panel,
-  .collab-discovery-panel,
-  .auth-card
-) {
-  backdrop-filter: blur(18px) saturate(125%);
-  -webkit-backdrop-filter: blur(18px) saturate(125%);
-}
-
-.app.theme-light :is(
-  .flow-panel,
-  .form-shell,
-  .confirmation,
-  .empty-state,
-  .profile-panel,
-  .request-panel,
-  .match-card,
-  .discover-card,
-  .connection-row,
-  .chat-shell,
-  .thread-row,
-  .request-list-panel,
-  .request-list-section,
-  .request-list-row,
-  .progress-panel,
-  .matched-list,
-  .inline-prompt,
-  .review-card,
-  .locked-box,
-  .request-switcher-panel,
-  .filter-panel,
-  .collab-discovery-panel,
-  .auth-card
-) {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.54)),
-    var(--app-surface) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.88),
-    0 18px 52px rgba(16, 24, 40, 0.08) !important;
-}
-
-.app.theme-dark :is(
-  .flow-panel,
-  .form-shell,
-  .confirmation,
-  .empty-state,
-  .profile-panel,
-  .request-panel,
-  .match-card,
-  .discover-card,
-  .connection-row,
-  .chat-shell,
-  .thread-row,
-  .request-list-panel,
-  .request-list-section,
-  .request-list-row,
-  .progress-panel,
-  .matched-list,
-  .inline-prompt,
-  .review-card,
-  .locked-box,
-  .request-switcher-panel,
-  .filter-panel,
-  .collab-discovery-panel,
-  .auth-card
-) {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.035)),
-    var(--app-surface) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 20px 60px rgba(0, 0, 0, 0.26) !important;
-}
-
 .profile-actions {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -7437,149 +7123,6 @@ option {
   .connection-action-row {
     grid-template-columns: 1fr;
   }
-}
-
-/* Task 1.1: stronger layered glass surfaces. */
-.app.theme-light .topbar,
-.app.theme-dark .topbar,
-.app.theme-light :is(
-  .flow-panel,
-  .form-shell,
-  .confirmation,
-  .empty-state,
-  .profile-panel,
-  .request-panel,
-  .match-card,
-  .discover-card,
-  .connection-row,
-  .chat-shell,
-  .thread-row,
-  .request-list-panel,
-  .request-list-section,
-  .request-list-row,
-  .progress-panel,
-  .matched-list,
-  .inline-prompt,
-  .review-card,
-  .locked-box,
-  .request-switcher-panel,
-  .filter-panel,
-  .collab-discovery-panel,
-  .auth-card,
-  .class-dashboard
-),
-.app.theme-dark :is(
-  .flow-panel,
-  .form-shell,
-  .confirmation,
-  .empty-state,
-  .profile-panel,
-  .request-panel,
-  .match-card,
-  .discover-card,
-  .connection-row,
-  .chat-shell,
-  .thread-row,
-  .request-list-panel,
-  .request-list-section,
-  .request-list-row,
-  .progress-panel,
-  .matched-list,
-  .inline-prompt,
-  .review-card,
-  .locked-box,
-  .request-switcher-panel,
-  .filter-panel,
-  .collab-discovery-panel,
-  .auth-card,
-  .class-dashboard
-) {
-  backdrop-filter: blur(20px) saturate(140%);
-  -webkit-backdrop-filter: blur(20px) saturate(140%);
-}
-
-.app.theme-light .topbar {
-  background: rgba(255, 255, 255, 0.68) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    0 18px 52px rgba(37, 99, 235, 0.08) !important;
-}
-
-.app.theme-dark .topbar {
-  background: rgba(10, 35, 65, 0.58) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 20px 60px rgba(0, 0, 0, 0.28) !important;
-}
-
-.app.theme-light :is(
-  .flow-panel,
-  .form-shell,
-  .confirmation,
-  .empty-state,
-  .profile-panel,
-  .request-panel,
-  .match-card,
-  .discover-card,
-  .connection-row,
-  .chat-shell,
-  .thread-row,
-  .request-list-panel,
-  .request-list-section,
-  .request-list-row,
-  .progress-panel,
-  .matched-list,
-  .inline-prompt,
-  .review-card,
-  .locked-box,
-  .request-switcher-panel,
-  .filter-panel,
-  .collab-discovery-panel,
-  .auth-card,
-  .class-dashboard
-) {
-  border-color: rgba(37, 99, 235, 0.18) !important;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.48)),
-    rgba(255, 255, 255, 0.62) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    0 18px 52px rgba(16, 24, 40, 0.09) !important;
-}
-
-.app.theme-dark :is(
-  .flow-panel,
-  .form-shell,
-  .confirmation,
-  .empty-state,
-  .profile-panel,
-  .request-panel,
-  .match-card,
-  .discover-card,
-  .connection-row,
-  .chat-shell,
-  .thread-row,
-  .request-list-panel,
-  .request-list-section,
-  .request-list-row,
-  .progress-panel,
-  .matched-list,
-  .inline-prompt,
-  .review-card,
-  .locked-box,
-  .request-switcher-panel,
-  .filter-panel,
-  .collab-discovery-panel,
-  .auth-card,
-  .class-dashboard
-) {
-  border-color: rgba(255, 255, 255, 0.14) !important;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.025)),
-    rgba(10, 35, 65, 0.52) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 20px 60px rgba(0, 0, 0, 0.28) !important;
 }
 
 /* Class Detail dashboard: one parent, with the request on the left and the
@@ -7882,20 +7425,17 @@ option {
    without changing the underlying friend/teammate relationship. */
 .app.theme-light .discover-card .discover-connection-actions .connected-button,
 .app.theme-dark .discover-card .discover-connection-actions .connected-button {
-  border: 1px solid rgba(147, 197, 253, 0.58) !important;
-  color: #ffffff !important;
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 58%, #1e40af 100%) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.2),
-    0 12px 28px rgba(29, 78, 216, 0.28) !important;
+  border: 1px solid var(--control-selected-border) !important;
+  color: var(--brand-blue) !important;
+  background: var(--control-selected-bg) !important;
+  box-shadow: none !important;
 }
 
 .app.theme-light .discover-card .discover-connection-actions .connected-button:hover,
 .app.theme-dark .discover-card .discover-connection-actions .connected-button:hover {
-  filter: brightness(1.08) saturate(1.04);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.24),
-    0 16px 34px rgba(29, 78, 216, 0.36) !important;
+  border-color: var(--control-selected-border) !important;
+  color: var(--text-primary) !important;
+  background: var(--action-secondary-hover) !important;
 }
 
 /* Profile required-field cues and the shared match-score treatment. */
@@ -7907,7 +7447,7 @@ option {
 
 .required-mark {
   display: inline-block;
-  color: var(--app-red, #f43f5e) !important;
+  color: var(--app-red, #ec3138) !important;
   font-size: 1em;
   font-weight: 900;
   line-height: 1;
@@ -8019,8 +7559,8 @@ option {
 .searchable-combobox-option:hover,
 .searchable-combobox-option:focus-visible,
 .searchable-combobox-option.highlighted {
-  color: #fff;
-  background: linear-gradient(135deg, var(--app-blue), var(--app-red));
+  color: var(--text-primary);
+  background: var(--control-selected-bg);
   outline: none;
 }
 
@@ -8066,28 +7606,6 @@ option {
   .custom-academic-input {
     flex-direction: column;
   }
-}
-
-.app.theme-dark .searchable-combobox-menu {
-  border-color: rgba(255, 255, 255, 0.16);
-  background:
-    linear-gradient(180deg, rgba(30, 54, 82, 0.96), rgba(13, 30, 52, 0.94));
-  box-shadow:
-    0 18px 38px rgba(4, 12, 24, 0.42),
-    inset 0 1px 0 rgba(255, 255, 255, 0.07);
-  backdrop-filter: blur(18px) saturate(135%);
-  -webkit-backdrop-filter: blur(18px) saturate(135%);
-}
-
-.app.theme-light .searchable-combobox-menu {
-  border-color: rgba(148, 163, 184, 0.38);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 252, 0.88));
-  box-shadow:
-    0 18px 36px rgba(71, 85, 105, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(18px) saturate(130%);
-  -webkit-backdrop-filter: blur(18px) saturate(130%);
 }
 
 @media (max-width: 760px) {
@@ -8172,5 +7690,2737 @@ option {
 @media (max-width: 640px) {
   .class-directory-search {
     max-width: none;
+  }
+}
+
+/* Landing visual polish: preserve the original composition while tightening its system. */
+.app.landing-mode {
+  --landing-eyebrow-size: 0.75rem;
+  --landing-title-size: clamp(3rem, 7.2vw, 5.8rem);
+  --landing-tagline-size: clamp(1.3rem, 2.45vw, 2.1rem);
+  --landing-body-size: 1rem;
+  --landing-helper-size: 0.84rem;
+  --landing-control-size: 0.96rem;
+}
+
+.app.landing-mode .topbar {
+  gap: 24px;
+  border-radius: 14px;
+  box-shadow: 0 12px 30px color-mix(in srgb, var(--app-text) 8%, transparent) !important;
+}
+
+.app.landing-mode .logo-button {
+  font-size: clamp(1.45rem, 2.3vw, 2rem);
+  line-height: 1.1;
+}
+
+.app.landing-mode .top-actions {
+  gap: 12px;
+}
+
+.app.landing-mode .landing-home {
+  gap: 0;
+  padding-top: clamp(52px, 7vw, 76px);
+  padding-bottom: 48px;
+}
+
+.app.landing-mode .landing-hero {
+  padding: clamp(28px, 5vw, 56px) 0 clamp(40px, 6vw, 64px);
+}
+
+.app.landing-mode .landing-eyebrow {
+  margin-bottom: 14px;
+  font-size: var(--landing-eyebrow-size);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  line-height: 1.35;
+}
+
+.app.landing-mode .landing-wordmark {
+  font-size: var(--landing-title-size);
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.app.landing-mode .landing-tagline {
+  max-width: 680px;
+  margin-top: 20px;
+  font-size: var(--landing-tagline-size);
+  font-weight: 720;
+  letter-spacing: -0.018em;
+  line-height: 1.2;
+}
+
+.app.landing-mode .landing-role-grid {
+  width: min(760px, 100%);
+  gap: 14px;
+  margin: 32px auto 0;
+}
+
+.app.landing-mode .landing-role-card {
+  min-height: 132px;
+  padding: 20px;
+  border-radius: 12px;
+  border-color: color-mix(in srgb, var(--app-border) 92%, transparent) !important;
+  background: color-mix(in srgb, var(--app-surface) 88%, transparent) !important;
+  box-shadow: 0 12px 30px color-mix(in srgb, var(--app-text) 9%, transparent) !important;
+}
+
+.app.landing-mode .landing-role-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 34px color-mix(in srgb, var(--app-text) 12%, transparent) !important;
+}
+
+.app.landing-mode .landing-role-card.selected {
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--app-blue) 15%, transparent),
+    0 14px 34px color-mix(in srgb, var(--app-blue) 12%, transparent) !important;
+}
+
+.app.landing-mode .landing-role-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+}
+
+.app.landing-mode .landing-role-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.app.landing-mode .landing-role-copy strong {
+  font-size: 1.12rem;
+  font-weight: 820;
+  line-height: 1.25;
+}
+
+.app.landing-mode .landing-role-card em {
+  margin-top: 8px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.app.landing-mode .landing-auth-card {
+  width: min(760px, 100%);
+  gap: 12px;
+  margin: 22px auto 0;
+  padding: 18px 0 0;
+}
+
+.app.landing-mode .landing-google-button {
+  width: min(380px, 100%);
+  min-height: 52px;
+  border-radius: 12px;
+  font-size: var(--landing-control-size);
+  font-weight: 800;
+  box-shadow: 0 12px 26px color-mix(in srgb, var(--app-text) 12%, transparent) !important;
+}
+
+.app.landing-mode .landing-demo-link {
+  min-height: 36px;
+  padding: 6px 10px;
+  font-size: var(--landing-helper-size);
+  font-weight: 750;
+}
+
+.app.landing-mode .landing-auth-card .note,
+.app.landing-mode .landing-auth-card .field-helper {
+  max-width: 520px;
+  font-size: var(--landing-helper-size);
+  line-height: 1.45;
+}
+
+.app.landing-mode .landing-feature-row {
+  width: 100%;
+  gap: 0;
+  margin-top: clamp(40px, 6vw, 56px);
+  padding-top: 16px;
+}
+
+.app.landing-mode .landing-feature {
+  min-height: 78px;
+  gap: 10px;
+  padding: 10px 18px;
+  border: 0 !important;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.app.landing-mode .landing-feature:first-child {
+  padding-left: 0;
+}
+
+.app.landing-mode .landing-feature span {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border-radius: 10px;
+}
+
+.app.landing-mode .landing-feature strong {
+  font-size: 0.74rem;
+  font-weight: 820;
+  letter-spacing: 0.045em;
+  line-height: 1.35;
+}
+
+@media (max-width: 720px) {
+  .app.landing-mode .landing-home {
+    padding-top: 44px;
+  }
+
+  .app.landing-mode .landing-hero {
+    padding-top: 24px;
+  }
+
+  .app.landing-mode .landing-wordmark {
+    font-size: clamp(2.6rem, 13vw, 4.2rem);
+    line-height: 1.05;
+  }
+
+  .app.landing-mode .landing-tagline {
+    margin-top: 16px;
+    font-size: clamp(1.15rem, 5vw, 1.5rem);
+  }
+
+  .app.landing-mode .landing-role-grid {
+    gap: 10px;
+    margin-top: 26px;
+  }
+
+  .app.landing-mode .landing-role-card {
+    min-height: 112px;
+    padding: 16px;
+  }
+
+  .app.landing-mode .landing-feature-row {
+    margin-top: 36px;
+  }
+}
+
+@media (max-width: 480px) {
+  .app.landing-mode .topbar,
+  .app.landing-mode .home-grid {
+    width: min(100% - 40px, 1472px);
+  }
+
+  .app.landing-mode .topbar {
+    gap: 12px;
+  }
+
+  .app.landing-mode .landing-role-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .app.landing-mode .landing-role-card {
+    min-height: 88px;
+  }
+
+  .app.landing-mode .landing-feature-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 0;
+  }
+
+  .app.landing-mode .landing-feature,
+  .app.landing-mode .landing-feature:first-child {
+    min-height: 64px;
+    padding: 8px 10px;
+  }
+
+  .app.landing-mode .landing-feature:nth-child(odd) {
+    padding-left: 0;
+  }
+}
+
+/* Editorial system: quieter hierarchy and shared geometry across the app. */
+/* Landing keeps its original composition; only the hierarchy and surfaces are refined. */
+.app.landing-mode {
+  --landing-title-size: clamp(3.25rem, 7.1vw, 5.4rem);
+  --landing-tagline-size: clamp(1.5rem, 2.3vw, 2.125rem);
+  --landing-eyebrow-size: 0.8rem;
+  --landing-body-size: var(--type-body);
+  --landing-helper-size: var(--type-small);
+  --landing-control-size: clamp(1rem, 1.2vw, 1.0625rem);
+  --landing-shadow: var(--app-shadow-subtle);
+}
+
+.app.landing-mode .landing-aurora {
+  opacity: 0.2;
+  filter: blur(30px);
+  background:
+    linear-gradient(95deg, color-mix(in srgb, var(--landing-blue) 24%, transparent), transparent 48%, color-mix(in srgb, var(--landing-red) 21%, transparent)),
+    radial-gradient(circle at 30% 40%, color-mix(in srgb, var(--landing-blue) 20%, transparent), transparent 44%),
+    radial-gradient(circle at 74% 54%, color-mix(in srgb, var(--landing-red) 18%, transparent), transparent 46%);
+  animation-duration: 14s;
+}
+
+.app.landing-mode .landing-glow {
+  opacity: 0.26;
+  filter: blur(24px);
+}
+
+.app.landing-mode .landing-cursor-glow {
+  background: radial-gradient(
+    circle at var(--landing-cursor-x) var(--landing-cursor-y),
+    color-mix(in srgb, var(--landing-blue) 12%, transparent),
+    transparent 22rem
+  );
+}
+
+.app.landing-mode .landing-hero {
+  gap: 0;
+  padding: clamp(24px, 4vw, 48px) 0 clamp(40px, 6vw, 64px) !important;
+}
+
+.app.landing-mode .landing-eyebrow {
+  margin-bottom: 18px;
+  font-size: var(--landing-eyebrow-size);
+  letter-spacing: 0.05em;
+  line-height: 1.4;
+}
+
+.app.landing-mode .landing-wordmark {
+  font-size: var(--landing-title-size);
+  font-weight: 900;
+  letter-spacing: -0.035em;
+  line-height: 1.02;
+}
+
+.app.landing-mode .landing-tagline {
+  max-width: 680px;
+  margin-top: 22px;
+  font-size: var(--landing-tagline-size);
+  font-weight: 720;
+  line-height: 1.2;
+}
+
+.app.landing-mode .landing-role-grid {
+  width: min(760px, 100%);
+  gap: var(--space-2);
+  margin-top: 36px;
+}
+
+.app.landing-mode .landing-role-card {
+  min-height: 136px;
+  padding: 26px;
+  border-radius: var(--app-radius-surface);
+  background: color-mix(in srgb, var(--app-surface) 76%, transparent) !important;
+  box-shadow: var(--landing-shadow) !important;
+}
+
+.app.landing-mode .landing-role-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--app-text) 10%, transparent) !important;
+}
+
+.app.landing-mode .landing-role-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--app-radius-control);
+}
+
+.app.landing-mode .landing-role-icon svg {
+  width: 28px;
+  height: 28px;
+}
+
+.app.landing-mode .landing-role-copy strong {
+  font-size: 1.28rem;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.app.landing-mode .landing-auth-card {
+  width: min(760px, 100%);
+  gap: var(--space-2);
+  margin-top: 24px;
+  padding-top: var(--space-3);
+}
+
+.app.landing-mode .landing-google-button {
+  min-height: 56px;
+  padding-inline: 20px;
+  border-radius: var(--app-radius-control);
+  font-size: var(--landing-control-size);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--app-text) 10%, transparent) !important;
+}
+
+.app.landing-mode .landing-google-button svg {
+  width: 20px;
+  height: 20px;
+}
+
+.app.landing-mode .landing-auth-card .note,
+.app.landing-mode .landing-auth-card .field-helper {
+  font-size: var(--landing-helper-size);
+  line-height: 1.5;
+}
+
+.app.landing-mode .landing-feature-row {
+  width: 100%;
+  gap: var(--space-3);
+  margin-top: clamp(56px, 6vw, 72px);
+  padding-top: var(--space-2);
+}
+
+.app.landing-mode .landing-feature {
+  min-height: 82px;
+  gap: 12px;
+  padding: var(--space-2) var(--space-3);
+  border: 0 !important;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.app.landing-mode .landing-feature span {
+  width: 42px;
+  height: 42px;
+  border-radius: var(--app-radius-control);
+}
+
+.app.landing-mode .landing-feature svg {
+  width: 28px;
+  height: 28px;
+}
+
+.app.landing-mode .landing-feature strong {
+  font-size: 0.8125rem;
+  font-weight: 800;
+  letter-spacing: 0.045em;
+  line-height: 1.4;
+}
+
+/* Landing-only, non-blocking scroll reveals. */
+.app.landing-mode.landing-reveal-ready .landing-reveal:not(.is-visible) {
+  opacity: 0;
+  transform: translateY(20px);
+  transition:
+    opacity 560ms ease-out,
+    transform 680ms cubic-bezier(0.22, 0.68, 0, 1);
+  transition-delay: var(--landing-reveal-delay, 0ms);
+}
+
+.app.landing-mode .landing-reveal.is-visible {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 560ms ease-out,
+    transform 680ms cubic-bezier(0.22, 0.68, 0, 1);
+  transition-delay: var(--landing-reveal-delay, 0ms);
+}
+
+@media (max-width: 760px) {
+  .app.landing-mode .landing-wordmark {
+    font-size: clamp(2.5rem, 12.5vw, 4.35rem);
+    line-height: 1.08;
+    white-space: normal;
+  }
+
+  .app.landing-mode {
+    --landing-tagline-size: clamp(1.2rem, 5vw, 1.55rem);
+  }
+
+  .app.landing-mode .landing-role-card {
+    min-height: 116px;
+    padding: 20px;
+  }
+
+  .app.landing-mode .landing-feature-row {
+    gap: var(--space-2);
+    margin-top: 48px;
+  }
+}
+
+@media (max-width: 420px) {
+  .app.landing-mode .landing-feature {
+    min-height: 92px;
+    padding-inline: var(--space-2);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app.landing-mode .landing-reveal,
+  .app.landing-mode .landing-reveal.is-visible,
+  .app.landing-mode.landing-reveal-ready .landing-reveal:not(.is-visible) {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+}
+
+/* Landing composition refinement: centered, editorial, and intentionally light. */
+.app.landing-mode .landing-hero {
+  width: 100%;
+  max-width: 1080px;
+  margin-inline: auto;
+  justify-items: center;
+  text-align: center;
+}
+
+.app.landing-mode .landing-wordmark {
+  max-width: 100%;
+  text-wrap: balance;
+}
+
+.app.landing-mode .landing-tagline {
+  max-width: 620px;
+  letter-spacing: -0.018em;
+  text-wrap: balance;
+}
+
+.app.landing-mode .landing-role-grid {
+  width: min(720px, 100%);
+}
+
+.app.landing-mode .landing-auth-card {
+  width: min(540px, 100%);
+}
+
+.app.landing-mode .landing-feature-row {
+  width: min(1160px, 100%);
+  margin-inline: auto;
+}
+
+.app.landing-mode .landing-wordmark.landing-reveal {
+  filter: blur(6px);
+  transition:
+    opacity 650ms ease-out,
+    transform 720ms cubic-bezier(0.22, 0.68, 0, 1),
+    filter 720ms ease-out;
+}
+
+.app.landing-mode .landing-wordmark.landing-reveal.is-visible {
+  filter: blur(0);
+  transition:
+    opacity 650ms ease-out,
+    transform 720ms cubic-bezier(0.22, 0.68, 0, 1),
+    filter 720ms ease-out;
+}
+
+@media (max-width: 760px) {
+  .app.landing-mode .landing-hero {
+    max-width: 100%;
+  }
+
+  .app.landing-mode .landing-tagline {
+    max-width: 34rem;
+  }
+
+  .app.landing-mode .landing-feature-row {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app.landing-mode .landing-wordmark.landing-reveal,
+  .app.landing-mode .landing-wordmark.landing-reveal.is-visible {
+    filter: none !important;
+  }
+}
+
+/* Landing atmosphere: a quiet Teamergency signature behind the approved hero. */
+.app.theme-light.landing-mode {
+  background:
+    radial-gradient(circle at 10% 18%, color-mix(in srgb, var(--app-blue) 12%, transparent), transparent 30rem),
+    radial-gradient(circle at 90% 20%, color-mix(in srgb, var(--app-red) 10%, transparent), transparent 30rem),
+    radial-gradient(ellipse at 50% 18%, color-mix(in srgb, var(--app-blue) 5%, transparent), transparent 34rem),
+    linear-gradient(180deg, #ffffff 0%, var(--app-bg) 44%, #f4f7fb 100%) !important;
+}
+
+.app.theme-dark.landing-mode {
+  background:
+    radial-gradient(circle at 10% 18%, color-mix(in srgb, var(--app-blue) 18%, transparent), transparent 32rem),
+    radial-gradient(circle at 90% 18%, color-mix(in srgb, var(--app-red) 13%, transparent), transparent 30rem),
+    radial-gradient(ellipse at 50% 20%, color-mix(in srgb, var(--app-blue) 8%, transparent), transparent 36rem),
+    linear-gradient(180deg, #0b1b2f 0%, #102742 48%, #0d1e34 100%) !important;
+}
+
+.app.landing-mode .landing-home::before,
+.app.landing-mode .landing-home::after {
+  position: absolute;
+  z-index: 1;
+  display: block;
+  width: min(900px, 72vw);
+  height: min(360px, 31vw);
+  border: 1px solid color-mix(in srgb, var(--landing-blue) 22%, transparent);
+  border-radius: 50%;
+  content: '';
+  pointer-events: none;
+  opacity: 0.42;
+}
+
+.app.landing-mode .landing-home::before {
+  top: 28%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-9deg);
+  box-shadow: inset 0 0 26px color-mix(in srgb, var(--landing-blue) 9%, transparent);
+}
+
+.app.landing-mode .landing-home::after {
+  top: 34%;
+  left: 52%;
+  width: min(820px, 66vw);
+  height: min(300px, 26vw);
+  border-color: color-mix(in srgb, var(--landing-red) 18%, transparent);
+  transform: translate(-50%, -50%) rotate(8deg);
+  box-shadow: inset 0 0 24px color-mix(in srgb, var(--landing-red) 7%, transparent);
+  opacity: 0.34;
+}
+
+.app.landing-mode .landing-aurora {
+  opacity: 0.13;
+  filter: blur(28px);
+}
+
+.app.landing-mode .landing-glow {
+  opacity: 0.18;
+  filter: blur(22px);
+}
+
+.app.landing-mode .landing-cursor-glow {
+  opacity: 0.5;
+}
+
+.app.landing-mode .topbar {
+  border-color: color-mix(in srgb, var(--app-border) 84%, var(--app-blue) 16%) !important;
+  background: color-mix(in srgb, var(--app-surface) 74%, transparent) !important;
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--app-text) 7%, transparent) !important;
+  backdrop-filter: blur(14px) saturate(120%);
+  -webkit-backdrop-filter: blur(14px) saturate(120%);
+}
+
+.app.landing-mode .landing-role-card {
+  border-color: color-mix(in srgb, var(--app-border) 82%, var(--app-blue) 18%) !important;
+  background: color-mix(in srgb, var(--app-surface) 86%, transparent) !important;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--app-text) 7%, transparent) !important;
+}
+
+.app.landing-mode .landing-role-card:hover {
+  transform: none;
+  border-color: color-mix(in srgb, var(--app-border-strong) 70%, var(--app-blue) 30%) !important;
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--app-text) 9%, transparent) !important;
+}
+
+.app.landing-mode .landing-role-card.student-role.selected {
+  border-color: color-mix(in srgb, var(--app-blue) 72%, var(--app-border) 28%) !important;
+  background: color-mix(in srgb, var(--app-blue-soft) 72%, var(--app-surface) 28%) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--app-blue) 16%, transparent) !important;
+}
+
+.app.landing-mode .landing-role-card.lecturer-role.selected {
+  border-color: color-mix(in srgb, var(--app-red) 72%, var(--app-border) 28%) !important;
+  background: color-mix(in srgb, var(--app-red-soft) 72%, var(--app-surface) 28%) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--app-red) 14%, transparent) !important;
+}
+
+.app.landing-mode .student-role .landing-role-icon {
+  color: var(--app-blue);
+  background: color-mix(in srgb, var(--app-blue-soft) 78%, transparent);
+}
+
+.app.landing-mode .lecturer-role .landing-role-icon {
+  color: var(--app-red);
+  background: color-mix(in srgb, var(--app-red-soft) 78%, transparent);
+}
+
+.app.landing-mode .landing-google-button:not(:disabled) {
+  border-color: color-mix(in srgb, var(--app-blue) 42%, transparent) !important;
+  background: linear-gradient(
+    135deg,
+    var(--app-blue) 0%,
+    color-mix(in srgb, var(--app-blue) 82%, var(--app-red) 18%) 100%
+  ) !important;
+  box-shadow: 0 12px 26px color-mix(in srgb, var(--app-blue) 18%, transparent) !important;
+}
+
+.app.landing-mode .landing-google-button:not(:disabled):hover {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--app-blue) 88%, white 12%) 0%,
+    color-mix(in srgb, var(--app-blue) 70%, var(--app-red) 30%) 100%
+  ) !important;
+  box-shadow: 0 14px 30px color-mix(in srgb, var(--app-blue) 24%, transparent) !important;
+}
+
+.app.landing-mode .landing-feature.blue span,
+.app.landing-mode .landing-feature.navy span {
+  color: var(--app-blue);
+  background: color-mix(in srgb, var(--app-blue-soft) 80%, transparent);
+}
+
+.app.landing-mode .landing-feature.pink span,
+.app.landing-mode .landing-feature.red span {
+  color: var(--app-red);
+  background: color-mix(in srgb, var(--app-red-soft) 80%, transparent);
+}
+
+@media (max-width: 760px) {
+  .app.landing-mode .landing-home::before,
+  .app.landing-mode .landing-home::after {
+    width: 92vw;
+    height: 240px;
+    opacity: 0.28;
+  }
+
+  .app.landing-mode .landing-home::before {
+    top: 22%;
+  }
+
+  .app.landing-mode .landing-home::after {
+    top: 28%;
+    width: 84vw;
+    height: 205px;
+  }
+}
+
+/* Landing hero text sequence: masked title, then the supporting statement. */
+.app.landing-mode .landing-wordmark {
+  overflow: hidden !important;
+}
+
+.app.landing-mode .landing-wordmark-reveal {
+  display: inline-flex;
+  align-items: baseline;
+  transform: translateY(0);
+}
+
+.app.landing-mode .landing-tagline-reveal {
+  display: inline-block;
+  white-space: inherit;
+}
+
+.app.landing-mode.landing-reveal-ready .landing-eyebrow.landing-reveal:not(.is-visible) {
+  opacity: 0;
+  transform: translateY(12px);
+  transition:
+    opacity 520ms ease-out,
+    transform 560ms cubic-bezier(0.22, 0.68, 0, 1);
+  transition-delay: var(--landing-reveal-delay, 90ms);
+}
+
+.app.landing-mode.landing-reveal-ready .landing-wordmark.landing-reveal:not(.is-visible) {
+  opacity: 1;
+  transform: none;
+  filter: none;
+  transition: none;
+}
+
+.app.landing-mode.landing-reveal-ready .landing-wordmark.landing-reveal:not(.is-visible) .landing-wordmark-reveal {
+  opacity: 0;
+  transform: translateY(105%);
+  filter: blur(6px);
+  transition:
+    opacity 760ms ease-out,
+    transform 820ms cubic-bezier(0.22, 0.68, 0, 1),
+    filter 820ms ease-out;
+  transition-delay: var(--landing-reveal-delay, 250ms);
+}
+
+.app.landing-mode .landing-wordmark.landing-reveal.is-visible {
+  opacity: 1;
+  transform: none;
+  filter: none;
+  transition: none;
+}
+
+.app.landing-mode .landing-wordmark.landing-reveal.is-visible .landing-wordmark-reveal {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+  transition:
+    opacity 760ms ease-out,
+    transform 820ms cubic-bezier(0.22, 0.68, 0, 1),
+    filter 820ms ease-out;
+  transition-delay: var(--landing-reveal-delay, 250ms);
+}
+
+.app.landing-mode.landing-reveal-ready .landing-tagline.landing-reveal:not(.is-visible) {
+  opacity: 1;
+  transform: none;
+  filter: none;
+  transition: none;
+}
+
+.app.landing-mode.landing-reveal-ready .landing-tagline.landing-reveal:not(.is-visible) .landing-tagline-reveal {
+  opacity: 0;
+  transform: translateY(22px);
+  filter: blur(4px);
+  transition:
+    opacity 600ms ease-out,
+    transform 650ms cubic-bezier(0.22, 0.68, 0, 1),
+    filter 650ms ease-out;
+  transition-delay: var(--landing-reveal-delay, 430ms);
+}
+
+.app.landing-mode .landing-tagline.landing-reveal.is-visible {
+  opacity: 1;
+  transform: none;
+  filter: none;
+  transition: none;
+}
+
+.app.landing-mode .landing-tagline.landing-reveal.is-visible .landing-tagline-reveal {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+  transition:
+    opacity 600ms ease-out,
+    transform 650ms cubic-bezier(0.22, 0.68, 0, 1),
+    filter 650ms ease-out;
+  transition-delay: var(--landing-reveal-delay, 430ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app.landing-mode .landing-wordmark-reveal,
+  .app.landing-mode .landing-tagline-reveal {
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+    transition: none !important;
+  }
+}
+
+/* Landing hero artwork: three crisp Teamergency lens forms, kept behind text. */
+.app.theme-light.landing-mode {
+  --landing-canvas: #f7f8fc;
+  --landing-ring-blue: color-mix(in srgb, var(--app-blue) 62%, transparent);
+  --landing-ring-red: color-mix(in srgb, var(--app-red) 54%, transparent);
+  --landing-ring-highlight: rgba(255, 255, 255, 0.72);
+  background:
+    radial-gradient(circle at 18% 22%, color-mix(in srgb, var(--app-blue) 11%, transparent), transparent 28rem),
+    radial-gradient(circle at 84% 28%, color-mix(in srgb, var(--app-red) 9%, transparent), transparent 28rem),
+    var(--landing-canvas) !important;
+}
+
+.app.theme-dark.landing-mode {
+  --landing-canvas: #050506;
+  --landing-ring-blue: color-mix(in srgb, var(--app-blue) 72%, transparent);
+  --landing-ring-red: color-mix(in srgb, var(--app-red) 64%, transparent);
+  --landing-ring-highlight: rgba(255, 255, 255, 0.42);
+  background:
+    radial-gradient(circle at 18% 22%, color-mix(in srgb, var(--app-blue) 16%, transparent), transparent 27rem),
+    radial-gradient(circle at 84% 30%, color-mix(in srgb, var(--app-red) 12%, transparent), transparent 27rem),
+    var(--landing-canvas) !important;
+}
+
+.app.landing-mode .landing-home::before,
+.app.landing-mode .landing-home::after {
+  display: none;
+}
+
+.app.landing-mode .landing-ring-field {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.app.landing-mode .landing-ring {
+  position: absolute;
+  display: block;
+  border-radius: 50%;
+  background:
+    conic-gradient(
+      from 210deg,
+      var(--landing-ring-blue) 0deg,
+      transparent 78deg,
+      var(--landing-ring-highlight) 154deg,
+      transparent 214deg,
+      var(--landing-ring-red) 286deg,
+      var(--landing-ring-blue) 360deg
+    );
+  padding: 1.5px;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  will-change: opacity, transform;
+}
+
+.app.landing-mode .landing-ring-primary {
+  top: 27%;
+  left: 50%;
+  width: min(980px, 80vw);
+  height: min(460px, 42vw);
+  transform: translate(-50%, -50%) rotate(-10deg) scale(0.98);
+  animation: landing-ring-primary-in 1050ms 80ms cubic-bezier(0.22, 0.68, 0, 1) forwards;
+}
+
+.app.landing-mode .landing-ring-secondary {
+  top: 17%;
+  left: 31%;
+  width: min(430px, 36vw);
+  height: min(190px, 17vw);
+  opacity: 0;
+  transform: translate(-50%, -50%) rotate(15deg) scale(0.98);
+  animation: landing-ring-secondary-in 950ms 160ms cubic-bezier(0.22, 0.68, 0, 1) forwards;
+}
+
+.app.landing-mode .landing-ring-tertiary {
+  top: 34%;
+  left: 68%;
+  width: min(560px, 46vw);
+  height: min(260px, 24vw);
+  transform: translate(-50%, -50%) rotate(12deg) scale(0.98);
+  animation: landing-ring-tertiary-in 1000ms 220ms cubic-bezier(0.22, 0.68, 0, 1) forwards;
+}
+
+@keyframes landing-ring-primary-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(-10deg) scale(0.98);
+  }
+
+  to {
+    opacity: 0.56;
+    transform: translate(-50%, -50%) rotate(-10deg) scale(1);
+  }
+}
+
+@keyframes landing-ring-secondary-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(15deg) scale(0.98);
+  }
+
+  to {
+    opacity: 0.3;
+    transform: translate(-50%, -50%) rotate(15deg) scale(1);
+  }
+}
+
+@keyframes landing-ring-tertiary-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(12deg) scale(0.98);
+  }
+
+  to {
+    opacity: 0.38;
+    transform: translate(-50%, -50%) rotate(12deg) scale(1);
+  }
+}
+
+.app.theme-dark.landing-mode .topbar {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  background: rgba(5, 5, 6, 0.72) !important;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.24) !important;
+}
+
+.app.theme-light.landing-mode .topbar {
+  border-color: rgba(39, 85, 192, 0.14) !important;
+  background: rgba(247, 248, 252, 0.78) !important;
+  box-shadow: 0 10px 28px rgba(39, 85, 192, 0.07) !important;
+}
+
+.app.theme-dark.landing-mode .landing-role-card {
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  background: rgba(12, 12, 16, 0.76) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2) !important;
+}
+
+@media (max-width: 760px) {
+  .app.landing-mode .landing-ring-primary {
+    top: 24%;
+    width: 96vw;
+    height: 250px;
+  }
+
+  .app.landing-mode .landing-ring-secondary {
+    top: 16%;
+    left: 24%;
+    width: 48vw;
+    height: 150px;
+  }
+
+  .app.landing-mode .landing-ring-tertiary {
+    top: 31%;
+    left: 76%;
+    width: 58vw;
+    height: 180px;
+  }
+}
+
+@media (max-width: 520px) {
+  .app.landing-mode .landing-ring-tertiary {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app.landing-mode .landing-ring {
+    animation: none !important;
+    opacity: 0.56;
+    transform: translate(-50%, -50%) rotate(-10deg) scale(1);
+  }
+
+  .app.landing-mode .landing-ring-secondary {
+    opacity: 0.3;
+    transform: translate(-50%, -50%) rotate(15deg) scale(1);
+  }
+
+  .app.landing-mode .landing-ring-tertiary {
+    opacity: 0.38;
+    transform: translate(-50%, -50%) rotate(12deg) scale(1);
+  }
+}
+
+/* Global Teamergency visual system for task-focused application pages. */
+.app.theme-light,
+.app.theme-dark {
+  --page-max-width: 1400px;
+  --brand-blue: #2755c0;
+  --brand-red: #ec3138;
+  --app-blue: var(--brand-blue);
+  --app-red: var(--brand-red);
+  --app-bg-secondary: var(--app-bg-soft);
+  --surface-primary: var(--app-surface);
+  --surface-secondary: var(--app-surface-2);
+  --surface-elevated: var(--app-surface-3);
+  --border-subtle: var(--app-border);
+  --border-strong: var(--app-border-strong);
+  --text-primary: var(--app-text);
+  --text-secondary: var(--app-text-soft);
+  --text-muted: var(--app-muted);
+  --control-bg: var(--app-input);
+  --control-hover: var(--app-surface-2);
+  --control-border: var(--app-border);
+  --selected-blue-bg: var(--app-blue-soft);
+  --selected-blue-border: var(--app-blue);
+  --selected-red-bg: var(--app-red-soft);
+  --selected-red-border: var(--app-red);
+  --nav-bg: var(--app-nav-surface);
+  --nav-border: var(--app-nav-border);
+  --type-caption: 12px;
+  --type-small: 15px;
+  --type-body: 16px;
+  --type-card: 20px;
+  --type-subheading: 32px;
+  --type-section: clamp(36px, 4vw, 46px);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --space-4: 20px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 80px;
+  --space-10: 96px;
+  --action-primary: var(--brand-blue);
+  --action-primary-hover: color-mix(in srgb, var(--brand-blue) 88%, white 12%);
+  --action-primary-pressed: color-mix(in srgb, var(--brand-blue) 82%, black 18%);
+  --action-secondary-bg: var(--surface-secondary);
+  --action-secondary-border: var(--control-border);
+  --action-secondary-hover: var(--control-hover);
+  --action-danger: var(--brand-red);
+  --action-danger-hover: color-mix(in srgb, var(--brand-red) 88%, white 12%);
+  --nav-active-bg: color-mix(in srgb, var(--brand-blue) 22%, transparent);
+  --nav-active-border: color-mix(in srgb, var(--brand-blue) 58%, transparent);
+  --nav-active-text: var(--text-primary);
+  --control-selected-bg: var(--selected-blue-bg);
+  --control-selected-border: var(--selected-blue-border);
+  --weight-body: 400;
+  --weight-label: 500;
+  --weight-control: 600;
+  --weight-card: 600;
+  --weight-heading: 650;
+  --app-page-width: min(var(--page-max-width), calc(100% - 112px));
+  --app-page-padding: clamp(20px, 3vw, 48px);
+  --app-control-height: 42px;
+  --app-radius-control: 8px;
+  --app-radius-surface: 12px;
+  --app-radius-large: 16px;
+  --app-nav-blur: blur(14px) saturate(120%);
+  --app-green: #16a34a;
+  --app-green-soft: #ecfdf3;
+  --app-yellow: #b7791f;
+  --app-yellow-soft: #fffaeb;
+  --app-shadow: var(--app-shadow-subtle);
+  --app-shadow-subtle: 0 10px 28px color-mix(in srgb, var(--app-text) 7%, transparent);
+  --app-shadow-elevated: 0 16px 38px color-mix(in srgb, var(--app-text) 10%, transparent);
+}
+
+.app.theme-light:not(.landing-mode) {
+  --app-bg: #f7f8fc;
+  --app-bg-soft: #eef2f8;
+  --app-surface: #ffffff;
+  --app-surface-2: #f5f7fb;
+  --app-surface-3: #ffffff;
+  --app-text: #101828;
+  --app-text-soft: #344054;
+  --app-muted: #667085;
+  --app-border: rgba(39, 85, 192, 0.14);
+  --app-border-strong: rgba(39, 85, 192, 0.32);
+  --app-blue-soft: rgba(39, 85, 192, 0.09);
+  --app-red-soft: rgba(236, 49, 56, 0.09);
+  --app-input: #ffffff;
+  --app-nav-surface: rgba(255, 255, 255, 0.82);
+  --app-nav-border: rgba(39, 85, 192, 0.14);
+  --app-nav-shadow: 0 10px 28px rgba(16, 24, 40, 0.06);
+  background:
+    radial-gradient(circle at 10% 16%, rgba(39, 85, 192, 0.06), transparent 28rem),
+    radial-gradient(circle at 90% 18%, rgba(236, 49, 56, 0.05), transparent 28rem),
+    var(--app-bg) !important;
+}
+
+.app.theme-dark:not(.landing-mode) {
+  --app-bg: #050506;
+  --app-bg-soft: #0b0b10;
+  --app-surface: #101014;
+  --app-surface-2: #16161c;
+  --app-surface-3: #1c1c23;
+  --app-text: #f7f8fc;
+  --app-text-soft: #d7d9e2;
+  --app-muted: #a4a6b2;
+  --app-border: rgba(255, 255, 255, 0.11);
+  --app-border-strong: rgba(39, 85, 192, 0.62);
+  --app-blue-soft: rgba(39, 85, 192, 0.2);
+  --app-red-soft: rgba(236, 49, 56, 0.16);
+  --app-input: #0d0d12;
+  --app-nav-surface: rgba(5, 5, 6, 0.78);
+  --app-nav-border: rgba(255, 255, 255, 0.1);
+  --app-nav-shadow: 0 14px 36px rgba(0, 0, 0, 0.22);
+  --app-green: #44d782;
+  --app-green-soft: rgba(68, 215, 130, 0.12);
+  --app-yellow: #ffd166;
+  --app-yellow-soft: rgba(255, 209, 102, 0.12);
+  background:
+    radial-gradient(circle at 12% 18%, rgba(39, 85, 192, 0.09), transparent 30rem),
+    radial-gradient(circle at 88% 22%, rgba(236, 49, 56, 0.06), transparent 28rem),
+    var(--app-bg) !important;
+}
+
+/* Shared internal-page navigation geometry. Landing keeps its approved width. */
+.app.theme-light:not(.landing-mode) .topbar,
+.app.theme-dark:not(.landing-mode) .topbar {
+  width: var(--app-page-width);
+  min-height: 68px;
+  margin: 16px auto 0;
+  padding: 12px 18px;
+  gap: 16px;
+  border: 1px solid var(--nav-border) !important;
+  border-radius: var(--app-radius-surface);
+  background: var(--nav-bg) !important;
+  box-shadow: var(--app-nav-shadow) !important;
+  backdrop-filter: blur(14px) saturate(120%);
+  -webkit-backdrop-filter: blur(14px) saturate(120%);
+}
+
+.app.theme-light:not(.landing-mode) .logo-button,
+.app.theme-dark:not(.landing-mode) .logo-button {
+  min-height: var(--app-control-height);
+  color: var(--text-primary) !important;
+  font-size: clamp(1.35rem, 2.2vw, 1.8rem);
+  line-height: 1.1;
+}
+
+.app.theme-light:not(.landing-mode) .top-actions,
+.app.theme-dark:not(.landing-mode) .top-actions {
+  gap: 10px;
+}
+
+.app.theme-light:not(.landing-mode) .top-actions .ghost,
+.app.theme-dark:not(.landing-mode) .top-actions .ghost,
+.app.theme-light:not(.landing-mode) .language-switch,
+.app.theme-dark:not(.landing-mode) .language-switch,
+.app.theme-light:not(.landing-mode) .theme-toggle,
+.app.theme-dark:not(.landing-mode) .theme-toggle {
+  min-height: var(--app-control-height);
+  border-radius: var(--app-radius-control);
+}
+
+.app.theme-light:not(.landing-mode) .screen,
+.app.theme-dark:not(.landing-mode) .screen {
+  width: var(--app-page-width);
+  color: var(--text-primary);
+}
+
+/* Standard and elevated surfaces. Structural wrappers remain transparent. */
+.app.theme-light:not(.landing-mode) :is(
+  .flow-panel,
+  .form-shell,
+  .confirmation,
+  .empty-state,
+  .profile-panel,
+  .request-panel,
+  .match-card,
+  .discover-card,
+  .connection-row,
+  .chat-shell,
+  .thread-row,
+  .request-list-panel,
+  .request-list-section,
+  .request-list-row,
+  .progress-panel,
+  .matched-list,
+  .inline-prompt,
+  .review-card,
+  .locked-box,
+  .request-switcher-panel,
+  .filter-panel,
+  .collab-discovery-panel,
+  .class-info-panel,
+  .class-team-panel,
+  .class-request-panel,
+  .class-team-editor
+),
+.app.theme-dark:not(.landing-mode) :is(
+  .flow-panel,
+  .form-shell,
+  .confirmation,
+  .empty-state,
+  .profile-panel,
+  .request-panel,
+  .match-card,
+  .discover-card,
+  .connection-row,
+  .chat-shell,
+  .thread-row,
+  .request-list-panel,
+  .request-list-section,
+  .request-list-row,
+  .progress-panel,
+  .matched-list,
+  .inline-prompt,
+  .review-card,
+  .locked-box,
+  .request-switcher-panel,
+  .filter-panel,
+  .collab-discovery-panel,
+  .class-info-panel,
+  .class-team-panel,
+  .class-request-panel,
+  .class-team-editor
+) {
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: var(--app-radius-surface);
+  background: var(--surface-primary) !important;
+  box-shadow: none !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.app.theme-light:not(.landing-mode) :is(.status-grid div, .profile-strip, .demo-step, .compact-info, .class-code-box, .request-summary-box),
+.app.theme-dark:not(.landing-mode) :is(.status-grid div, .profile-strip, .demo-step, .compact-info, .class-code-box, .request-summary-box) {
+  border-color: var(--border-subtle) !important;
+  border-radius: var(--app-radius-control);
+  background: var(--surface-secondary) !important;
+  box-shadow: none !important;
+}
+
+/* Consistent functional controls. */
+.app.theme-light:not(.landing-mode) :is(.primary, .secondary, .ghost, .disabled-contact, .day),
+.app.theme-dark:not(.landing-mode) :is(.primary, .secondary, .ghost, .disabled-contact, .day) {
+  min-height: var(--app-control-height);
+  border-radius: var(--app-radius-control);
+  font-size: 0.9rem;
+  font-weight: var(--weight-control);
+  gap: 8px;
+}
+
+.app.theme-light:not(.landing-mode) .primary,
+.app.theme-dark:not(.landing-mode) .primary {
+  border: 1px solid color-mix(in srgb, var(--brand-blue) 60%, transparent) !important;
+  color: #ffffff !important;
+  background: var(--brand-blue) !important;
+  box-shadow: none !important;
+}
+
+.app.theme-light:not(.landing-mode) .message-compose .primary,
+.app.theme-dark:not(.landing-mode) .message-compose .primary {
+  border-color: color-mix(in srgb, var(--action-primary) 60%, transparent) !important;
+  color: #ffffff !important;
+  background: var(--action-primary) !important;
+  box-shadow: none !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.app.theme-light:not(.landing-mode) .primary:hover,
+.app.theme-dark:not(.landing-mode) .primary:hover {
+  background: color-mix(in srgb, var(--brand-blue) 88%, white 12%) !important;
+  box-shadow: none !important;
+}
+
+.app.theme-light:not(.landing-mode) .primary:active:not(:disabled),
+.app.theme-dark:not(.landing-mode) .primary:active:not(:disabled) {
+  background: var(--action-primary-pressed) !important;
+  box-shadow: none !important;
+}
+
+.app.theme-light:not(.landing-mode) .secondary,
+.app.theme-dark:not(.landing-mode) .secondary,
+.app.theme-light:not(.landing-mode) .disabled-contact,
+.app.theme-dark:not(.landing-mode) .disabled-contact {
+  border: 1px solid var(--control-border) !important;
+  color: var(--text-secondary) !important;
+  background: var(--surface-secondary) !important;
+  box-shadow: none !important;
+}
+
+.app.theme-light:not(.landing-mode) .secondary:hover,
+.app.theme-dark:not(.landing-mode) .secondary:hover {
+  border-color: var(--border-strong) !important;
+  color: var(--text-primary) !important;
+  background: var(--control-hover) !important;
+}
+
+.app.theme-light:not(.landing-mode) .secondary:active:not(:disabled),
+.app.theme-dark:not(.landing-mode) .secondary:active:not(:disabled) {
+  background: color-mix(in srgb, var(--action-secondary-hover) 84%, black 16%) !important;
+}
+
+.app.theme-light:not(.landing-mode) .danger-action,
+.app.theme-dark:not(.landing-mode) .danger-action {
+  border-color: var(--brand-red) !important;
+  color: #ffffff !important;
+  background: var(--action-danger) !important;
+}
+
+.app.theme-light:not(.landing-mode) .danger-action:hover:not(:disabled),
+.app.theme-dark:not(.landing-mode) .danger-action:hover:not(:disabled) {
+  background: var(--action-danger-hover) !important;
+}
+
+.app.theme-light:not(.landing-mode) .danger-action:active:not(:disabled),
+.app.theme-dark:not(.landing-mode) .danger-action:active:not(:disabled) {
+  background: color-mix(in srgb, var(--action-danger) 82%, black 18%) !important;
+}
+
+.app.theme-light:not(.landing-mode) :is(.ghost, .quiet-action),
+.app.theme-dark:not(.landing-mode) :is(.ghost, .quiet-action) {
+  color: var(--text-secondary) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.app.theme-light:not(.landing-mode) :is(.ghost, .quiet-action):hover,
+.app.theme-dark:not(.landing-mode) :is(.ghost, .quiet-action):hover {
+  color: var(--text-primary) !important;
+  background: var(--control-hover) !important;
+}
+
+.app.theme-light:not(.landing-mode) :is(button, a, input, textarea, select):focus-visible,
+.app.theme-dark:not(.landing-mode) :is(button, a, input, textarea, select):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--brand-blue) 70%, transparent);
+  outline-offset: 2px;
+}
+
+/* Inputs, filters, and searchable controls share one surface treatment. */
+.app.theme-light:not(.landing-mode) :is(input, textarea, select),
+.app.theme-dark:not(.landing-mode) :is(input, textarea, select) {
+  min-height: var(--app-control-height);
+  border: 1px solid var(--control-border) !important;
+  border-radius: var(--app-radius-control);
+  color: var(--text-primary) !important;
+  background: var(--control-bg) !important;
+  box-shadow: none !important;
+}
+
+.app.theme-light:not(.landing-mode) :is(input, textarea)::placeholder,
+.app.theme-dark:not(.landing-mode) :is(input, textarea)::placeholder {
+  color: var(--text-muted) !important;
+  opacity: 0.9;
+}
+
+.app.theme-light:not(.landing-mode) :is(input, textarea, select):focus,
+.app.theme-dark:not(.landing-mode) :is(input, textarea, select):focus {
+  border-color: var(--brand-blue) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-blue) 16%, transparent) !important;
+}
+
+.app.theme-light:not(.landing-mode) .class-directory-search,
+.app.theme-dark:not(.landing-mode) .class-directory-search,
+.app.theme-light:not(.landing-mode) .searchable-combobox-menu,
+.app.theme-dark:not(.landing-mode) .searchable-combobox-menu {
+  border: 1px solid var(--control-border) !important;
+  border-radius: var(--app-radius-control);
+  background: var(--surface-elevated) !important;
+  box-shadow: var(--app-shadow-elevated) !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.app.theme-light:not(.landing-mode) .searchable-combobox-option,
+.app.theme-dark:not(.landing-mode) .searchable-combobox-option {
+  min-height: 38px;
+  border-radius: 6px;
+  color: var(--text-primary) !important;
+}
+
+.app.theme-light:not(.landing-mode) .searchable-combobox-option:hover,
+.app.theme-dark:not(.landing-mode) .searchable-combobox-option:hover,
+.app.theme-light:not(.landing-mode) .searchable-combobox-option.highlighted,
+.app.theme-dark:not(.landing-mode) .searchable-combobox-option.highlighted {
+  color: var(--text-primary) !important;
+  background: var(--selected-blue-bg) !important;
+}
+
+/* Compact typography roles for internal pages. */
+.app.theme-light:not(.landing-mode) .eyebrow,
+.app.theme-dark:not(.landing-mode) .eyebrow {
+  color: var(--brand-red) !important;
+  font-size: var(--type-caption);
+  font-weight: var(--weight-control);
+  letter-spacing: 0.05em;
+  line-height: 1.4;
+}
+
+.app.theme-light:not(.landing-mode) :is(.screen > h1, .screen > h2, .results-header h2, .form-heading h2, .collabs-page-header h2, .class-detail-header h2),
+.app.theme-dark:not(.landing-mode) :is(.screen > h1, .screen > h2, .results-header h2, .form-heading h2, .collabs-page-header h2, .class-detail-header h2) {
+  color: var(--text-primary) !important;
+  font-size: clamp(2rem, 3.6vw, 2.8rem);
+  font-weight: var(--weight-heading);
+  line-height: 1.08;
+}
+
+.app.theme-light:not(.landing-mode) :is(.flow-panel h3, .form-shell h3, .request-panel h3, .match-card h3, .discover-card h3, .connection-row h3, .profile-panel h3, .request-list-row h3),
+.app.theme-dark:not(.landing-mode) :is(.flow-panel h3, .form-shell h3, .request-panel h3, .match-card h3, .discover-card h3, .connection-row h3, .profile-panel h3, .request-list-row h3) {
+  color: var(--text-primary) !important;
+  font-size: var(--type-card);
+  font-weight: var(--weight-card);
+  line-height: 1.2;
+}
+
+.app.theme-light:not(.landing-mode) :is(p, small, .note, .field-helper, .loading, .mini-detail span, time),
+.app.theme-dark:not(.landing-mode) :is(p, small, .note, .field-helper, .loading, .mini-detail span, time) {
+  color: var(--text-muted);
+}
+
+/* Statuses keep their meaning while sharing one compact badge geometry. */
+.app.theme-light:not(.landing-mode) .status-badge,
+.app.theme-dark:not(.landing-mode) .status-badge,
+.app.theme-light:not(.landing-mode) .connected-button,
+.app.theme-dark:not(.landing-mode) .connected-button {
+  min-height: 30px;
+  padding: 6px 10px;
+  border-radius: var(--app-radius-control);
+  font-size: 0.78rem;
+  font-weight: var(--weight-control);
+  line-height: 1.1;
+}
+
+.app.theme-light:not(.landing-mode) .status-badge.info,
+.app.theme-dark:not(.landing-mode) .status-badge.info,
+.app.theme-light:not(.landing-mode) .connected-button,
+.app.theme-dark:not(.landing-mode) .connected-button {
+  border-color: color-mix(in srgb, var(--brand-blue) 46%, transparent) !important;
+  color: var(--brand-blue) !important;
+  background: var(--selected-blue-bg) !important;
+}
+
+.app.theme-light:not(.landing-mode) :is(.form-heading svg, .status-grid svg, .screen > svg, .profile-panel > svg, .request-panel > svg),
+.app.theme-dark:not(.landing-mode) :is(.form-heading svg, .status-grid svg, .screen > svg, .profile-panel > svg, .request-panel > svg) {
+  width: 20px;
+  height: 20px;
+  color: var(--brand-blue) !important;
+  stroke: currentColor;
+}
+
+/* Keep the approved Landing geometry independent from compact app-card tokens. */
+.app.landing-mode {
+  --app-page-width: min(1472px, calc(100% - 112px));
+  --app-radius-surface: 14px;
+}
+
+@media (max-width: 980px) {
+  .app.theme-light:not(.landing-mode),
+  .app.theme-dark:not(.landing-mode) {
+    --app-page-width: min(100% - 64px, var(--page-max-width));
+  }
+}
+
+@media (max-width: 640px) {
+  .app.theme-light:not(.landing-mode),
+  .app.theme-dark:not(.landing-mode) {
+    --app-page-width: min(100% - 40px, var(--page-max-width));
+  }
+
+  .app.theme-light:not(.landing-mode) .topbar,
+  .app.theme-dark:not(.landing-mode) .topbar {
+    margin-top: 10px;
+    padding: 10px 14px;
+  }
+}
+
+/* Final internal-page typography and elevation normalization. Landing keeps
+   its approved display treatment and hero artwork. */
+.app.theme-light:not(.landing-mode),
+.app.theme-dark:not(.landing-mode) {
+  font-family: var(--font-ui);
+}
+
+.app.theme-light:not(.landing-mode) .eyebrow,
+.app.theme-dark:not(.landing-mode) .eyebrow {
+  font-weight: var(--weight-control);
+  letter-spacing: 0.06em;
+}
+
+.app.theme-light:not(.landing-mode) :is(
+  .screen > h1,
+  .screen > h2,
+  .results-header h2,
+  .form-heading h2,
+  .collabs-page-header h2,
+  .class-detail-header h2
+),
+.app.theme-dark:not(.landing-mode) :is(
+  .screen > h1,
+  .screen > h2,
+  .results-header h2,
+  .form-heading h2,
+  .collabs-page-header h2,
+  .class-detail-header h2
+) {
+  font-weight: var(--weight-heading);
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+}
+
+.app.theme-light:not(.landing-mode) :is(
+  .flow-panel h3,
+  .form-shell h3,
+  .request-panel h3,
+  .match-card h3,
+  .discover-card h3,
+  .connection-row h3,
+  .profile-panel h3,
+  .request-list-row h3
+),
+.app.theme-dark:not(.landing-mode) :is(
+  .flow-panel h3,
+  .form-shell h3,
+  .request-panel h3,
+  .match-card h3,
+  .discover-card h3,
+  .connection-row h3,
+  .profile-panel h3,
+  .request-list-row h3
+) {
+  font-weight: var(--weight-card);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.app.theme-light:not(.landing-mode) :is(
+  p,
+  small,
+  .note,
+  .field-helper,
+  .loading,
+  .mini-detail span,
+  time
+),
+.app.theme-dark:not(.landing-mode) :is(
+  p,
+  small,
+  .note,
+  .field-helper,
+  .loading,
+  .mini-detail span,
+  time
+) {
+  font-weight: var(--weight-body);
+  line-height: 1.5;
+  letter-spacing: normal;
+}
+
+.app.theme-light:not(.landing-mode) :is(
+  .top-actions .ghost,
+  .language-switch button,
+  .theme-toggle,
+  button,
+  input,
+  textarea,
+  select
+),
+.app.theme-dark:not(.landing-mode) :is(
+  .top-actions .ghost,
+  .language-switch button,
+  .theme-toggle,
+  button,
+  input,
+  textarea,
+  select
+) {
+  font-weight: var(--weight-control);
+  line-height: 1.2;
+}
+
+/* Internal cards use surface contrast and borders for hierarchy; no colored
+   outer glow or page-specific blur is needed for task-focused UI. */
+.app.theme-light:not(.landing-mode) :is(
+  .flow-panel,
+  .form-shell,
+  .confirmation,
+  .empty-state,
+  .profile-panel,
+  .request-panel,
+  .match-card,
+  .discover-card,
+  .connection-row,
+  .chat-shell,
+  .thread-row,
+  .request-list-panel,
+  .request-list-section,
+  .request-list-row,
+  .progress-panel,
+  .matched-list,
+  .inline-prompt,
+  .review-card,
+  .locked-box,
+  .request-switcher-panel,
+  .filter-panel,
+  .collab-discovery-panel,
+  .class-info-panel,
+  .class-team-panel,
+  .class-request-panel,
+  .class-team-editor,
+  .messages-tab-panel .empty-state,
+  .request-message,
+  .message-bubble,
+  .message-compose
+),
+.app.theme-dark:not(.landing-mode) :is(
+  .flow-panel,
+  .form-shell,
+  .confirmation,
+  .empty-state,
+  .profile-panel,
+  .request-panel,
+  .match-card,
+  .discover-card,
+  .connection-row,
+  .chat-shell,
+  .thread-row,
+  .request-list-panel,
+  .request-list-section,
+  .request-list-row,
+  .progress-panel,
+  .matched-list,
+  .inline-prompt,
+  .review-card,
+  .locked-box,
+  .request-switcher-panel,
+  .filter-panel,
+  .collab-discovery-panel,
+  .class-info-panel,
+  .class-team-panel,
+  .class-request-panel,
+  .class-team-editor,
+  .messages-tab-panel .empty-state,
+  .request-message,
+  .message-bubble,
+  .message-compose
+) {
+  box-shadow: none !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.app.theme-light:not(.landing-mode) .topbar,
+.app.theme-dark:not(.landing-mode) .topbar {
+  box-shadow: none !important;
+}
+
+/* Canonical navbar wordmark. Keep the inner brand element explicit so the
+   approved Landing treatment cannot drift through inherited button rules. */
+.app.theme-light .topbar .logo-button,
+.app.theme-dark .topbar .logo-button {
+  font-family: "Encode Sans Semi Expanded", var(--font-ui);
+  font-size: 1.7rem;
+  font-weight: 950;
+  letter-spacing: 0;
+  line-height: 1.1;
+}
+
+.app.theme-light .topbar .brand-logo,
+.app.theme-dark .topbar .brand-logo {
+  font-family: "Encode Sans Semi Expanded", var(--font-ui);
+  font-size: 1.7rem;
+  font-weight: 950;
+  letter-spacing: 0;
+  line-height: 1.15;
+  text-transform: none;
+}
+
+.app.theme-light .topbar .top-actions .ghost,
+.app.theme-dark .topbar .top-actions .ghost {
+  font-family: var(--font-ui);
+  font-size: 0.9rem;
+  font-weight: var(--weight-control);
+  letter-spacing: normal;
+  line-height: 1.2;
+}
+
+.app.theme-light .topbar .language-switch button,
+.app.theme-dark .topbar .language-switch button {
+  font-family: var(--font-ui);
+  font-size: 0.8rem;
+  font-weight: var(--weight-control);
+  letter-spacing: normal;
+  line-height: 1.2;
+}
+
+.app.theme-light:not(.landing-mode) .topbar .language-switch,
+.app.theme-dark:not(.landing-mode) .topbar .language-switch {
+  min-height: 38px;
+}
+
+.app.theme-light:not(.landing-mode) .topbar .theme-toggle,
+.app.theme-dark:not(.landing-mode) .topbar .theme-toggle {
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+}
+
+/* Page titles are intentionally stronger than internal content, without
+   approaching the expressive Landing wordmark scale. */
+.app.theme-light:not(.landing-mode) :is(
+  .screen > h1,
+  .screen > h2,
+  .results-header h2,
+  .form-heading h2,
+  .collabs-page-header h2,
+  .class-detail-header h2
+),
+.app.theme-dark:not(.landing-mode) :is(
+  .screen > h1,
+  .screen > h2,
+  .results-header h2,
+  .form-heading h2,
+  .collabs-page-header h2,
+  .class-detail-header h2
+) {
+  font-size: clamp(2.375rem, 3.2vw, 3rem);
+  font-weight: var(--weight-heading);
+  letter-spacing: -0.025em;
+  line-height: 1.06;
+}
+
+.app.theme-light:not(.landing-mode) :is(.compact-header h3, .progress-header h3),
+.app.theme-dark:not(.landing-mode) :is(.compact-header h3, .progress-header h3) {
+  font-size: 1.5rem;
+  font-weight: var(--weight-card);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.app.theme-light:not(.landing-mode) :is(
+  .request-list-row h3,
+  .discover-card h3,
+  .connection-row h3,
+  .profile-panel h3,
+  .class-card-topline
+),
+.app.theme-dark:not(.landing-mode) :is(
+  .request-list-row h3,
+  .discover-card h3,
+  .connection-row h3,
+  .profile-panel h3,
+  .class-card-topline
+) {
+  font-weight: var(--weight-card);
+  letter-spacing: -0.01em;
+}
+
+.app.theme-light:not(.landing-mode) :is(
+  .request-row-detail,
+  .class-card-topline,
+  .class-code-value,
+  .collab-card-stat span,
+  .status-badge,
+  .connected-button
+),
+.app.theme-dark:not(.landing-mode) :is(
+  .request-row-detail,
+  .class-card-topline,
+  .class-code-value,
+  .collab-card-stat span,
+  .status-badge,
+  .connected-button
+) {
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.app.theme-light:not(.landing-mode) .class-code-value,
+.app.theme-dark:not(.landing-mode) .class-code-value {
+  font-size: 0.875rem;
+  font-weight: var(--weight-control);
+  letter-spacing: 0.04em;
+}
+
+/* My Classes uses one field, not a floating panel around an input. */
+.app.theme-light:not(.landing-mode) .class-directory-search,
+.app.theme-dark:not(.landing-mode) .class-directory-search {
+  padding: 10px 13px;
+  border: 1px solid var(--control-border) !important;
+  border-radius: 9px;
+  background: var(--control-bg) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.app.theme-light:not(.landing-mode) .class-directory-search input,
+.app.theme-dark:not(.landing-mode) .class-directory-search input {
+  min-height: 0 !important;
+  border: 0 !important;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+  font-size: 1rem;
+  font-weight: var(--weight-body);
+  line-height: 1.4;
+}
+
+@media (max-width: 640px) {
+  .app.theme-light:not(.landing-mode) :is(
+    .screen > h1,
+    .screen > h2,
+    .results-header h2,
+    .form-heading h2,
+    .collabs-page-header h2,
+    .class-detail-header h2
+  ),
+  .app.theme-dark:not(.landing-mode) :is(
+    .screen > h1,
+    .screen > h2,
+    .results-header h2,
+    .form-heading h2,
+    .collabs-page-header h2,
+    .class-detail-header h2
+  ) {
+    font-size: clamp(2rem, 9vw, 2.375rem);
+  }
+}
+
+/* My Classes page composition: a compact intro followed by a content-led
+   directory. These rules stay scoped so the shared app chrome and other
+   match-card views keep their existing presentation. */
+.my-classes-screen .my-classes-intro {
+  display: block;
+  margin: 0 0 20px;
+}
+
+.my-classes-screen .my-classes-intro .eyebrow {
+  margin: 0 0 10px;
+  animation: my-classes-eyebrow-in 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.my-classes-title-mask {
+  max-width: 720px;
+  overflow: hidden;
+  padding: 0 0 0.08em;
+}
+
+.my-classes-screen .my-classes-title-mask h1 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: clamp(3rem, 5vw, 3.5rem);
+  font-weight: var(--weight-heading);
+  letter-spacing: -0.03em;
+  line-height: 1.04;
+  animation: my-classes-title-in 760ms cubic-bezier(0.22, 1, 0.36, 1) 120ms both;
+}
+
+.my-classes-screen .my-classes-description {
+  max-width: 640px;
+  margin: 10px 0 0;
+  color: var(--text-secondary);
+  font-size: 1.0625rem;
+  line-height: 1.5;
+  animation: my-classes-description-in 560ms cubic-bezier(0.22, 1, 0.36, 1) 420ms both;
+}
+
+.my-classes-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  margin: 0 0 24px;
+  animation: my-classes-controls-in 520ms cubic-bezier(0.22, 1, 0.36, 1) 620ms both;
+}
+
+.my-classes-screen .my-classes-search {
+  width: 100%;
+  max-width: none;
+  min-height: 50px;
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid var(--control-border) !important;
+  border-radius: 9px;
+  color: var(--text-muted);
+  background: var(--control-bg) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.my-classes-screen .my-classes-search input {
+  min-height: 0 !important;
+  border: 0 !important;
+  border-radius: 0;
+  background: transparent !important;
+  color: var(--text-primary) !important;
+  box-shadow: none !important;
+}
+
+.my-classes-screen .my-classes-search:focus-within {
+  border-color: var(--brand-blue) !important;
+  outline: 2px solid color-mix(in srgb, var(--brand-blue) 24%, transparent);
+  outline-offset: 1px;
+  box-shadow: none !important;
+}
+
+.my-classes-screen .my-classes-search input:focus {
+  box-shadow: none !important;
+}
+
+.my-classes-join {
+  min-height: 50px !important;
+  white-space: nowrap;
+}
+
+.my-classes-grid {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  align-items: stretch;
+  gap: 18px;
+}
+
+.my-classes-screen .my-class-card {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding: 20px;
+  gap: 12px;
+  overflow: visible;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: var(--app-radius-surface);
+  color: var(--text-primary);
+  background: var(--surface-primary) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  opacity: 0.55;
+  filter: blur(4px);
+  transform: translateY(20px);
+  transition:
+    opacity 620ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 620ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 620ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: calc(var(--reveal-index, 0) * 80ms);
+  will-change: opacity, filter, transform;
+}
+
+.my-classes-screen .my-class-card::before {
+  display: none;
+}
+
+.my-classes-screen .my-class-card.is-in-view {
+  opacity: 1;
+  filter: none;
+  transform: none;
+}
+
+.my-classes-screen .my-class-card.is-above {
+  transform: translateY(-20px);
+}
+
+.my-classes-screen .my-class-card.is-below {
+  transform: translateY(20px);
+}
+
+.my-classes-screen .my-class-card .class-card-topline {
+  margin-bottom: 0;
+}
+
+.my-classes-screen .my-class-card .status-badge {
+  min-height: 30px;
+  padding: 6px 10px;
+  font-size: 0.75rem;
+  font-weight: var(--weight-control);
+  line-height: 1.1;
+}
+
+.my-classes-screen .my-class-card .demo-badge {
+  min-height: 24px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: 7px;
+  color: var(--text-muted) !important;
+  background: var(--surface-secondary) !important;
+  font-size: 0.6875rem;
+  font-weight: var(--weight-label);
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  opacity: 0.9;
+}
+
+.my-classes-screen .my-class-title {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  margin: 0;
+  color: var(--text-primary) !important;
+  font-size: 1.25rem;
+  font-weight: var(--weight-card);
+  letter-spacing: -0.01em;
+  line-height: 1.18;
+}
+
+.my-classes-screen .my-class-academic,
+.my-classes-screen .my-class-meta p {
+  margin: 0;
+  color: var(--text-secondary) !important;
+  font-size: 0.9375rem;
+  line-height: 1.45;
+}
+
+.my-classes-screen .my-class-academic {
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.my-classes-screen .my-class-meta {
+  display: grid;
+  gap: 3px;
+}
+
+.my-classes-screen .my-class-code,
+.my-classes-screen .my-class-team-status {
+  gap: 4px;
+  margin: 0;
+}
+
+.my-classes-screen .my-class-code strong,
+.my-classes-screen .my-class-team-status strong {
+  color: var(--text-muted) !important;
+  font-size: 0.6875rem;
+  font-weight: var(--weight-control);
+  letter-spacing: 0.06em;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+
+.my-class-code-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.my-classes-screen .my-class-code .class-code-value,
+.my-classes-screen .my-class-team-status span {
+  min-width: 0;
+  color: var(--text-primary) !important;
+  font-size: 0.9375rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.my-classes-screen .my-class-team-status span {
+  font-size: 0.8125rem;
+  line-height: 1.35;
+}
+
+.my-classes-screen .my-class-code .class-code-value {
+  font-weight: var(--weight-control);
+}
+
+.my-classes-screen .my-class-code .quiet-action {
+  min-height: 34px;
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border: 1px solid var(--control-border) !important;
+  border-radius: var(--app-radius-control);
+  color: var(--text-secondary) !important;
+  background: var(--surface-secondary) !important;
+  box-shadow: none !important;
+  font-size: 0.8125rem;
+  font-weight: var(--weight-control);
+  line-height: 1.2;
+}
+
+.my-classes-screen .my-class-code .quiet-action:hover {
+  border-color: var(--border-strong) !important;
+  color: var(--text-primary) !important;
+  background: var(--control-hover) !important;
+}
+
+.my-classes-screen .my-class-action {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
+@keyframes my-classes-eyebrow-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes my-classes-title-in {
+  from {
+    opacity: 0;
+    filter: blur(5px);
+    transform: translateY(105%);
+  }
+
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+
+@keyframes my-classes-description-in {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+    transform: translateY(18px);
+  }
+
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+
+@keyframes my-classes-controls-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 760px) {
+  .my-classes-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .my-classes-join {
+    justify-self: start;
+  }
+
+  .my-classes-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .my-classes-screen .my-classes-intro {
+    margin-top: 8px;
+  }
+
+  .my-classes-screen .my-classes-description {
+    font-size: 1rem;
+  }
+
+  .my-classes-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .my-classes-screen .my-classes-intro .eyebrow,
+  .my-classes-screen .my-classes-title-mask h1,
+  .my-classes-screen .my-classes-description,
+  .my-classes-controls {
+    animation: none !important;
+    opacity: 1;
+    filter: none;
+    transform: none;
+  }
+
+  .my-classes-screen .my-class-card,
+  .my-classes-screen .my-class-card.is-in-view,
+  .my-classes-screen .my-class-card.is-above,
+  .my-classes-screen .my-class-card.is-below {
+    opacity: 1;
+    filter: none;
+    transform: none;
+    transition: none !important;
+  }
+}
+
+/* Shared internal-page intro: My Classes is the spacing and motion reference. */
+.app.theme-light:not(.landing-mode) .app-page-intro,
+.app.theme-dark:not(.landing-mode) .app-page-intro {
+  margin: 0 0 20px;
+}
+
+.app.theme-light:not(.landing-mode) .app-page-eyebrow,
+.app.theme-dark:not(.landing-mode) .app-page-eyebrow {
+  margin: 0 0 10px;
+  animation: my-classes-eyebrow-in 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.app.theme-light:not(.landing-mode) .app-page-title-mask,
+.app.theme-dark:not(.landing-mode) .app-page-title-mask {
+  max-width: 720px;
+  overflow: hidden;
+  padding: 0 0 0.08em;
+}
+
+.app.theme-light:not(.landing-mode) .app-page-title,
+.app.theme-dark:not(.landing-mode) .app-page-title {
+  margin: 0;
+  color: var(--text-primary) !important;
+  font-size: clamp(3rem, 5vw, 3.5rem);
+  font-weight: var(--weight-heading);
+  letter-spacing: -0.03em;
+  line-height: 1.04;
+  animation: my-classes-title-in 760ms cubic-bezier(0.22, 1, 0.36, 1) 120ms both;
+}
+
+.app.theme-light:not(.landing-mode) .app-page-description,
+.app.theme-dark:not(.landing-mode) .app-page-description {
+  max-width: 640px;
+  margin: 10px 0 0;
+  color: var(--text-secondary) !important;
+  font-size: 1.0625rem;
+  line-height: 1.5;
+  animation: my-classes-description-in 560ms cubic-bezier(0.22, 1, 0.36, 1) 420ms both;
+}
+
+.app.theme-light:not(.landing-mode) .app-page-intro.results-header,
+.app.theme-dark:not(.landing-mode) .app-page-intro.results-header {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 0;
+  margin: 0 0 24px;
+}
+
+.app.theme-light:not(.landing-mode) .app-page-intro.results-header > div:first-child,
+.app.theme-dark:not(.landing-mode) .app-page-intro.results-header > div:first-child {
+  width: 100%;
+}
+
+.app.theme-light:not(.landing-mode) .app-page-intro.results-header > :is(.segmented, .collabs-header-actions, button),
+.app.theme-dark:not(.landing-mode) .app-page-intro.results-header > :is(.segmented, .collabs-header-actions, button) {
+  align-self: flex-start;
+  margin-top: 20px;
+  animation: my-classes-controls-in 520ms cubic-bezier(0.22, 1, 0.36, 1) 620ms both;
+}
+
+.app.theme-light:not(.landing-mode) .app-page-intro.form-heading,
+.app.theme-dark:not(.landing-mode) .app-page-intro.form-heading {
+  align-items: flex-start;
+  margin-bottom: 24px;
+}
+
+.app.theme-light:not(.landing-mode) .profile-page-intro,
+.app.theme-dark:not(.landing-mode) .profile-page-intro {
+  margin-bottom: 24px;
+}
+
+.app.theme-light:not(.landing-mode) .app-page-controls,
+.app.theme-dark:not(.landing-mode) .app-page-controls {
+  animation: my-classes-controls-in 520ms cubic-bezier(0.22, 1, 0.36, 1) 620ms both;
+}
+
+.class-detail-header .app-page-title-mask,
+.app-page-intro.request-detail-header .app-page-title-mask {
+  max-width: 100%;
+}
+
+@media (max-width: 760px) {
+  .app.theme-light:not(.landing-mode) .app-page-title,
+  .app.theme-dark:not(.landing-mode) .app-page-title {
+    font-size: clamp(2.375rem, 10vw, 3rem);
+  }
+
+  .app.theme-light:not(.landing-mode) .app-page-intro.results-header > :is(.segmented, .collabs-header-actions),
+  .app.theme-dark:not(.landing-mode) .app-page-intro.results-header > :is(.segmented, .collabs-header-actions) {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-page-eyebrow,
+  .app-page-title,
+  .app-page-description,
+  .app-page-controls,
+  .app-page-intro.results-header > :is(.segmented, .collabs-header-actions, button) {
+    animation: none !important;
+    opacity: 1;
+    filter: none;
+    transform: none;
+  }
+}
+
+/* Internal controls stay stable; only page-intro typography enters on load. */
+.app.theme-light:not(.landing-mode) .app-page-controls,
+.app.theme-dark:not(.landing-mode) .app-page-controls,
+.app.theme-light:not(.landing-mode) .app-page-intro.results-header > :is(.segmented, .collabs-header-actions, button),
+.app.theme-dark:not(.landing-mode) .app-page-intro.results-header > :is(.segmented, .collabs-header-actions, button) {
+  animation: none !important;
+  opacity: 1;
+  filter: none;
+  transform: none;
+}
+
+/* Teamergency avatar system: a quiet surface with a blue-to-red edge. */
+.app.theme-light:not(.landing-mode) .avatar,
+.app.theme-dark:not(.landing-mode) .avatar {
+  display: inline-flex;
+  width: 64px;
+  height: 64px;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0;
+  border: 1px solid transparent !important;
+  border-radius: 50%;
+  color: var(--text-primary) !important;
+  background:
+    linear-gradient(var(--surface-secondary), var(--surface-secondary)) padding-box,
+    linear-gradient(135deg, color-mix(in srgb, var(--brand-blue) 68%, transparent), color-mix(in srgb, var(--brand-red) 68%, transparent)) border-box !important;
+  box-shadow: none !important;
+  font-size: 1.5rem;
+  font-weight: var(--weight-heading);
+}
+
+.app.theme-light:not(.landing-mode) .request-creator-section .avatar,
+.app.theme-dark:not(.landing-mode) .request-creator-section .avatar {
+  width: 52px;
+  height: 52px;
+  flex: 0 0 52px;
+  font-size: 1.25rem;
+}
+
+/* Discover mirrors My Classes' bidirectional, once-per-viewport reveal. */
+.app.theme-light:not(.landing-mode) .discover-reveal-card,
+.app.theme-dark:not(.landing-mode) .discover-reveal-card {
+  opacity: 0.56;
+  filter: blur(4px);
+  transform: translateY(20px);
+  transition:
+    opacity 600ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 600ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 600ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: calc(var(--reveal-index, 0) * 70ms);
+  will-change: opacity, filter, transform;
+}
+
+.app.theme-light:not(.landing-mode) .discover-reveal-card.is-in-view,
+.app.theme-dark:not(.landing-mode) .discover-reveal-card.is-in-view {
+  opacity: 1;
+  filter: none;
+  transform: none;
+}
+
+.app.theme-light:not(.landing-mode) .discover-reveal-card.is-above,
+.app.theme-dark:not(.landing-mode) .discover-reveal-card.is-above {
+  transform: translateY(-18px);
+}
+
+.app.theme-light:not(.landing-mode) .discover-reveal-card.is-below,
+.app.theme-dark:not(.landing-mode) .discover-reveal-card.is-below {
+  transform: translateY(18px);
+}
+
+/* Collabs keeps the marketplace grid, but flattens the surrounding shells so
+   request cards read as one coherent list. */
+.app.theme-light:not(.landing-mode) .collabs-screen .collab-marketplace-list,
+.app.theme-dark:not(.landing-mode) .collabs-screen .collab-marketplace-list {
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.collabs-screen .collab-marketplace-list > .compact-header {
+  margin: 0 0 14px;
+}
+
+.collabs-screen .request-list {
+  gap: 12px;
+}
+
+.app.theme-light:not(.landing-mode) .collabs-screen .collab-request-card,
+.app.theme-dark:not(.landing-mode) .collabs-screen .collab-request-card {
+  padding: 18px;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: var(--app-radius-surface);
+  background: var(--surface-primary) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.app.theme-light:not(.landing-mode) .collabs-screen .collab-mini-request,
+.app.theme-dark:not(.landing-mode) .collabs-screen .collab-mini-request,
+.app.theme-light:not(.landing-mode) .collabs-screen .collab-my-request-panel,
+.app.theme-dark:not(.landing-mode) .collabs-screen .collab-my-request-panel {
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: var(--app-radius-surface);
+  background: var(--surface-primary) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app.theme-light:not(.landing-mode) .discover-reveal-card,
+  .app.theme-dark:not(.landing-mode) .discover-reveal-card,
+  .app.theme-light:not(.landing-mode) .discover-reveal-card.is-in-view,
+  .app.theme-dark:not(.landing-mode) .discover-reveal-card.is-in-view,
+  .app.theme-light:not(.landing-mode) .discover-reveal-card.is-above,
+  .app.theme-dark:not(.landing-mode) .discover-reveal-card.is-above,
+  .app.theme-light:not(.landing-mode) .discover-reveal-card.is-below,
+  .app.theme-dark:not(.landing-mode) .discover-reveal-card.is-below {
+    opacity: 1;
+    filter: none;
+    transform: none;
+    transition: none !important;
+  }
+}
+
+.app.theme-light:not(.landing-mode) .my-profile-panel :is(.app-page-eyebrow, .app-page-title, .app-page-description),
+.app.theme-dark:not(.landing-mode) .my-profile-panel :is(.app-page-eyebrow, .app-page-title, .app-page-description),
+.app.theme-light:not(.landing-mode) .my-profile-panel *,
+.app.theme-dark:not(.landing-mode) .my-profile-panel * {
+  animation: none !important;
+}
+
+.app.theme-light:not(.landing-mode) .my-profile-panel :is(.app-page-eyebrow, .app-page-title, .app-page-description),
+.app.theme-dark:not(.landing-mode) .my-profile-panel :is(.app-page-eyebrow, .app-page-title, .app-page-description) {
+  opacity: 1;
+  filter: none;
+  transform: none;
+}
+
+.app.theme-light:not(.landing-mode) .my-profile-panel > .signed-in-line,
+.app.theme-dark:not(.landing-mode) .my-profile-panel > .signed-in-line,
+.profile-google-status {
+  width: fit-content;
+  margin: 0 0 20px;
+  padding: 6px 9px;
+  border: 1px solid color-mix(in srgb, var(--app-green) 30%, transparent) !important;
+  border-radius: 8px;
+  color: var(--app-green) !important;
+  background: color-mix(in srgb, var(--app-green) 7%, transparent) !important;
+  box-shadow: none !important;
+  font-size: 0.8125rem;
+  font-weight: var(--weight-control);
+  line-height: 1.35;
+}
+
+.app.theme-light:not(.landing-mode) .my-profile-panel > .signed-in-line,
+.app.theme-dark:not(.landing-mode) .my-profile-panel > .signed-in-line {
+  padding: 0;
+  border: 0 !important;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* My Profile: a focused, static profile document. */
+.app.theme-light:not(.landing-mode) .my-profile-screen,
+.app.theme-dark:not(.landing-mode) .my-profile-screen {
+  width: min(1040px, calc(100% - 48px));
+  max-width: none !important;
+}
+
+.app.theme-light:not(.landing-mode) .my-profile-panel,
+.app.theme-dark:not(.landing-mode) .my-profile-panel {
+  padding: 30px;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: 0;
+  background: var(--surface-primary) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.my-profile-composition {
+  width: 100%;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+.my-profile-profile-header {
+  min-width: 0;
+  padding-bottom: 30px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.my-profile-profile-header h2 {
+  max-width: none;
+  margin: 0;
+  color: var(--text-primary) !important;
+  font-size: clamp(2.5rem, 4.5vw, 2.875rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  overflow-wrap: normal;
+  word-break: normal;
+  white-space: normal;
+}
+
+.my-profile-eyebrow {
+  margin: 0 0 8px !important;
+  color: var(--app-red) !important;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  line-height: 1.4;
+}
+
+.profile-header-meta {
+  margin: 15px 0 0;
+  color: var(--text-secondary) !important;
+  font-size: 0.9375rem;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.profile-header-university {
+  margin: 5px 0 0;
+  color: var(--text-secondary) !important;
+  font-size: 0.9375rem;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.profile-header-account-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-top: 15px;
+}
+
+.my-profile-composition .profile-google-status {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0 !important;
+  border-radius: 0;
+  color: var(--app-green) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  line-height: 1.4;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.my-profile-composition .profile-google-email {
+  margin: 0;
+  color: var(--text-secondary) !important;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.my-profile-information-rows {
+  margin-top: 32px;
+}
+
+.my-profile-section {
+  min-width: 0;
+}
+
+.my-profile-section + .my-profile-section {
+  margin-top: 32px;
+}
+
+.my-profile-section-title {
+  margin: 0 0 19px;
+  color: var(--app-red) !important;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+
+.my-profile-field-list {
+  display: grid;
+  gap: 19px;
+}
+
+.my-profile-field {
+  min-width: 0;
+}
+
+.my-profile-field .profile-field-label {
+  margin: 0;
+  color: var(--text-muted) !important;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.my-profile-field .profile-field-value {
+  min-width: 0;
+  margin: 6px 0 0;
+  color: var(--text-primary) !important;
+  font-size: 1.125rem;
+  font-weight: 400;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.my-profile-field .profile-bio-copy {
+  max-width: 66ch;
+}
+
+.my-profile-field .pill-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0 0;
+}
+
+.my-profile-field .pill-list span {
+  border: 1px solid color-mix(in srgb, var(--brand-blue) 28%, transparent) !important;
+  border-radius: 10px;
+  color: var(--text-secondary) !important;
+  background: var(--selected-blue-bg) !important;
+  box-shadow: none !important;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.my-profile-review-section {
+  margin-top: 32px;
+}
+
+.my-profile-review-section .request-summary-box {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.my-profile-review-section .request-summary-box > .eyebrow {
+  margin: 0;
+  color: var(--app-red) !important;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+
+.my-profile-review-section .request-summary-box h3 {
+  display: none;
+}
+
+.my-profile-review-section .request-summary-box .note {
+  margin: 0;
+  color: var(--text-secondary) !important;
+  font-size: 1.125rem;
+  line-height: 1.5;
+}
+
+.my-profile-composition .profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 30px;
+  padding-top: 30px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.my-profile-composition .profile-actions .link-button {
+  width: auto;
+  min-width: 0;
+  margin-top: 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.my-profile-composition .profile-actions .quiet-action {
+  flex-basis: auto;
+  margin-left: 0;
+  color: var(--app-red) !important;
+}
+
+@media (max-width: 900px) {
+  .app.theme-light:not(.landing-mode) .my-profile-screen,
+  .app.theme-dark:not(.landing-mode) .my-profile-screen {
+    width: min(100% - 40px, 1040px);
+  }
+}
+
+@media (max-width: 680px) {
+  .app.theme-light:not(.landing-mode) .my-profile-screen,
+  .app.theme-dark:not(.landing-mode) .my-profile-screen {
+    width: calc(100% - 32px);
+  }
+
+  .app.theme-light:not(.landing-mode) .my-profile-panel,
+  .app.theme-dark:not(.landing-mode) .my-profile-panel {
+    padding: 24px 20px 22px;
+  }
+
+  .my-profile-profile-header h2 {
+    font-size: clamp(2.25rem, 12vw, 2.875rem);
+  }
+
+  .my-profile-information-rows {
+    margin-top: 30px;
+  }
+
+  .my-profile-section + .my-profile-section {
+    margin-top: 30px;
+  }
+
+  .my-profile-composition .profile-actions {
+    align-items: flex-start;
+    margin-top: 30px;
+    padding-top: 24px;
+  }
+
+  .my-profile-composition .profile-actions .quiet-action {
+    margin-left: 0;
+    flex-basis: 100%;
   }
 }

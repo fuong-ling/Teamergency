@@ -1977,6 +1977,76 @@ function Home({
     };
   }, []);
 
+  useEffect(() => {
+    const root = landingRef.current;
+    if (!root || typeof window === 'undefined') return undefined;
+
+    const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (prefersReducedMotion) return undefined;
+
+    const revealTargets = Array.from(
+      root.querySelectorAll(
+        '.landing-eyebrow, .landing-wordmark, .landing-tagline, .landing-role-grid, .landing-auth-card, .landing-feature-row',
+      ),
+    );
+
+    if (!revealTargets.length) return undefined;
+
+    const heroTargets = revealTargets.filter((element) =>
+      element.matches('.landing-eyebrow, .landing-wordmark, .landing-tagline'),
+    );
+    const laterTargets = revealTargets.filter((element) => !heroTargets.includes(element));
+
+    revealTargets.forEach((element, index) => {
+      element.classList.add('landing-reveal');
+      const delayByRole = element.classList.contains('landing-eyebrow')
+        ? 90
+        : element.classList.contains('landing-wordmark')
+          ? 250
+          : element.classList.contains('landing-tagline')
+            ? 430
+            : 620 + Math.min(Math.max(index - 3, 0) * 90, 180);
+      element.style.setProperty('--landing-reveal-delay', `${delayByRole}ms`);
+    });
+
+    // Establish the hidden state before any observer callback can mark content visible.
+    root.classList.add('landing-reveal-ready');
+
+    const observer = typeof window.IntersectionObserver === 'function'
+      ? new window.IntersectionObserver(
+          (entries) => {
+            entries.forEach((entry) => {
+              if (!entry.isIntersecting) return;
+              entry.target.classList.add('is-visible');
+              observer.unobserve(entry.target);
+            });
+          },
+          { threshold: 0.14, rootMargin: '0px 0px -6%' },
+        )
+      : null;
+
+    if (observer) {
+      laterTargets.forEach((element) => observer.observe(element));
+    } else {
+      laterTargets.forEach((element) => element.classList.add('is-visible'));
+    }
+
+    const animationFrame = window.requestAnimationFrame(() => {
+      // Hero text is a load reveal, not a scroll reveal.
+      heroTargets.forEach((element) => element.classList.add('is-visible'));
+    });
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      observer?.disconnect();
+      root.classList.remove('landing-reveal-ready');
+      revealTargets.forEach((element) => {
+        element.classList.remove('landing-reveal', 'is-visible');
+        element.style.removeProperty('--landing-reveal-delay');
+      });
+    };
+  }, []);
+
   return (
     <main className="home-grid landing-home" ref={landingRef}>
       <div className="landing-background" aria-hidden="true">
@@ -1985,12 +2055,21 @@ function Home({
         <div className="landing-glow landing-glow-red" />
         <div className="landing-cursor-glow" />
       </div>
+      <div className="landing-ring-field" aria-hidden="true">
+        <span className="landing-ring landing-ring-primary" />
+        <span className="landing-ring landing-ring-secondary" />
+        <span className="landing-ring landing-ring-tertiary" />
+      </div>
       <section className="intro landing-hero">
         <p className="eyebrow landing-eyebrow">{t('home.eyebrow')}</p>
         <h1 className="landing-wordmark" aria-label={t('home.titleA')}>
-          <span className="brand-blue">TEAM</span><span className="brand-red">ERGENCY</span>
+          <span className="landing-wordmark-reveal">
+            <span className="brand-blue">TEAM</span><span className="brand-red">ERGENCY</span>
+          </span>
         </h1>
-        <p className="hero-tagline landing-tagline">{t('home.titleB')}</p>
+        <p className="hero-tagline landing-tagline">
+          <span className="landing-tagline-reveal">{t('home.titleB')}</span>
+        </p>
 
         <div className="landing-role-grid" aria-label={t('home.chooseRole')}>
           {roleCards.map((role) => {
@@ -2189,11 +2268,11 @@ function JoinClassPage({ profile, profileId, initialCode = '', onCreateProfile, 
   return (
     <main className="screen">
       <section className="form-shell">
-        <div className="form-heading">
+        <div className="form-heading app-page-intro">
           <UsersRound size={28} />
           <div>
-	            <p className="eyebrow">{t('join.title')}</p>
-	            <h2>{t('join.subtitle')}</h2>
+	            <p className="eyebrow app-page-eyebrow">{t('join.title')}</p>
+	            <div className="app-page-title-mask"><h2 className="app-page-title">{t('join.subtitle')}</h2></div>
           </div>
         </div>
 
@@ -2242,6 +2321,9 @@ function JoinClassPage({ profile, profileId, initialCode = '', onCreateProfile, 
 }
 
 function MyClassesPage({ profileId, profile, onCreateProfile, onJoinClass, onOpenClass, t = translate.bind(null, 'en') }) {
+  const classGridRef = useRef(null);
+  const lastScrollYRef = useRef(0);
+  const scrollDirectionRef = useRef('down');
   const [state, setState] = useState({
     loading: true,
     error: '',
@@ -2332,6 +2414,61 @@ function MyClassesPage({ profileId, profile, onCreateProfile, onJoinClass, onOpe
     };
   }, [profileId]);
 
+  useEffect(() => {
+    if (!profileId || state.loading) return undefined;
+
+    const grid = classGridRef.current;
+    if (!grid) return undefined;
+
+    const cards = Array.from(grid.querySelectorAll('.my-class-card'));
+    if (cards.length === 0) return undefined;
+
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (reduceMotion || typeof IntersectionObserver === 'undefined') {
+      cards.forEach((card) => card.classList.add('is-in-view'));
+      return undefined;
+    }
+
+    lastScrollYRef.current = window.scrollY;
+    const handleScroll = () => {
+      const currentScrollY = window.scrollY;
+      if (currentScrollY !== lastScrollYRef.current) {
+        scrollDirectionRef.current = currentScrollY > lastScrollYRef.current ? 'down' : 'up';
+        lastScrollYRef.current = currentScrollY;
+      }
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        const card = entry.target;
+        if (entry.isIntersecting) {
+          card.classList.add('is-in-view');
+          card.classList.remove('is-above', 'is-below');
+          return;
+        }
+
+        const rect = entry.boundingClientRect;
+        const edgeThreshold = window.innerHeight * 0.12;
+        const position = rect.top >= window.innerHeight - edgeThreshold
+          ? 'below'
+          : rect.bottom <= edgeThreshold
+            ? 'above'
+            : scrollDirectionRef.current === 'up'
+              ? 'below'
+              : 'above';
+        card.classList.remove('is-in-view', 'is-above', 'is-below');
+        card.classList.add(`is-${position}`);
+      });
+    }, { rootMargin: '-8% 0px -8% 0px', threshold: 0.18 });
+
+    cards.forEach((card) => observer.observe(card));
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      observer.disconnect();
+    };
+  }, [profileId, state.loading, state.search, state.classes.length]);
+
   if (!profileId) {
     return (
       <main className="screen compact">
@@ -2387,28 +2524,32 @@ function MyClassesPage({ profileId, profile, onCreateProfile, onJoinClass, onOpe
   };
 
   return (
-    <main className="screen">
-      <div className="results-header">
+    <main className="screen my-classes-screen">
+      <section className="my-classes-intro app-page-intro">
         <div>
-	          <p className="eyebrow">{t('classes.academic')}</p>
-	          <h2>{t('classes.title')}</h2>
-	          <p>{t('classes.subtitle')}</p>
+	          <p className="eyebrow app-page-eyebrow">{t('classes.academic')}</p>
+	          <div className="my-classes-title-mask app-page-title-mask">
+            <h1 className="app-page-title">{t('classes.title')}</h1>
+          </div>
+	          <p className="my-classes-description app-page-description">{t('classes.subtitle')}</p>
         </div>
-        <button className="primary" onClick={onJoinClass}>
+      </section>
+
+      <div className="my-classes-controls app-page-controls">
+        <label className="class-directory-search my-classes-search">
+          <Search size={18} />
+          <span className="sr-only">{t('classes.search')}</span>
+          <input
+            value={state.search}
+            onChange={(event) => setState((current) => ({ ...current, search: event.target.value }))}
+            placeholder={t('classes.searchPlaceholder')}
+          />
+        </label>
+        <button className="primary my-classes-join" onClick={onJoinClass}>
           <UserPlus size={18} />
 	          {t('join.joinClass')}
         </button>
       </div>
-
-      <label className="class-directory-search">
-        <Search size={18} />
-        <span className="sr-only">{t('classes.search')}</span>
-        <input
-          value={state.search}
-          onChange={(event) => setState((current) => ({ ...current, search: event.target.value }))}
-          placeholder={t('classes.searchPlaceholder')}
-        />
-      </label>
 
       {state.error && <p className="error">{state.error}</p>}
 
@@ -2418,8 +2559,8 @@ function MyClassesPage({ profileId, profile, onCreateProfile, onJoinClass, onOpe
 	          <button className="primary" onClick={onJoinClass}>{t('join.joinClass')}</button>
         </section>
       ) : (
-        <div className="match-grid">
-	          {visibleClasses.map((classItem) => {
+        <div className="match-grid my-classes-grid" ref={classGridRef}>
+	          {visibleClasses.map((classItem, index) => {
             const request = pickClassRequest(state.requests, classItem.id);
 	            const requestMetrics = request ? getTeamProgress(request, state.progressByRequest[request.id]) : null;
 	            const editableStatus = getTeamStatusFromEditableTeam(state.teamStatusByClass[classItem.id], t);
@@ -2432,28 +2573,37 @@ function MyClassesPage({ profileId, profile, onCreateProfile, onJoinClass, onOpe
               : editableStatus || classTeamStatus(classItem, request, requestMetrics, t);
 
 	            return (
-	              <article className="match-card" key={classItem.id}>
+	              <article
+                className="match-card my-class-card"
+                key={classItem.id}
+                style={{ '--reveal-index': index }}
+              >
 	                <div className="class-card-topline">
 	                  <span className={`status-badge ${isJoined ? 'success' : 'pending'}`}>{isJoined ? t('classes.joined') : t('classes.available')}</span>
 	                  {classItem.is_demo && <DemoBadge />}
 	                  {isCreator && <span className="status-badge info">{t('classes.createdByYou')}</span>}
 	                </div>
-	                <h3>{getClassDisplay(classItem)}</h3>
-                <p>{universityLabel(classItem.university)} | {schoolLabel(classItem.school)} | {majorLabel(classItem.major)}</p>
-	                <p>{getAcademicPeriodDisplay(classItem)} | {t('join.lecturer')}: {classItem.lecturer_name || t('common.notSpecified')}</p>
-                <div className="mini-detail">
-                  <strong>{t('classes.joinCode')}</strong>
+	                <h3 className="my-class-title">{getClassDisplay(classItem)}</h3>
+                <p className="my-class-academic">{universityLabel(classItem.university)} | {schoolLabel(classItem.school)} | {majorLabel(classItem.major)}</p>
+                <div className="my-class-meta">
+                  <p>{getAcademicPeriodDisplay(classItem)}</p>
+                  <p>{t('join.lecturer')}: {classItem.lecturer_name || t('common.notSpecified')}</p>
+                </div>
+                <div className="mini-detail my-class-code">
+	                  <strong>{t('classes.joinCode')}</strong>
+	                  <div className="my-class-code-row">
 	                  <span className="class-code-value">{classCode || t('common.notSpecified')}</span>
 	                  {classCode && <button className="quiet-action" type="button" onClick={() => copyClassCode(classCode)}>{state.copiedCode === classCode ? t('classes.copied') : t('classes.copy')}</button>}
+	                  </div>
 	                </div>
-	                {isJoined && <div className="mini-detail">
+	                {isJoined && <div className="mini-detail my-class-team-status">
 	                  <strong>{t('classes.teamStatus')}</strong>
 	                  <span>{metrics ? `${teammateCountSummary(metrics, t)} | ${remainingSummary(metrics, t)}` : translateStatusText(status.detail, t)}</span>
 	                </div>}
                 {isJoined ? (
-                  <button className="secondary" onClick={() => onOpenClass(classItem.id)}>{t('classes.open')}</button>
+                  <button className="secondary my-class-action" onClick={() => onOpenClass(classItem.id)}>{t('classes.open')}</button>
                 ) : isCreator ? null : (
-                  <button className="primary" onClick={() => onJoinClass(classItem)} disabled={classItem.status !== 'active'}>
+	                  <button className="primary my-class-action" onClick={() => onJoinClass(classItem)} disabled={classItem.status !== 'active'}>
                     {classItem.status === 'active' ? t('join.joinClass') : t('classes.unavailable')}
                   </button>
                 )}
@@ -2787,11 +2937,11 @@ function ClassDetailPage({
 	        {t('classes.title')}
       </button>
 
-      <div className="results-header class-detail-header">
+      <div className="results-header class-detail-header app-page-intro">
         <div>
-	          <p className="eyebrow">{t('class.detail')}</p>
-          <h2>{getClassDisplay(state.classItem)}</h2>
-          <p>{universityLabel(state.classItem.university)} | {schoolLabel(state.classItem.school)} | {majorLabel(state.classItem.major)}</p>
+	          <p className="eyebrow app-page-eyebrow">{t('class.detail')}</p>
+	          <div className="app-page-title-mask"><h2 className="app-page-title">{getClassDisplay(state.classItem)}</h2></div>
+	          <p className="app-page-description">{universityLabel(state.classItem.university)} | {schoolLabel(state.classItem.school)} | {majorLabel(state.classItem.major)}</p>
         </div>
       </div>
 
@@ -3210,11 +3360,11 @@ function LecturerDashboard({ activeRole, lecturerSession, profileId, onOpenProfi
 
   return (
     <main className="screen">
-	      <div className="results-header">
+	      <div className="results-header app-page-intro">
 	        <div>
-		          <p className="eyebrow">{t('lecturer.dashboard')}</p>
-	          <h2>{t('lecturer.demoClassesFor', { name: lecturerSession.lecturerName })}</h2>
-	          <p>{universityLabel(lecturerSession.university)} · {t('lecturer.demoId', { id: lecturerSession.lecturerId })}</p>
+		          <p className="eyebrow app-page-eyebrow">{t('lecturer.dashboard')}</p>
+	          <div className="app-page-title-mask"><h2 className="app-page-title">{t('lecturer.demoClassesFor', { name: lecturerSession.lecturerName })}</h2></div>
+	          <p className="app-page-description">{universityLabel(lecturerSession.university)} · {t('lecturer.demoId', { id: lecturerSession.lecturerId })}</p>
 	        </div>
 	        <button className="primary" type="button" onClick={() => setCreateOpen((current) => !current)}>
 	          <Plus size={18} />
@@ -3600,12 +3750,12 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
     <main className="screen">
       <StepRail step={0} t={t} />
       <form className="form-shell" onSubmit={submit}>
-        <div className="form-heading">
+        <div className="form-heading app-page-intro">
           <UserRound size={28} />
           <div>
-	            <p className="eyebrow">{t('profile.createUserProfile')}</p>
-	            <h2>{t('profile.completeTitle')}</h2>
-              <p className="note">{isLecturer ? t('profile.lecturerProfileHint') : t('profile.studentProfileHint')}</p>
+	            <p className="eyebrow app-page-eyebrow">{t('profile.createUserProfile')}</p>
+	            <div className="app-page-title-mask"><h2 className="app-page-title">{t('profile.completeTitle')}</h2></div>
+	              <p className="note app-page-description">{isLecturer ? t('profile.lecturerProfileHint') : t('profile.studentProfileHint')}</p>
               <p className="signed-in-line">{t('profile.role')}: {isLecturer ? t('profile.lecturer') : t('profile.student')}</p>
               <p className="required-note">{t('profile.requiredNote')}</p>
           </div>
@@ -4211,19 +4361,19 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
           <ArrowLeft size={18} />
           {t('common.back')}
         </button>
-        <div className="form-heading">
+        <div className="form-heading app-page-intro">
           <Search size={28} />
           <div>
-		            <p className="eyebrow">
+		            <p className="eyebrow app-page-eyebrow">
 		              {mode === 'edit'
 		                ? (isClassLocked ? t('request.editClass') : t('request.edit'))
 		                : isClassLocked ? t('request.class') : t('request.open')}
 		            </p>
-	            <h2>
+	            <div className="app-page-title-mask"><h2 className="app-page-title">
 	              {mode === 'edit'
 	                ? t('request.updateTitle')
 	                : isClassLocked ? t('request.classTitle') : t('request.openTitle')}
-	            </h2>
+	            </h2></div>
           </div>
         </div>
 
@@ -4854,10 +5004,10 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
   return (
     <main className="screen results">
       <StepRail step={2} t={t} />
-      <div className="results-header">
+      <div className="results-header app-page-intro">
         <div>
-	          <p className="eyebrow">{isClassRequest ? t('matches.recommended') : t('matches.results')}</p>
-	          <h2>{isClassRequest ? t('matches.best') : t('matches.byRequest')}</h2>
+	          <p className="eyebrow app-page-eyebrow">{isClassRequest ? t('matches.recommended') : t('matches.results')}</p>
+	          <div className="app-page-title-mask"><h2 className="app-page-title">{isClassRequest ? t('matches.best') : t('matches.byRequest')}</h2></div>
         </div>
         <button className="secondary" onClick={() => onViewCurrent(currentRequest)}>
           <Clock3 size={18} />
@@ -4934,6 +5084,9 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
   });
   const [filters, setFilters] = useState({ university: '', school: '', major: '', course: '', skill: '' });
   const discoveryOpenTrackedRef = useRef(false);
+  const discoverGridRef = useRef(null);
+  const discoverLastScrollYRef = useRef(0);
+  const discoverScrollDirectionRef = useRef('down');
 
   useEffect(() => {
     let alive = true;
@@ -4988,6 +5141,60 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
       dedupeKey: currentProfileId ? `discovery_opened:${currentProfileId}` : null,
     });
   }, [currentProfileId]);
+
+  useEffect(() => {
+    if (state.loading) return undefined;
+
+    const grid = discoverGridRef.current;
+    if (!grid) return undefined;
+
+    const cards = Array.from(grid.querySelectorAll('.discover-reveal-card'));
+    if (cards.length === 0) return undefined;
+
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (reduceMotion || typeof IntersectionObserver === 'undefined') {
+      cards.forEach((card) => card.classList.add('is-in-view'));
+      return undefined;
+    }
+
+    discoverLastScrollYRef.current = window.scrollY;
+    const handleScroll = () => {
+      const currentScrollY = window.scrollY;
+      if (currentScrollY === discoverLastScrollYRef.current) return;
+      discoverScrollDirectionRef.current = currentScrollY > discoverLastScrollYRef.current ? 'down' : 'up';
+      discoverLastScrollYRef.current = currentScrollY;
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        const card = entry.target;
+        if (entry.isIntersecting) {
+          card.classList.add('is-in-view');
+          card.classList.remove('is-above', 'is-below');
+          return;
+        }
+
+        const rect = entry.boundingClientRect;
+        const edgeThreshold = window.innerHeight * 0.12;
+        const position = rect.top >= window.innerHeight - edgeThreshold
+          ? 'below'
+          : rect.bottom <= edgeThreshold
+            ? 'above'
+            : discoverScrollDirectionRef.current === 'up'
+              ? 'below'
+              : 'above';
+        card.classList.remove('is-in-view', 'is-above', 'is-below');
+        card.classList.add(`is-${position}`);
+      });
+    }, { rootMargin: '-8% 0px -8% 0px', threshold: 0.18 });
+
+    cards.forEach((card) => observer.observe(card));
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      observer.disconnect();
+    };
+  }, [state.loading, state.profiles.length, filters.university, filters.school, filters.major, filters.course, filters.skill]);
 
   const requestsByProfile = state.activeRequests.reduce((map, request) => {
     map[request.profile_id] = [...(map[request.profile_id] || []), request];
@@ -5156,11 +5363,11 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
 
   return (
     <main className="screen">
-      <div className="results-header">
+      <div className="results-header app-page-intro">
         <div>
-          <p className="eyebrow">{t('discover.title')}</p>
-          <h2>{t('discover.heading')}</h2>
-          <p>{t('discover.subtitle')}</p>
+          <p className="eyebrow app-page-eyebrow">{t('discover.title')}</p>
+          <div className="app-page-title-mask"><h2 className="app-page-title">{t('discover.heading')}</h2></div>
+          <p className="app-page-description">{t('discover.subtitle')}</p>
         </div>
       </div>
 
@@ -5241,8 +5448,8 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
       )}
 
       {!state.loading && filteredProfiles.length > 0 && (
-        <div className="discover-grid">
-          {filteredProfiles.map((profile) => {
+        <div className="discover-grid discover-reveal-grid" ref={discoverGridRef}>
+          {filteredProfiles.map((profile, index) => {
             const disabledReason = !currentProfileId
                 ? t('connections.needProfile')
                 : '';
@@ -5250,7 +5457,11 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
             const connectionState = getConnectionState(connection, currentProfileId);
 
             return (
-              <article className={isPremiumProfile(profile) ? 'discover-card premium-card' : 'discover-card'} key={profile.id}>
+              <article
+                className={`${isPremiumProfile(profile) ? 'discover-card premium-card' : 'discover-card'} discover-reveal-card`}
+                key={profile.id}
+                style={{ '--reveal-index': index }}
+              >
                 <div className="avatar">{displayInitial(profile.full_name)}</div>
                 <h3>{displayName(profile.full_name)} {profile.is_demo && <DemoBadge />} {isPremiumProfile(profile) && <PremiumBadge t={t} />}</h3>
                 <p>{savedUniversityDisplay(profile)}</p>
@@ -5629,13 +5840,13 @@ function DiscoverProfileDetail({ profileId, currentProfileId, currentProfile, on
   );
 }
 
-function ReviewsSection({ reviews = [], profile, title = '', viewerProfile = null, t = translate.bind(null, 'en') }) {
+function ReviewsSection({ reviews = [], profile, title = '', viewerProfile = null, showSummary = true, t = translate.bind(null, 'en') }) {
   const canReadFullReviews = profile?.id === viewerProfile?.id || isPremiumProfile(viewerProfile);
 
   return (
     <section className="request-summary-box">
       <p className="eyebrow">{title || t('profile.reviews')}</p>
-      <h3>{reviewSummaryLabel(profile, reviews, t)}</h3>
+      {showSummary && <h3>{reviewSummaryLabel(profile, reviews, t)}</h3>}
       {reviews.length === 0 ? (
         <p className="note">{t('profile.noReviews')}</p>
       ) : !canReadFullReviews ? (
@@ -6264,10 +6475,10 @@ function RequestDetailPage({
         <ArrowLeft size={18} />
         {t('opportunities.backToCollabs')}
       </button>
-      <div className="results-header">
+      <div className="results-header app-page-intro">
         <div>
-          <p className="eyebrow">{t('opportunities.requestDetail')}</p>
-          <h2>{getCourseDisplay(request)} {isPremiumProfile(profile) && <PremiumBadge t={t} />} {isRequestPinned(request) && <span className="premium-badge pinned">{t('premium.pinned')}</span>}</h2>
+          <p className="eyebrow app-page-eyebrow">{t('opportunities.requestDetail')}</p>
+          <div className="app-page-title-mask"><h2 className="app-page-title">{getCourseDisplay(request)} {isPremiumProfile(profile) && <PremiumBadge t={t} />} {isRequestPinned(request) && <span className="premium-badge pinned">{t('premium.pinned')}</span>}</h2></div>
         </div>
       </div>
 
@@ -7000,10 +7211,10 @@ function CurrentRequest({
   const marketplaceRequests = state.requests.filter((request) => request.profile_id !== currentProfileId);
 
   const renderCollabHeader = () => (
-    <div className="results-header collabs-page-header">
+    <div className="results-header collabs-page-header app-page-intro">
       <div>
-        <p className="eyebrow">{t('opportunities.title')}</p>
-        <h2>{t('opportunities.profileIntro')}</h2>
+        <p className="eyebrow app-page-eyebrow">{t('opportunities.title')}</p>
+        <div className="app-page-title-mask"><h2 className="app-page-title">{t('opportunities.profileIntro')}</h2></div>
       </div>
       <div className="collabs-header-actions">
         <button className="primary" onClick={onCreateNew}>
@@ -7552,10 +7763,10 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
 
   return (
     <main className="screen">
-      <div className="results-header">
+      <div className="results-header app-page-intro">
         <div>
-          <p className="eyebrow">{t('nav.connections')}</p>
-          <h2>{t('connections.requests')}</h2>
+          <p className="eyebrow app-page-eyebrow">{t('nav.connections')}</p>
+          <div className="app-page-title-mask"><h2 className="app-page-title">{t('connections.requests')}</h2></div>
         </div>
         <div className="segmented">
           {tabs.map((item) => (
@@ -7647,27 +7858,6 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
                   <p>{t('connections.discoverConnection')}</p>
                 )}
                 {request.intro_message && <blockquote className="intro-message">{request.intro_message}</blockquote>}
-                {request.sender_team_request_id && state.currentRequest && (
-                  <div className="score inline-score">
-                    <Sparkles size={16} />
-                    {t('matches.matchPercent', { score: calculateMatchScore(state.currentRequest.profile, state.currentRequest, {
-                      school: request.teammate_school,
-                      major: request.teammate_major,
-                      course: request.course,
-                      course_name: request.course_name,
-                      course_code: request.course_code,
-                      class_session: request.class_session,
-                      skills_needed: request.skills_needed,
-                      work_styles: request.work_styles,
-                      created_at: request.created_at,
-                      profile: {
-                        school: request.teammate_school,
-                        major: request.teammate_major,
-                        skills: request.teammate_skills,
-                      },
-                    }) })}
-                  </div>
-                )}
                 <div className="connection-skills-summary">
                   <div className="mini-detail">
                     <strong>{t('matches.skillsHave')}</strong>
@@ -8022,10 +8212,10 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile, t = translat
 
   return (
     <main className="screen">
-      <div className="results-header">
+      <div className="results-header app-page-intro">
         <div>
-          <p className="eyebrow">{t('connections.friends')}</p>
-          <h2>{t('connections.discoverFriends')}</h2>
+          <p className="eyebrow app-page-eyebrow">{t('connections.friends')}</p>
+          <div className="app-page-title-mask"><h2 className="app-page-title">{t('connections.discoverFriends')}</h2></div>
         </div>
       </div>
       {!currentProfileId && <section className="empty-state"><p>{t('connections.needProfile')}</p></section>}
@@ -8221,10 +8411,10 @@ function MessagesList({ currentProfileId, onOpenChat, onViewProfile, onNotificat
   return (
     <Shell className={embedded ? 'messages-tab-panel' : 'screen compact'}>
       {!embedded && (
-        <div className="results-header">
+        <div className="results-header app-page-intro">
           <div>
-            <p className="eyebrow">{t('messages.title')}</p>
-            <h2>{t('messages.accepted')}</h2>
+            <p className="eyebrow app-page-eyebrow">{t('messages.title')}</p>
+            <div className="app-page-title-mask"><h2 className="app-page-title">{t('messages.accepted')}</h2></div>
           </div>
         </div>
       )}
@@ -8871,11 +9061,17 @@ function MyProfile({
     }
   };
 
+  const profileContact = currentRole === 'student'
+    ? (profile?.contact_value && profile.contact_value !== authEmail
+      ? `${contactLabel(profile.contact_type)}: ${profile.contact_value}`
+      : '')
+    : (profile?.lecturer_contact_detail || profile?.contact_value || '');
+  const showProfileContact = Boolean(profileContact && profileContact !== authEmail);
+
   return (
-	    <main className="screen compact">
-      <section className="profile-panel">
-	        <p className="eyebrow">{t('profile.myProfile')}</p>
-          {signedInWithGoogle && (
+    <main className="screen compact my-profile-screen">
+      <section className="profile-panel my-profile-panel">
+          {signedInWithGoogle && !profile && (
             <p className="signed-in-line">{t('profile.googleSignedIn')}{authEmail ? ` · ${authEmail}` : ''}</p>
           )}
 	        {!profile ? (
@@ -9112,63 +9308,111 @@ function MyProfile({
                   <button className="secondary" type="button" onClick={cancelEdit}>{t('common.cancel')}</button>
                 </div>
               </form>
-            ) : currentRole === 'student' ? (
-              <>
-                <div className="avatar">{displayInitial(profile.full_name)}</div>
-                <h2>{displayName(profile.full_name)}</h2>
-                <dl>
-	                  <div><dt>{t('profile.role')}</dt><dd>{t('profile.student')}</dd></div>
-                    <div><dt>{t('premium.subscription')}</dt><dd>{subscriptionLabel(profile, t)} {isPremiumProfile(profile) && <PremiumBadge t={t} />}</dd></div>
-                  <div><dt>{t('profile.university')}</dt><dd>{universityLabel(profile.university)}</dd></div>
-                  {hasDisplaySchool(profile.school) && <div><dt>{t('profile.school')}</dt><dd>{schoolLabel(profile.school)}</dd></div>}
-                  <div><dt>{t('profile.major')}</dt><dd>{majorLabel(profile.major) || t('common.notSpecified')}</dd></div>
-	                  <div>
-                    <dt>{t('profile.reviews')}</dt>
-                    <dd>{reviewsState.loading ? t('profile.loadingReviews') : reviewSummaryLabel(profile, reviewsState.reviews, t)}</dd>
-                  </div>
-                  <div><dt>{t('profile.contact')}</dt><dd>{contactLabel(profile.contact_type)}: {profile.contact_value}</dd></div>
-                  <div><dt>{t('profile.bio')}</dt><dd>{profile.short_bio || t('common.notSpecified')}</dd></div>
-                </dl>
-                <PillList items={profile.skills} />
+            ) : (
+              <div className="my-profile-composition">
+                <header className="my-profile-profile-header">
+                  <p className="eyebrow my-profile-eyebrow">{t('profile.myProfile')}</p>
+                  <h2>{displayName(profile.full_name)}</h2>
+                  <p className="profile-header-meta">
+                    {currentRole === 'student' ? t('profile.student') : t('profile.lecturer')} · {subscriptionLabel(profile, t)}
+                  </p>
+                  <p className="profile-header-university">{universityLabel(profile.university)}</p>
+                  {signedInWithGoogle && (
+                    <div className="profile-header-account-state">
+                      <p className="profile-google-status">{t('profile.googleSignedIn')}</p>
+                      {authEmail && <p className="profile-google-email">{authEmail}</p>}
+                    </div>
+                  )}
+                </header>
+
+                <div className="my-profile-information-rows" aria-label={t('profile.myProfile')}>
+                  <section className="my-profile-section my-profile-academic-section">
+                    <h3 className="my-profile-section-title">{t('profile.academicSection')}</h3>
+                    <div className="my-profile-field-list">
+                      {currentRole === 'student' && hasDisplaySchool(profile.school) && (
+                        <div className="my-profile-field">
+                          <p className="profile-field-label">{t('profile.school')}</p>
+                          <p className="profile-field-value">{schoolLabel(profile.school)}</p>
+                        </div>
+                      )}
+                      {currentRole === 'lecturer' && hasDisplaySchool(profile.school) && (
+                        <div className="my-profile-field">
+                          <p className="profile-field-label">{t('profile.department')}</p>
+                          <p className="profile-field-value">{schoolLabel(profile.school)}</p>
+                        </div>
+                      )}
+                      <div className="my-profile-field">
+                        <p className="profile-field-label">{currentRole === 'student' ? t('profile.major') : t('profile.subject')}</p>
+                        <p className="profile-field-value">
+                          {currentRole === 'student'
+                            ? (majorLabel(profile.major) || t('common.notSpecified'))
+                            : (subjectLabel(profile.academic_field) || t('common.notSpecified'))}
+                        </p>
+                      </div>
+                      {currentRole === 'lecturer' && (
+                        <div className="my-profile-field">
+                          <p className="profile-field-label">{t('profile.lecturerId')}</p>
+                          <p className="profile-field-value">{profile.lecturer_id || lecturerSession?.lecturerId || t('common.notSpecified')}</p>
+                        </div>
+                      )}
+                    </div>
+                  </section>
+
+                  <section className="my-profile-section my-profile-about-section">
+                    <h3 className="my-profile-section-title">{t('profile.aboutSection')}</h3>
+                    <div className="my-profile-field-list">
+                      <div className="my-profile-field my-profile-field--wide">
+                        <p className="profile-field-label">{currentRole === 'student' ? t('profile.bio') : t('profile.bioNote')}</p>
+                        <p className="profile-field-value profile-bio-copy">{profile.short_bio || t('common.notSpecified')}</p>
+                      </div>
+                      {currentRole === 'student' && (
+                        <div className="my-profile-field my-profile-field--wide">
+                          <p className="profile-field-label">{t('profile.skills')}</p>
+                          <PillList items={profile.skills} />
+                        </div>
+                      )}
+                    </div>
+                  </section>
+
+                  {showProfileContact && (
+                    <section className="my-profile-section my-profile-contact-section">
+                      <h3 className="my-profile-section-title">{t('profile.accountSection')}</h3>
+                      <div className="my-profile-field-list">
+                        <div className="my-profile-field">
+                          <p className="profile-field-label">{t('profile.contact')}</p>
+                          <p className="profile-field-value">{profileContact}</p>
+                        </div>
+                      </div>
+                    </section>
+                  )}
+                </div>
+
+                {!reviewsState.loading && !reviewsState.error && (
+                  <section className="my-profile-review-section">
+                    <ReviewsSection
+                      profile={profile}
+                      reviews={reviewsState.reviews}
+                      title={t('profile.reviews')}
+                      viewerProfile={profile}
+                      showSummary={false}
+                      t={t}
+                    />
+                  </section>
+                )}
                 {reviewsState.loading && <p className="loading">{t('profile.loadingReviews')}</p>}
                 {reviewsState.error && <p className="error">{reviewsState.error}</p>}
-                {!reviewsState.loading && !reviewsState.error && (
-                  <ReviewsSection
-                    profile={profile}
-                    reviews={reviewsState.reviews}
-                    title={t('profile.reviewsAboutYou')}
-                    viewerProfile={profile}
-                    t={t}
-                  />
-                )}
-                {message && <p className="success">{message}</p>}
-                <div className="stacked-actions profile-actions">
-                  <button className="primary link-button" onClick={startEdit}>{t('profile.editProfile')}</button>
-	                  <button className="secondary link-button" onClick={onCreateSearch}>{t('opportunities.new')}</button>
-                  <button className="secondary link-button quiet-action" type="button" onClick={onLogout}>{t('profile.logout')}</button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="avatar">{displayInitial(profile.full_name)}</div>
-                <h2>{displayName(profile.full_name)}</h2>
-                <dl>
-                  <div><dt>{t('profile.role')}</dt><dd>{t('profile.lecturer')}</dd></div>
-                  <div><dt>{t('profile.university')}</dt><dd>{universityLabel(profile.university)}</dd></div>
-                  {hasDisplaySchool(profile.school) && <div><dt>{t('profile.department')}</dt><dd>{schoolLabel(profile.school)}</dd></div>}
-                  <div><dt>{t('profile.subject')}</dt><dd>{subjectLabel(profile.academic_field) || t('common.notSpecified')}</dd></div>
-                  <div><dt>{t('profile.lecturerId')}</dt><dd>{profile.lecturer_id || lecturerSession?.lecturerId || t('common.notSpecified')}</dd></div>
-                  <div><dt>{t('profile.contact')}</dt><dd>{profile.lecturer_contact_detail || profile.contact_value || t('common.notSpecified')}</dd></div>
-                  <div><dt>{t('profile.bio')}</dt><dd>{profile.short_bio || t('common.notSpecified')}</dd></div>
-                </dl>
                 {message && <p className="success">{message}</p>}
                 {error && <p className="error">{error}</p>}
                 <div className="stacked-actions profile-actions">
-                  <button className="primary link-button" type="button" onClick={onOpenLecturer}>{t('profile.openLecturer')}</button>
-                  <button className="secondary link-button" type="button" onClick={startEdit}>{t('profile.editProfile')}</button>
+                  <button className="primary link-button" type="button" onClick={startEdit}>{t('profile.editProfile')}</button>
+                  {currentRole === 'student' ? (
+                    <button className="secondary link-button" onClick={onCreateSearch}>{t('opportunities.new')}</button>
+                  ) : (
+                    <button className="primary link-button" type="button" onClick={onOpenLecturer}>{t('profile.openLecturer')}</button>
+                  )}
                   <button className="secondary link-button quiet-action" type="button" onClick={onLogout}>{t('profile.logout')}</button>
                 </div>
-              </>
+              </div>
             )}
           </>
         )}
