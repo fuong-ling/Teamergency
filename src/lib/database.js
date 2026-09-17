@@ -80,6 +80,37 @@ const isMissingSchemaFeature = (error) => {
     || message.includes('column');
 };
 
+const isOptionalMembershipBackendError = (error) => {
+  const code = String(error?.code || '').toUpperCase();
+  const message = String(error?.message || '').toLowerCase();
+  const membershipIdentifier = [
+    'team_request_memberships',
+    'get_team_request_members',
+    'get_joined_team_requests',
+    'remove_team_request_member',
+    'leave_team_request',
+  ].some((identifier) => message.includes(identifier));
+
+  return membershipIdentifier
+    && (
+      ['PGRST202', 'PGRST204', '42P01', '42883'].includes(code)
+      || message.includes('could not find')
+      || message.includes('does not exist')
+      || message.includes('schema cache')
+      || message.includes('relation')
+      || message.includes('function')
+    );
+};
+
+const createOptionalMembershipBackendError = (backendError) => {
+  const error = new Error('Project membership management is unavailable until the membership migration is applied.');
+  error.code = 'OPTIONAL_MEMBERSHIP_BACKEND_UNAVAILABLE';
+  error.cause = backendError;
+  error.backendCode = backendError?.code;
+  error.backendMessage = backendError?.message;
+  return error;
+};
+
 const isClassProfileRestrictionError = (error) => {
   const message = String(error?.message || '').toLowerCase();
   return message.includes('class code not found for this profile')
@@ -1374,6 +1405,68 @@ export const getTeamRequestJoinState = async (targetRequest, joiningProfile) => 
 
   if (error) throw error;
   return data?.[0] || null;
+};
+
+export const getTeamRequestMembers = async (requestId, currentProfileId) => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc('get_team_request_members', {
+    target_request: requestId,
+    current_profile: currentProfileId,
+  });
+
+  if (error) {
+    if (isOptionalMembershipBackendError(error)) throw createOptionalMembershipBackendError(error);
+    throw error;
+  }
+  return data || [];
+};
+
+export const getJoinedTeamRequests = async (currentProfileId) => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc('get_joined_team_requests', {
+    current_profile: currentProfileId,
+  });
+
+  if (error) {
+    if (isOptionalMembershipBackendError(error)) return [];
+    throw error;
+  }
+  return data || [];
+};
+
+export const removeTeamRequestMember = async ({ requestId, ownerProfileId, memberProfileId }) => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc('remove_team_request_member', {
+    target_request: requestId,
+    owner_profile: ownerProfileId,
+    member_profile: memberProfileId,
+  });
+
+  if (error) {
+    if (isOptionalMembershipBackendError(error)) {
+      throw new Error('Project membership management is unavailable until the membership migration is applied.');
+    }
+    throw error;
+  }
+  if (!data?.length) throw new Error('Project member could not be removed.');
+  return data[0];
+};
+
+export const leaveTeamRequest = async (requestId, memberProfileId) => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc('leave_team_request', {
+    target_request: requestId,
+    member_profile: memberProfileId,
+  });
+
+  if (error) {
+    if (isOptionalMembershipBackendError(error)) {
+      throw new Error('Project membership management is unavailable until the membership migration is applied.');
+    }
+    throw error;
+  }
+  if (!data?.length) throw new Error('Project could not be left.');
+  return data[0];
 };
 
 export const sendConnectionRequest = async ({

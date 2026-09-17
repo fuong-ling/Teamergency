@@ -6118,15 +6118,15 @@ option {
 
 /* Current-request / Collabs layout alignment with Discover */
 .collabs-screen {
-  width: min(1120px, calc(100% - 36px));
+  width: min(1400px, calc(100% - 96px));
 }
 
 .collabs-screen .collabs-page-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  margin: 18px 0 22px;
+  margin: 0 0 28px;
   align-items: start;
-  gap: 18px;
+  gap: 24px;
 }
 
 .collabs-header-actions {
@@ -6139,8 +6139,14 @@ option {
 }
 
 .collabs-screen .collabs-page-header h2 {
-  font-size: clamp(1.55rem, 2.5vw, 2.25rem);
-  line-height: 1.1;
+  max-width: 820px;
+  font-size: clamp(2.5rem, 5vw, 4rem);
+  line-height: 1;
+}
+
+.collabs-screen .collabs-page-header .app-page-description {
+  max-width: 640px;
+  margin-top: 12px;
 }
 
 .collab-mini-request {
@@ -6253,13 +6259,13 @@ option {
 }
 
 .collab-requests-panel {
-  margin-top: 22px;
+  margin-top: 0;
 }
 
 .collabs-marketplace {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
-  gap: 20px;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 30%);
+  gap: 32px;
   align-items: start;
 }
 
@@ -6275,7 +6281,7 @@ option {
 .collab-my-request-panel {
   display: grid;
   gap: 10px;
-  margin: 22px 0 0;
+  margin: 0;
 }
 
 .collab-my-request-panel h3,
@@ -6319,6 +6325,57 @@ option {
 .collab-request-card-side {
   padding-left: 16px;
   border-left: 1px solid var(--app-border);
+}
+
+.collab-filters-panel,
+.collab-joined-projects-panel {
+  margin-top: 0;
+}
+
+.collabs-screen .collab-filters-panel {
+  margin-bottom: 30px;
+  padding: 0 0 30px;
+  border: 0;
+  border-bottom: 1px solid var(--app-border);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.numbered-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.numbered-pagination-pages {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.numbered-pagination-pages button {
+  min-width: 36px;
+  height: 36px;
+  padding: 0 8px;
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  color: var(--app-text-soft);
+  background: var(--app-surface-2);
+  font: inherit;
+}
+
+.numbered-pagination-pages button:hover,
+.numbered-pagination-pages button.selected {
+  border-color: var(--app-blue);
+  color: var(--app-text);
+  background: var(--app-blue-soft);
+}
+
+.collab-joined-projects-panel .request-list {
+  margin-top: 12px;
 }
 
 .request-creator-section {
@@ -6419,6 +6476,35 @@ option {
   margin-top: 0;
 }
 
+.request-detail-owner-actions {
+  margin-top: 28px;
+}
+
+.request-detail-owner-actions .request-owner-action-row {
+  flex-wrap: nowrap;
+  align-items: center;
+  margin-top: 0;
+}
+
+.request-owner-action-note {
+  margin: 12px 0 0;
+}
+
+.request-detail-teammates .matched-row {
+  flex-wrap: wrap;
+}
+
+.request-detail-teammates .matched-row > div:first-child {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.request-detail-teammates .matched-row > .hero-actions {
+  flex: 0 1 auto;
+  justify-content: flex-end;
+  margin-top: 0;
+}
+
 .app.theme-light.view-current-request .collab-discovery-panel .discover-card,
 .app.theme-light.view-current-request .request-list-row {
   border: 1px solid var(--border-subtle) !important;
@@ -6440,11 +6526,19 @@ option {
   .request-detail-grid > .request-detail-right-column {
     margin-top: 18px;
   }
+
+  .request-detail-owner-actions .request-owner-action-row {
+    flex-wrap: wrap;
+  }
 }
 
 @media (max-width: 720px) {
+  .numbered-pagination {
+    flex-wrap: wrap;
+  }
+
   .collabs-screen {
-    width: min(100% - 24px, 1120px);
+    width: min(100% - 24px, 1400px);
   }
 
   .collabs-screen .collabs-page-header {
@@ -7517,27 +7611,27 @@ option {
 }
 
 /* Keep filter suggestions above the result grid without changing its layout. */
-.app.view-discover .filter-panel {
+.app:is(.view-discover, .view-current-request) .filter-panel {
   position: relative;
   z-index: 20;
   overflow: visible;
 }
 
-.app.view-discover .filter-panel > label {
+.app:is(.view-discover, .view-current-request) .filter-panel > label {
   position: relative;
   z-index: 21;
   min-width: 0;
 }
 
-.app.view-discover .filter-panel > label:focus-within {
+.app:is(.view-discover, .view-current-request) .filter-panel > label:focus-within {
   z-index: 22;
 }
 
-.app.view-discover .filter-panel .searchable-combobox {
+.app:is(.view-discover, .view-current-request) .filter-panel .searchable-combobox {
   z-index: 21;
 }
 
-.app.view-discover .filter-panel .searchable-combobox-menu {
+.app:is(.view-discover, .view-current-request) .filter-panel .searchable-combobox-menu {
   z-index: 40;
   max-height: 240px;
   overflow-x: hidden;
@@ -7609,7 +7703,7 @@ option {
 }
 
 @media (max-width: 760px) {
-  .app.view-discover .filter-panel .searchable-combobox-menu {
+  .app:is(.view-discover, .view-current-request) .filter-panel .searchable-combobox-menu {
     max-height: 220px;
   }
 }
@@ -10422,5 +10516,49 @@ option {
   .my-profile-composition .profile-actions .quiet-action {
     margin-left: 0;
     flex-basis: 100%;
+  }
+}
+
+/* Collabs marketplace composition: intro/action row, then the request split. */
+.app.theme-light:not(.landing-mode) .collabs-screen .collabs-page-header,
+.app.theme-dark:not(.landing-mode) .collabs-screen .collabs-page-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 24px;
+}
+
+.app.theme-light:not(.landing-mode) .collabs-screen .collabs-page-header > .collabs-header-actions,
+.app.theme-dark:not(.landing-mode) .collabs-screen .collabs-page-header > .collabs-header-actions {
+  align-self: start;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.app.theme-light:not(.landing-mode) .collabs-screen .collab-filters-panel,
+.app.theme-dark:not(.landing-mode) .collabs-screen .collab-filters-panel {
+  margin-bottom: 30px;
+  padding: 0 0 30px !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--app-border) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.app.theme-light:not(.landing-mode) .collabs-screen .collab-joined-projects-panel,
+.app.theme-dark:not(.landing-mode) .collabs-screen .collab-joined-projects-panel {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+@media (max-width: 760px) {
+  .app.theme-light:not(.landing-mode) .collabs-screen .collabs-page-header,
+  .app.theme-dark:not(.landing-mode) .collabs-screen .collabs-page-header {
+    grid-template-columns: 1fr;
   }
 }

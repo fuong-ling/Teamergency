@@ -60,6 +60,10 @@ import {
   listMyClassesWithStatus,
   getTeamRequestProgress,
   getTeamRequestJoinState,
+  getTeamRequestMembers,
+  getJoinedTeamRequests,
+  removeTeamRequestMember,
+  leaveTeamRequest,
   requestToJoinTeamRequest,
   getTeamRequestById,
   getPortfolioReferenceUrl,
@@ -149,7 +153,39 @@ const classDayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday',
 
 const currentUiLanguage = () => getStoredLanguage?.() || 'en';
 
+const DISCOVER_PAGE_SIZE = 8;
+const COLLAB_PAGE_SIZE = 6;
+
+const readSessionJson = (key, fallback) => {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const stored = window.sessionStorage.getItem(key);
+    return stored ? JSON.parse(stored) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const writeSessionJson = (key, value) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Session persistence is best-effort and must not block navigation.
+  }
+};
+
 const hiddenLegacyDemoClassCodes = ['676767', '88889999'];
+
+const dedupeConnectionProfiles = (rows = []) => {
+  const seen = new Set();
+  return rows.filter((row) => {
+    const profileId = row?.teammate_profile_id || row?.profile_id || row?.id;
+    if (!profileId || seen.has(profileId)) return false;
+    seen.add(profileId);
+    return true;
+  });
+};
 
 const networkStatusOptions = [
 	  {
@@ -666,7 +702,8 @@ const isRequestPinned = (request = {}) =>
 const sortRequestsByVisibility = (requests = []) =>
   [...requests].sort((a, b) =>
     Number(isRequestPinned(b)) - Number(isRequestPinned(a))
-    || new Date(b.created_at || 0) - new Date(a.created_at || 0),
+    || new Date(b.created_at || 0) - new Date(a.created_at || 0)
+    || String(a.id || '').localeCompare(String(b.id || '')),
   );
 
 const isProfileOwnershipError = (error) =>
@@ -994,11 +1031,11 @@ const getTeamProgress = (request, progress = {}) => {
 
 const getCollabJoinAction = (request, joinState, metrics, t = translate.bind(null, 'en')) => {
   if (joinState?.status === 'accepted') {
-    return { label: t('opportunities.joined'), disabled: true, available: false };
+    return { label: t('opportunities.joined'), status: 'accepted', disabled: true, available: false };
   }
 
   if (joinState?.status === 'pending') {
-    return { label: t('opportunities.requestSent'), disabled: true, available: false };
+    return { label: t('opportunities.requestSent'), status: 'pending', disabled: true, available: false };
   }
 
   const requestStatus = request?.team_status || {};
@@ -1008,10 +1045,10 @@ const getCollabJoinAction = (request, joinState, metrics, t = translate.bind(nul
     || (reportedRemaining !== undefined && Number(reportedRemaining) <= 0);
 
   if (isFull) {
-    return { label: t('opportunities.teamFull'), disabled: true, available: false };
+    return { label: t('opportunities.teamFull'), status: 'full', disabled: true, available: false };
   }
 
-  return { label: t('opportunities.requestToJoin'), disabled: false, available: true };
+  return { label: t('opportunities.requestToJoin'), status: null, disabled: false, available: true };
 };
 
 const getRequestStatusMetrics = (request = {}) => {
@@ -1499,6 +1536,47 @@ function SearchableCombobox({
         </div>
       )}
     </div>
+  );
+}
+
+function NumberedPagination({ page, pageCount, onChange, t = translate.bind(null, 'en') }) {
+  if (pageCount <= 1) return null;
+
+  const pages = Array.from({ length: pageCount }, (_, index) => index + 1);
+  return (
+    <nav className="numbered-pagination" aria-label={t('common.pagination')}>
+      <button
+        className="secondary"
+        type="button"
+        onClick={() => onChange(Math.max(1, page - 1))}
+        disabled={page === 1}
+      >
+        <ArrowLeft size={16} />
+        {t('common.previous')}
+      </button>
+      <div className="numbered-pagination-pages">
+        {pages.map((pageNumber) => (
+          <button
+            className={pageNumber === page ? 'selected' : ''}
+            type="button"
+            aria-current={pageNumber === page ? 'page' : undefined}
+            onClick={() => onChange(pageNumber)}
+            key={pageNumber}
+          >
+            {pageNumber}
+          </button>
+        ))}
+      </div>
+      <button
+        className="secondary"
+        type="button"
+        onClick={() => onChange(Math.min(pageCount, page + 1))}
+        disabled={page === pageCount}
+      >
+        {t('common.next')}
+        <ArrowRight size={16} />
+      </button>
+    </nav>
   );
 }
 
@@ -2271,8 +2349,7 @@ function JoinClassPage({ profile, profileId, initialCode = '', onCreateProfile, 
         <div className="form-heading app-page-intro">
           <UsersRound size={28} />
           <div>
-	            <p className="eyebrow app-page-eyebrow">{t('join.title')}</p>
-	            <div className="app-page-title-mask"><h2 className="app-page-title">{t('join.subtitle')}</h2></div>
+            <div className="app-page-title-mask"><h2 className="app-page-title">{t('join.subtitle')}</h2></div>
           </div>
         </div>
 
@@ -2527,7 +2604,6 @@ function MyClassesPage({ profileId, profile, onCreateProfile, onJoinClass, onOpe
     <main className="screen my-classes-screen">
       <section className="my-classes-intro app-page-intro">
         <div>
-	          <p className="eyebrow app-page-eyebrow">{t('classes.academic')}</p>
 	          <div className="my-classes-title-mask app-page-title-mask">
             <h1 className="app-page-title">{t('classes.title')}</h1>
           </div>
@@ -2939,7 +3015,6 @@ function ClassDetailPage({
 
       <div className="results-header class-detail-header app-page-intro">
         <div>
-	          <p className="eyebrow app-page-eyebrow">{t('class.detail')}</p>
 	          <div className="app-page-title-mask"><h2 className="app-page-title">{getClassDisplay(state.classItem)}</h2></div>
 	          <p className="app-page-description">{universityLabel(state.classItem.university)} | {schoolLabel(state.classItem.school)} | {majorLabel(state.classItem.major)}</p>
         </div>
@@ -3362,7 +3437,6 @@ function LecturerDashboard({ activeRole, lecturerSession, profileId, onOpenProfi
     <main className="screen">
 	      <div className="results-header app-page-intro">
 	        <div>
-		          <p className="eyebrow app-page-eyebrow">{t('lecturer.dashboard')}</p>
 	          <div className="app-page-title-mask"><h2 className="app-page-title">{t('lecturer.demoClassesFor', { name: lecturerSession.lecturerName })}</h2></div>
 	          <p className="app-page-description">{universityLabel(lecturerSession.university)} · {t('lecturer.demoId', { id: lecturerSession.lecturerId })}</p>
 	        </div>
@@ -3753,7 +3827,6 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
         <div className="form-heading app-page-intro">
           <UserRound size={28} />
           <div>
-	            <p className="eyebrow app-page-eyebrow">{t('profile.createUserProfile')}</p>
 	            <div className="app-page-title-mask"><h2 className="app-page-title">{t('profile.completeTitle')}</h2></div>
 	              <p className="note app-page-description">{isLecturer ? t('profile.lecturerProfileHint') : t('profile.studentProfileHint')}</p>
               <p className="signed-in-line">{t('profile.role')}: {isLecturer ? t('profile.lecturer') : t('profile.student')}</p>
@@ -4364,11 +4437,6 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
         <div className="form-heading app-page-intro">
           <Search size={28} />
           <div>
-		            <p className="eyebrow app-page-eyebrow">
-		              {mode === 'edit'
-		                ? (isClassLocked ? t('request.editClass') : t('request.edit'))
-		                : isClassLocked ? t('request.class') : t('request.open')}
-		            </p>
 	            <div className="app-page-title-mask"><h2 className="app-page-title">
 	              {mode === 'edit'
 	                ? t('request.updateTitle')
@@ -5006,7 +5074,6 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
       <StepRail step={2} t={t} />
       <div className="results-header app-page-intro">
         <div>
-	          <p className="eyebrow app-page-eyebrow">{isClassRequest ? t('matches.recommended') : t('matches.results')}</p>
 	          <div className="app-page-title-mask"><h2 className="app-page-title">{isClassRequest ? t('matches.best') : t('matches.byRequest')}</h2></div>
         </div>
         <button className="secondary" onClick={() => onViewCurrent(currentRequest)}>
@@ -5082,7 +5149,11 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
     modalProfile: null,
     modalError: '',
   });
-  const [filters, setFilters] = useState({ university: '', school: '', major: '', course: '', skill: '' });
+  const [filters, setFilters] = useState(() => readSessionJson(
+    'teamergency.discover.filters',
+    { university: '', school: '', major: '', course: '', skill: '' },
+  ));
+  const [discoverPage, setDiscoverPage] = useState(() => readSessionJson('teamergency.discover.page', 1));
   const discoveryOpenTrackedRef = useRef(false);
   const discoverGridRef = useRef(null);
   const discoverLastScrollYRef = useRef(0);
@@ -5093,7 +5164,13 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
 
     Promise.all([getDiscoverProfiles(), getActiveTeamRequests()])
       .then(async ([profiles, activeRequests]) => {
-        const studentProfiles = profiles.filter((profile) => getProfileRole(profile) === 'student');
+        const studentProfiles = profiles
+          .filter((profile) => getProfileRole(profile) === 'student')
+          .sort((left, right) =>
+            Number(Boolean(left.is_demo)) - Number(Boolean(right.is_demo))
+            || new Date(right.created_at || 0) - new Date(left.created_at || 0)
+            || String(left.id || '').localeCompare(String(right.id || '')),
+          );
         const visibleProfiles = studentProfiles.filter((profile) => profile.id !== currentProfileId);
         const connectionEntries = currentProfileId
           ? await Promise.all(
@@ -5194,7 +5271,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
       window.removeEventListener('scroll', handleScroll);
       observer.disconnect();
     };
-  }, [state.loading, state.profiles.length, filters.university, filters.school, filters.major, filters.course, filters.skill]);
+  }, [state.loading, state.profiles.length, discoverPage, filters.university, filters.school, filters.major, filters.course, filters.skill]);
 
   const requestsByProfile = state.activeRequests.reduce((map, request) => {
     map[request.profile_id] = [...(map[request.profile_id] || []), request];
@@ -5219,6 +5296,19 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
     .filter((profile) => !filters.major || normalizeAcademicFilterValue('major', profile.major) === normalizeAcademicFilterValue('major', filters.major))
     .filter((profile) => !filters.course || requestsByProfile[profile.id]?.some((request) => courseMatchesFilter(request, filters.course)))
     .filter((profile) => !filters.skill || profile.skills?.includes(filters.skill));
+  const discoverPageCount = Math.max(1, Math.ceil(filteredProfiles.length / DISCOVER_PAGE_SIZE));
+  const visibleDiscoverProfiles = filteredProfiles.slice(
+    (discoverPage - 1) * DISCOVER_PAGE_SIZE,
+    discoverPage * DISCOVER_PAGE_SIZE,
+  );
+
+  useEffect(() => {
+    setDiscoverPage((page) => {
+      const nextPage = Math.min(page, discoverPageCount);
+      writeSessionJson('teamergency.discover.page', nextPage);
+      return nextPage;
+    });
+  }, [discoverPageCount]);
 
   const schoolFilteredProfiles = filters.school
     ? state.profiles.filter((profile) => normalizeAcademicFilterValue('school', profile.school) === normalizeAcademicFilterValue('school', filters.school))
@@ -5273,6 +5363,11 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
   const updateDiscoveryFilters = (nextFilters, filterName) => {
     const changed = filters[filterName] !== nextFilters[filterName];
     setFilters(nextFilters);
+    writeSessionJson('teamergency.discover.filters', nextFilters);
+    if (changed) {
+      setDiscoverPage(1);
+      writeSessionJson('teamergency.discover.page', 1);
+    }
     if (!changed) return;
 
     void trackProductEvent('discovery_filtered', {
@@ -5365,7 +5460,6 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
     <main className="screen">
       <div className="results-header app-page-intro">
         <div>
-          <p className="eyebrow app-page-eyebrow">{t('discover.title')}</p>
           <div className="app-page-title-mask"><h2 className="app-page-title">{t('discover.heading')}</h2></div>
           <p className="app-page-description">{t('discover.subtitle')}</p>
         </div>
@@ -5449,7 +5543,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
 
       {!state.loading && filteredProfiles.length > 0 && (
         <div className="discover-grid discover-reveal-grid" ref={discoverGridRef}>
-          {filteredProfiles.map((profile, index) => {
+          {visibleDiscoverProfiles.map((profile, index) => {
             const disabledReason = !currentProfileId
                 ? t('connections.needProfile')
                 : '';
@@ -5520,6 +5614,18 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
             );
           })}
         </div>
+      )}
+
+      {!state.loading && filteredProfiles.length > 0 && (
+        <NumberedPagination
+          page={discoverPage}
+          pageCount={discoverPageCount}
+          onChange={(nextPage) => {
+            setDiscoverPage(nextPage);
+            writeSessionJson('teamergency.discover.page', nextPage);
+          }}
+          t={t}
+        />
       )}
 
       {state.modalProfile && (
@@ -6435,6 +6541,7 @@ function RequestDetailPage({
   metrics,
   skillGap,
   teammates,
+  members = [],
   teamComplete,
   noLongerComplete,
   saving,
@@ -6460,6 +6567,11 @@ function RequestDetailPage({
   joinAction,
   joinLoading,
   onRequestToJoin,
+  onRemoveMember,
+  onLeaveProject,
+  memberActionId,
+  isCurrentMember,
+  membershipBackendAvailable = true,
   t = translate.bind(null, 'en'),
 }) {
   const creator = creatorProfile || (isOwner ? profile : null) || {};
@@ -6468,6 +6580,12 @@ function RequestDetailPage({
     creator.school && schoolLabel(creator.school),
     creator.major && majorLabel(creator.major),
   ].filter(Boolean).join(' · ');
+  const memberRows = members.length > 0
+    ? members
+    : [
+      ...(creator.id ? [{ profile_id: creator.id, full_name: creator.full_name, is_owner: true }] : []),
+      ...(teammates || []).map((teammate) => ({ ...teammate, is_owner: false })),
+    ];
 
   return (
     <main className="screen request-detail-screen">
@@ -6477,7 +6595,6 @@ function RequestDetailPage({
       </button>
       <div className="results-header app-page-intro">
         <div>
-          <p className="eyebrow app-page-eyebrow">{t('opportunities.requestDetail')}</p>
           <div className="app-page-title-mask"><h2 className="app-page-title">{getCourseDisplay(request)} {isPremiumProfile(profile) && <PremiumBadge t={t} />} {isRequestPinned(request) && <span className="premium-badge pinned">{t('premium.pinned')}</span>}</h2></div>
         </div>
       </div>
@@ -6511,43 +6628,50 @@ function RequestDetailPage({
           <PortfolioReference request={request} t={t} />
           <div><dt>{t('matches.teamStatus')}</dt><dd>{requestStatusLabel(request.status, t)}</dd></div>
         </dl>
-        <div className="hero-actions">
-          {isOwner && request.status === 'looking' && (
-            <button className="primary" onClick={() => onViewRecommended?.(request.id)}>
-              <Sparkles size={18} />
-              {t('opportunities.findCollaborators')}
-            </button>
-          )}
-          {isOwner && (
-            <button className="secondary" onClick={onEdit}>
-              <Pencil size={18} />
-              {t('common.editRequest')}
-            </button>
-          )}
-          {isOwner && request.status === 'looking' && isPremiumProfile(profile) && !isRequestPinned(request) && (
-            <button className="secondary" onClick={onPin} disabled={saving}>
-              <Sparkles size={18} />
-              {t('premium.pin')}
-            </button>
-          )}
+        <div className="request-detail-owner-actions">
+          <div className="hero-actions request-owner-action-row">
+            {isOwner && request.status === 'looking' && (
+              <button className="primary" onClick={() => onViewRecommended?.(request.id)}>
+                <Sparkles size={18} />
+                {t('opportunities.findCollaborators')}
+              </button>
+            )}
+            {isOwner && (
+              <button className="secondary" onClick={onEdit}>
+                <Pencil size={18} />
+                {t('common.editRequest')}
+              </button>
+            )}
+            {isOwner && request.status === 'looking' && isPremiumProfile(profile) && !isRequestPinned(request) && (
+              <button className="secondary" onClick={onPin} disabled={saving}>
+                <Sparkles size={18} />
+                {t('premium.pin')}
+              </button>
+            )}
+            {isOwner && request.status === 'looking' && (
+              <button className="secondary quiet-action" onClick={onCancel}>
+                <Trash2 size={18} />
+                {t('opportunities.cancel')}
+              </button>
+            )}
+            {!isOwner && joinAction && (
+              <button
+                className={joinAction.available ? 'primary' : 'secondary'}
+                type="button"
+                onClick={onRequestToJoin}
+                disabled={joinLoading || joinAction.disabled}
+              >
+                {joinLoading ? t('opportunities.joining') : joinAction.label}
+              </button>
+            )}
+            {!isOwner && isCurrentMember && membershipBackendAvailable && (
+              <button className="secondary quiet-action" type="button" onClick={onLeaveProject} disabled={memberActionId === currentProfileId}>
+                {memberActionId === currentProfileId ? t('common.updating') : t('opportunities.leaveProject')}
+              </button>
+            )}
+          </div>
           {isOwner && request.status === 'looking' && !isPremiumProfile(profile) && (
-            <p className="note inline-note">{t('premium.pinUpgrade')}</p>
-          )}
-          {isOwner && request.status === 'looking' && (
-            <button className="secondary quiet-action" onClick={onCancel}>
-              <Trash2 size={18} />
-              {t('opportunities.cancel')}
-            </button>
-          )}
-          {!isOwner && joinAction && (
-            <button
-              className={joinAction.available ? 'primary' : 'secondary'}
-              type="button"
-              onClick={onRequestToJoin}
-              disabled={joinLoading || joinAction.disabled}
-            >
-              {joinLoading ? t('opportunities.joining') : joinAction.label}
-            </button>
+            <p className="note request-owner-action-note">{t('premium.pinUpgrade')}</p>
           )}
         </div>
           </section>
@@ -6582,24 +6706,34 @@ function RequestDetailPage({
           </section>
 
           <section className="matched-list request-detail-teammates">
-        <h3>{t('opportunities.matchedTeammates')} ({metrics.matchedCount})</h3>
-        {teammates.length === 0 ? (
+        <h3>{t('opportunities.matchedTeammates')} ({memberRows.length})</h3>
+        {memberRows.length === 0 ? (
           <p className="note">{t('opportunities.noMatched')}</p>
         ) : (
-          teammates.map((teammate) => (
+          memberRows.map((teammate) => (
             <article className="matched-row" key={teammate.profile_id}>
               <div>
-                <strong>{displayName(teammate.full_name)} {teammate.is_demo && <DemoBadge />}</strong>
+                <strong>{displayName(teammate.full_name)} {teammate.is_owner ? ` · ${t('opportunities.owner')}` : ''} {teammate.is_demo && <DemoBadge />}</strong>
                 <span>{majorLabel(teammate.major) || t('common.notSpecified')}</span>
               </div>
               <div className="hero-actions">
-                <button className="secondary" onClick={() => onOpenChat(teammate.connection_id)}>
+                {teammate.connection_id && <button className="secondary" onClick={() => onOpenChat(teammate.connection_id)}>
                   <MessageCircle size={18} />
                   {t('common.message')}
-                </button>
-                {teammate.active_request_id && (
-                  <button className="secondary" onClick={() => onViewProfile(teammate.active_request_id)}>
+                </button>}
+                {!teammate.is_owner && teammate.profile_id && (
+                  <button className="secondary" type="button" onClick={() => onOpenProfile?.(teammate.profile_id)}>
                     {t('common.viewProfile')}
+                  </button>
+                )}
+                {isOwner && membershipBackendAvailable && !teammate.is_owner && (
+                  <button
+                    className="secondary quiet-action"
+                    type="button"
+                    onClick={() => onRemoveMember?.(teammate)}
+                    disabled={memberActionId === teammate.profile_id}
+                  >
+                    {memberActionId === teammate.profile_id ? t('common.updating') : t('opportunities.removeMember')}
                   </button>
                 )}
               </div>
@@ -6698,9 +6832,13 @@ function CurrentRequest({
     collabRequestsByProfile: {},
     collabConnectionsByProfile: {},
     collabSendingProfileId: '',
+    joinedRequestIds: [],
     joinStateById: {},
     joinSendingRequestId: '',
     progressById: {},
+    membersById: {},
+    memberActionId: '',
+    membershipBackendAvailable: true,
     selectedId: requestId || '',
     cancelTarget: null,
     saving: false,
@@ -6709,6 +6847,11 @@ function CurrentRequest({
     dismissedReopen: false,
   });
   const requestViewTrackedRef = useRef(new Set());
+  const [collabFilters, setCollabFilters] = useState(() => readSessionJson(
+    'teamergency.collabs.filters',
+    { search: '', type: '', skill: '', availability: '' },
+  ));
+  const [collabPage, setCollabPage] = useState(() => readSessionJson('teamergency.collabs.page', 1));
 
   const loadRequests = () => {
     let alive = true;
@@ -6718,8 +6861,10 @@ function CurrentRequest({
         ...current,
         loading: false,
         requests: [],
+        joinedRequestIds: [],
         joinStateById: {},
         progressById: {},
+        membersById: {},
       }));
       return () => { alive = false; };
     }
@@ -6728,20 +6873,27 @@ function CurrentRequest({
       listMyTeamRequests(currentProfileId),
       getDiscoverProfiles().catch(() => []),
       getActiveTeamRequests().catch(() => []),
+      getJoinedTeamRequests(currentProfileId).catch((error) => {
+        console.error('Optional joined-project data is unavailable', error);
+        return [];
+      }),
     ])
-      .then(async ([requests, profiles, activeRequests]) => {
+      .then(async ([requests, profiles, activeRequests, joinedRequests]) => {
+        let membershipBackendAvailable = true;
         const profileById = Object.fromEntries(
           [...(profiles || []), profile].filter((item) => item?.id).map((item) => [item.id, item]),
         );
         const requestById = new Map();
-        [...(activeRequests || []), ...(requests || [])]
+        const joinedRequestIds = new Set((joinedRequests || []).map((request) => request.id));
+        [...(activeRequests || []), ...(requests || []), ...(joinedRequests || [])]
           .filter((request) => !request.class_id)
-          .filter((request) => request.status === 'looking')
+          .filter((request) => joinedRequestIds.has(request.id) || request.status === 'looking')
           .filter((request) => request.request_scope === 'open_opportunity' || request.opportunity_name)
           .forEach((request) => {
             requestById.set(request.id, {
               ...request,
               profile: request.profile || profileById[request.profile_id] || null,
+              joinedByCurrentProfile: joinedRequestIds.has(request.id),
             });
           });
         const standaloneRequests = sortRequestsByVisibility([...requestById.values()]);
@@ -6774,6 +6926,17 @@ function CurrentRequest({
             }
           }),
         );
+        const memberEntries = await Promise.all(
+          standaloneRequests.map(async (request) => {
+            try {
+              return [request.id, await getTeamRequestMembers(request.id, currentProfileId)];
+            } catch (error) {
+              console.error('Optional project-member data is unavailable', error);
+              membershipBackendAvailable = false;
+              return [request.id, []];
+            }
+          }),
+        );
         const joinStateEntries = await Promise.all(
           standaloneRequests
             .filter((request) => request.profile_id !== currentProfileId)
@@ -6803,8 +6966,11 @@ function CurrentRequest({
             collabProfiles: visibleProfiles,
             collabRequestsByProfile,
             collabConnectionsByProfile: Object.fromEntries(connectionEntries),
+            joinedRequestIds: [...joinedRequestIds],
             joinStateById: Object.fromEntries(joinStateEntries),
             progressById: Object.fromEntries(progressEntries),
+            membersById: Object.fromEntries(memberEntries),
+            membershipBackendAvailable,
             selectedId: nextSelectedId,
             saving: false,
           }));
@@ -7019,6 +7185,47 @@ function CurrentRequest({
     }
   };
 
+  const removeMember = async (member) => {
+    if (!member?.profile_id || !state.selectedId || !currentProfileId) return;
+    const name = displayName(member.full_name) || t('common.notSpecified');
+    const confirmed = typeof window === 'undefined' || window.confirm(
+      `${t('opportunities.removeMemberQuestion', { name })}\n\n${t('opportunities.removeMemberHelper')}`,
+    );
+    if (!confirmed) return;
+
+    setState((current) => ({ ...current, memberActionId: member.profile_id, error: '', success: '' }));
+    try {
+      await removeTeamRequestMember({
+        requestId: state.selectedId,
+        ownerProfileId: currentProfileId,
+        memberProfileId: member.profile_id,
+      });
+      setState((current) => ({ ...current, memberActionId: '', success: t('opportunities.memberRemoved') }));
+      loadRequests();
+    } catch (error) {
+      console.error('Project member removal failed', error);
+      setState((current) => ({ ...current, memberActionId: '', error: t('opportunities.memberActionFail') }));
+    }
+  };
+
+  const leaveProject = async () => {
+    if (!state.selectedId || !currentProfileId) return;
+    const confirmed = typeof window === 'undefined' || window.confirm(
+      `${t('opportunities.leaveProjectQuestion')}\n\n${t('opportunities.leaveProjectHelper')}`,
+    );
+    if (!confirmed) return;
+
+    setState((current) => ({ ...current, memberActionId: currentProfileId, error: '', success: '' }));
+    try {
+      await leaveTeamRequest(state.selectedId, currentProfileId);
+      setState((current) => ({ ...current, memberActionId: '', success: t('opportunities.leftProject') }));
+      loadRequests();
+    } catch (error) {
+      console.error('Project leave failed', error);
+      setState((current) => ({ ...current, memberActionId: '', error: t('opportunities.memberActionFail') }));
+    }
+  };
+
   const getCandidateCollabRequests = (candidate) =>
     state.collabRequestsByProfile[candidate.id] || [];
 
@@ -7183,14 +7390,6 @@ function CurrentRequest({
     }
   };
 
-  if (state.loading) {
-    return <main className="screen compact"><p className="loading">{t('request.loading')}</p></main>;
-  }
-
-  if (state.error && state.requests.length === 0) {
-    return <main className="screen compact"><p className="error">{state.error}</p></main>;
-  }
-
   const selectedRequest = state.requests.find((request) => request.id === state.selectedId) || state.requests[0] || null;
   const progress = selectedRequest ? state.progressById[selectedRequest.id] || { found_count: 0, teammates: [] } : { found_count: 0, teammates: [] };
   const teammates = progress.teammates || [];
@@ -7208,13 +7407,85 @@ function CurrentRequest({
     .slice(0, selectedRequest?.status === 'looking' ? 8 : 12);
   const myRequests = state.requests.filter((request) => request.profile_id === currentProfileId);
   const myRequest = myRequests[0] || null;
-  const marketplaceRequests = state.requests.filter((request) => request.profile_id !== currentProfileId);
+  const joinedRequests = state.requests.filter((request) => request.joinedByCurrentProfile);
+  const marketplaceRequests = state.requests.filter((request) =>
+    request.profile_id !== currentProfileId && !request.joinedByCurrentProfile,
+  );
+  const collabTypeOptions = [...new Set(marketplaceRequests
+    .map((request) => request.opportunity_type || request.course_code)
+    .filter(Boolean))].sort((left, right) => String(left).localeCompare(String(right)));
+  const collabSkillOptions = [...new Set(marketplaceRequests
+    .flatMap((request) => request.skills_needed || [])
+    .filter(Boolean))].sort((left, right) => String(left).localeCompare(String(right)));
+  const collabSearchOptions = [...new Set(marketplaceRequests.flatMap((request) => [
+    request.opportunity_name || request.course_name || request.course,
+    request.profile?.full_name,
+  ].filter(Boolean)))].sort((left, right) => String(left).localeCompare(String(right)))
+    .map((value) => ({ value, label: value }));
+  const collabTypeFilterOptions = collabTypeOptions.map((value) => ({
+    value,
+    label: localizedOption(value, 'options.opportunity', t) || value,
+  }));
+  const collabSkillFilterOptions = collabSkillOptions.map((value) => ({
+    value,
+    label: localizedOption(value, 'options.skill', t) || value,
+  }));
+  const collabAvailabilityOptions = [
+    { value: 'open', label: t('opportunities.openOnly') },
+    { value: 'full', label: t('opportunities.fullOnly') },
+  ];
+  const filteredMarketplaceRequests = marketplaceRequests.filter((request) => {
+    const ownerName = request.profile?.full_name || '';
+    const title = request.opportunity_name || request.course_name || request.course || '';
+    const searchText = `${title} ${ownerName}`.toLowerCase();
+    const matchesSearch = !collabFilters.search || searchText.includes(collabFilters.search.trim().toLowerCase());
+    const requestType = request.opportunity_type || request.course_code || '';
+    const matchesType = !collabFilters.type || requestType === collabFilters.type;
+    const matchesSkill = !collabFilters.skill || (request.skills_needed || []).includes(collabFilters.skill);
+    const requestProgress = state.progressById[request.id] || { found_count: 0, teammates: [] };
+    const requestMetrics = getTeamProgress(request, requestProgress);
+    const matchesAvailability = !collabFilters.availability
+      || (collabFilters.availability === 'open' && requestMetrics.remaining > 0)
+      || (collabFilters.availability === 'full' && requestMetrics.remaining === 0);
+    return matchesSearch && matchesType && matchesSkill && matchesAvailability;
+  });
+  const collabPageCount = Math.max(1, Math.ceil(filteredMarketplaceRequests.length / COLLAB_PAGE_SIZE));
+  const visibleMarketplaceRequests = filteredMarketplaceRequests.slice(
+    (collabPage - 1) * COLLAB_PAGE_SIZE,
+    collabPage * COLLAB_PAGE_SIZE,
+  );
+
+  useEffect(() => {
+    setCollabPage((page) => {
+      const nextPage = Math.min(page, collabPageCount);
+      writeSessionJson('teamergency.collabs.page', nextPage);
+      return nextPage;
+    });
+  }, [collabPageCount]);
+
+  if (state.loading) {
+    return <main className="screen compact"><p className="loading">{t('request.loading')}</p></main>;
+  }
+
+  if (state.error && state.requests.length === 0) {
+    return <main className="screen compact"><p className="error">{state.error}</p></main>;
+  }
+
+  const updateCollabFilter = (key, value) => {
+    setCollabFilters((current) => {
+      const nextFilters = { ...current, [key]: value };
+      writeSessionJson('teamergency.collabs.filters', nextFilters);
+      return nextFilters;
+    });
+    setCollabPage(1);
+    writeSessionJson('teamergency.collabs.page', 1);
+  };
 
   const renderCollabHeader = () => (
     <div className="results-header collabs-page-header app-page-intro">
       <div>
-        <p className="eyebrow app-page-eyebrow">{t('opportunities.title')}</p>
-        <div className="app-page-title-mask"><h2 className="app-page-title">{t('opportunities.profileIntro')}</h2></div>
+        <div className="app-page-title-mask"><h2 className="app-page-title">{t('opportunities.marketplaceTitle')}</h2></div>
+        <p className="app-page-description">{t('opportunities.profileIntro')}</p>
       </div>
       <div className="collabs-header-actions">
         <button className="primary" onClick={onCreateNew}>
@@ -7305,7 +7576,8 @@ function CurrentRequest({
     const extraSkills = Math.max(0, (request.skills_needed || []).length - visibleSkills.length);
     const ownerProfile = isOwner ? profile : request.profile;
     const ownerName = ownerProfile?.full_name;
-    const joinAction = !isOwner
+    const isJoined = Boolean(request.joinedByCurrentProfile);
+    const joinAction = !isOwner && !isJoined
       ? getCollabJoinAction(request, state.joinStateById[request.id], requestMetrics, t)
       : null;
 
@@ -7335,7 +7607,7 @@ function CurrentRequest({
           </div>
           <div className="request-row-actions">
             <button className="secondary" type="button" onClick={() => selectRequest(request)}>
-              {t('common.viewDetails')}
+              {isJoined ? t('opportunities.viewProject') : t('common.viewDetails')}
             </button>
             {isOwner && (
               <button className="secondary" type="button" onClick={() => onOpenRequestEdit?.(request.id)}>
@@ -7343,6 +7615,7 @@ function CurrentRequest({
                 {t('common.editRequest')}
               </button>
             )}
+            {!isOwner && isJoined && <span className="status-badge accepted">{t('opportunities.joined')}</span>}
             {!isOwner && joinAction && (
               <button
                 className={joinAction.available ? 'primary' : 'secondary'}
@@ -7461,6 +7734,7 @@ function CurrentRequest({
         metrics={detailMetrics}
         skillGap={detailSkillGap}
         teammates={detailTeammates}
+        members={state.membersById[detailRequest.id] || []}
         teamComplete={detailTeamComplete}
         noLongerComplete={detailNoLongerComplete}
         saving={state.saving}
@@ -7486,6 +7760,11 @@ function CurrentRequest({
         joinAction={detailJoinAction}
         joinLoading={state.joinSendingRequestId === detailRequest.id}
         onRequestToJoin={() => requestToJoin(detailRequest)}
+        onRemoveMember={removeMember}
+        onLeaveProject={leaveProject}
+        memberActionId={state.memberActionId}
+        membershipBackendAvailable={state.membershipBackendAvailable}
+        isCurrentMember={state.joinStateById[detailRequest.id]?.status === 'accepted'}
         t={t}
       />
     );
@@ -7494,20 +7773,96 @@ function CurrentRequest({
   return (
     <main className="screen collabs-screen">
       {renderCollabHeader()}
+      <section className="filter-panel collab-filters-panel" aria-label={t('opportunities.filters')}>
+        <label>
+          {t('opportunities.searchRequests')}
+          <SearchableCombobox
+            value={collabFilters.search}
+            options={collabSearchOptions}
+            placeholder={t('opportunities.searchRequests')}
+            onSelect={(value) => updateCollabFilter('search', value)}
+            onQueryChange={(value) => updateCollabFilter('search', value)}
+            onClear={() => updateCollabFilter('search', '')}
+            clearLabel={t('opportunities.clearFilters')}
+            showOther={false}
+            noResultsLabel={t('opportunities.noOtherRequests')}
+          />
+        </label>
+        <label>
+          {t('opportunities.typeFilter')}
+          <SearchableCombobox
+            value={collabFilters.type}
+            options={collabTypeFilterOptions}
+            placeholder={t('opportunities.allTypes')}
+            onSelect={(value) => updateCollabFilter('type', value)}
+            onClear={() => updateCollabFilter('type', '')}
+            clearLabel={t('opportunities.clearFilters')}
+            showOther={false}
+            noResultsLabel={t('opportunities.allTypes')}
+          />
+        </label>
+        <label>
+          {t('opportunities.skillFilter')}
+          <SearchableCombobox
+            value={collabFilters.skill}
+            options={collabSkillFilterOptions}
+            placeholder={t('opportunities.allSkills')}
+            onSelect={(value) => updateCollabFilter('skill', value)}
+            onClear={() => updateCollabFilter('skill', '')}
+            clearLabel={t('opportunities.clearFilters')}
+            showOther={false}
+            noResultsLabel={t('opportunities.allSkills')}
+          />
+        </label>
+        <label>
+          {t('opportunities.availabilityFilter')}
+          <SearchableCombobox
+            value={collabFilters.availability}
+            options={collabAvailabilityOptions}
+            placeholder={t('opportunities.allAvailability')}
+            onSelect={(value) => updateCollabFilter('availability', value)}
+            onClear={() => updateCollabFilter('availability', '')}
+            clearLabel={t('opportunities.clearFilters')}
+            showOther={false}
+            noResultsLabel={t('opportunities.allAvailability')}
+          />
+        </label>
+        {Object.values(collabFilters).some(Boolean) && (
+          <button className="ghost" type="button" onClick={() => {
+            const emptyFilters = { search: '', type: '', skill: '', availability: '' };
+            setCollabFilters(emptyFilters);
+            writeSessionJson('teamergency.collabs.filters', emptyFilters);
+            setCollabPage(1);
+            writeSessionJson('teamergency.collabs.page', 1);
+          }}>
+            {t('opportunities.clearFilters')}
+          </button>
+        )}
+      </section>
+      {joinedRequests.length > 0 && (
+        <section className="request-panel standalone collab-joined-projects-panel">
+          <div className="compact-header"><p className="eyebrow">{t('opportunities.joinedProjects')}</p></div>
+          <div className="request-list">{joinedRequests.map((item) => renderCollabRequestCard(item))}</div>
+        </section>
+      )}
       <div className="collabs-marketplace">
         <section className="request-panel standalone collab-requests-panel collab-marketplace-list">
-          <div className="compact-header">
-            <div>
-              <p className="eyebrow">{t('opportunities.existingRequests')}</p>
-            </div>
-          </div>
-          {marketplaceRequests.length === 0 ? (
+          {filteredMarketplaceRequests.length === 0 ? (
             <p className="note">{t('opportunities.noOtherRequests')}</p>
           ) : (
             <div className="request-list">
-              {marketplaceRequests.map((item) => renderCollabRequestCard(item))}
+              {visibleMarketplaceRequests.map((item) => renderCollabRequestCard(item))}
             </div>
           )}
+          <NumberedPagination
+            page={collabPage}
+            pageCount={collabPageCount}
+            onChange={(nextPage) => {
+              setCollabPage(nextPage);
+              writeSessionJson('teamergency.collabs.page', nextPage);
+            }}
+            t={t}
+          />
         </section>
         <aside className="collabs-my-request-column">
           {renderMyRequestPanel()}
@@ -7580,8 +7935,8 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
         loadConnectionGroup('declined'),
         loadConnectionGroup('unmatched'),
       ]);
-      const declinedRows = [...declined, ...unmatched]
-        .sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
+      const declinedRows = dedupeConnectionProfiles([...declined, ...unmatched]
+        .sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at)));
       await markNotificationsRead(currentProfileId, 'connections').catch(() => {});
       onNotificationsChanged?.();
       setState((current) => ({
@@ -7765,7 +8120,6 @@ function ConnectionsPage({ currentProfileId, currentRequestId, onOpenChat, onVie
     <main className="screen">
       <div className="results-header app-page-intro">
         <div>
-          <p className="eyebrow app-page-eyebrow">{t('nav.connections')}</p>
           <div className="app-page-title-mask"><h2 className="app-page-title">{t('connections.requests')}</h2></div>
         </div>
         <div className="segmented">
@@ -8214,7 +8568,6 @@ function FriendsPage({ currentProfileId, onOpenChat, onViewProfile, t = translat
     <main className="screen">
       <div className="results-header app-page-intro">
         <div>
-          <p className="eyebrow app-page-eyebrow">{t('connections.friends')}</p>
           <div className="app-page-title-mask"><h2 className="app-page-title">{t('connections.discoverFriends')}</h2></div>
         </div>
       </div>
@@ -8413,7 +8766,6 @@ function MessagesList({ currentProfileId, onOpenChat, onViewProfile, onNotificat
       {!embedded && (
         <div className="results-header app-page-intro">
           <div>
-            <p className="eyebrow app-page-eyebrow">{t('messages.title')}</p>
             <div className="app-page-title-mask"><h2 className="app-page-title">{t('messages.accepted')}</h2></div>
           </div>
         </div>
@@ -9311,7 +9663,6 @@ function MyProfile({
             ) : (
               <div className="my-profile-composition">
                 <header className="my-profile-profile-header">
-                  <p className="eyebrow my-profile-eyebrow">{t('profile.myProfile')}</p>
                   <h2>{displayName(profile.full_name)}</h2>
                   <p className="profile-header-meta">
                     {currentRole === 'student' ? t('profile.student') : t('profile.lecturer')} · {subscriptionLabel(profile, t)}
