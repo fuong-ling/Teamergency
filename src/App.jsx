@@ -3083,21 +3083,43 @@ function ClassDetailPage({
     );
   }
 
-		  const activeRequest = state.requests.find((request) => request.status === 'looking') || null;
-		  const selectedRequest = activeRequest || pickClassRequest(state.requests, state.classItem.id);
+		  const joinedClassRequest = state.requests.find((request) => (
+		    state.classTeamMembersByRequest[request.id]?.some(
+		      (member) => member.profile_id === profileId && !member.is_owner,
+		    )
+		  )) || null;
+		  const ownedActiveRequest = state.requests.find((request) => (
+		    request.status === 'looking' && request.profile_id === profileId
+		  )) || null;
+		  const activeRequest = joinedClassRequest
+		    || ownedActiveRequest
+		    || state.requests.find((request) => request.status === 'looking')
+		    || null;
+		  const selectedRequest = activeRequest
+		    || pickClassRequest(state.requests, state.classItem.id);
 		  const isRequestOwner = selectedRequest?.profile_id === profileId;
-		  const ownedActiveRequest = activeRequest?.profile_id === profileId ? activeRequest : null;
-	  const progress = selectedRequest ? state.progressByRequest[selectedRequest.id] || { found_count: 0, teammates: [] } : null;
+		  const classTeamMembers = selectedRequest ? state.classTeamMembersByRequest[selectedRequest.id] || [] : [];
+		  const classTeamTeammates = classTeamMembers.filter((member) => !member.is_owner);
+	  const progress = selectedRequest?.class_id
+	    ? {
+	        total_team_size: getTotalTeamSize(selectedRequest),
+	        existing_members: 1,
+	        matched_count: classTeamTeammates.length,
+	        found_count: 1 + classTeamTeammates.length,
+	        teammates: classTeamTeammates,
+	      }
+	    : selectedRequest
+	      ? state.progressByRequest[selectedRequest.id] || { found_count: 0, teammates: [] }
+	      : null;
 	  const requestMetrics = selectedRequest ? getTeamProgress(selectedRequest, progress) : null;
 	  const editableStatus = getTeamStatusFromEditableTeam(state.teamStatus, t);
 	  const metrics = requestMetrics || editableStatus?.metrics;
-	  const status = requestMetrics
+		  const status = requestMetrics
     ? classTeamStatus(state.classItem, selectedRequest, requestMetrics, t)
     : editableStatus || classTeamStatus(state.classItem, selectedRequest, requestMetrics, t);
 		  const teammates = progress?.teammates || [];
-		  const classTeamMembers = selectedRequest ? state.classTeamMembersByRequest[selectedRequest.id] || [] : [];
-		  const displayedTeamMembers = classTeamMembers.length
-		    ? classTeamMembers.filter((member) => !member.is_owner)
+		  const displayedTeamMembers = selectedRequest?.class_id
+		    ? classTeamTeammates
 		    : teammates;
 		  const classClosed = state.classItem.formation_status === 'formation_complete' || state.classItem.status === 'closed';
 
@@ -3227,9 +3249,54 @@ function ClassDetailPage({
       const respondToClassTeamInvite = async (invite, response) => {
         try {
           await respondClassTeamInvite({ inviteId: invite.id, profileId, response });
-          await refreshClassTeamData({ id: invite.team_request_id });
+          let refreshedRequests = null;
+          let refreshedMembers = null;
+          let refreshedProgress = null;
+
+          if (response === 'accepted') {
+            const [ownedRequests, accessibleRequests] = await Promise.all([
+              listMyTeamRequests(profileId),
+              listAccessibleClassTeamRequests({ classId: state.classItem.id, profileId }),
+            ]);
+            const requestMap = new Map(
+              [...ownedRequests, ...accessibleRequests]
+                .filter((request) => request.class_id === state.classItem.id)
+                .map((request) => [request.id, request]),
+            );
+            refreshedRequests = [...requestMap.values()];
+
+            const requestIds = new Set(refreshedRequests.map((request) => request.id));
+            const [memberEntries, progressEntries] = await Promise.all([
+              Promise.all(refreshedRequests.map(async (request) => [
+                request.id,
+                await getClassTeamMembers({
+                  classId: state.classItem.id,
+                  teamRequestId: request.id,
+                  profileId,
+                }).catch(() => []),
+              ])),
+              Promise.all(refreshedRequests.map(async (request) => [
+                request.id,
+                await getTeamRequestProgress(request.id, profileId).catch(() => null),
+              ])),
+            ]);
+            refreshedMembers = Object.fromEntries(memberEntries);
+            refreshedProgress = Object.fromEntries(
+              progressEntries.filter(([, progress]) => progress),
+            );
+
+            // Keep only request keys returned by the authoritative reload. This
+            // prevents a stale pre-accept membership map from winning selection.
+            refreshedMembers = Object.fromEntries(
+              Object.entries(refreshedMembers).filter(([requestId]) => requestIds.has(requestId)),
+            );
+          }
+
           setState((current) => ({
             ...current,
+            requests: refreshedRequests || current.requests,
+            classTeamMembersByRequest: refreshedMembers || current.classTeamMembersByRequest,
+            progressByRequest: refreshedProgress || current.progressByRequest,
             classTeamInvites: current.classTeamInvites.filter((item) => item.id !== invite.id),
             actionSuccess: response === 'accepted' ? t('class.inviteAccepted') : t('class.inviteDeclined'),
           }));
@@ -3278,7 +3345,11 @@ function ClassDetailPage({
           setState((current) => ({ ...current, actionError: t('class.ownerLeaveClass') }));
           return;
         }
-        const hasTeam = Boolean(selectedRequest && (teammates.length > 0 || classTeamMembers.length > 0));
+	        const hasTeam = Boolean(selectedRequest && (
+	          selectedRequest.class_id
+	            ? classTeamTeammates.length > 0
+	            : teammates.length > 0 || classTeamMembers.length > 0
+	        ));
         const helper = hasTeam ? t('class.leaveClassHelper') : t('class.leaveClassIndependentHelper');
         const confirmed = typeof window === 'undefined' || window.confirm(
           `${t('class.leaveClassQuestion')}\n${helper}`,

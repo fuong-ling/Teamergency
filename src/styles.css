@@ -7759,6 +7759,63 @@ option {
   overscroll-behavior: contain;
 }
 
+/* Find Collaborators keeps all three autocomplete menus in one local layer. */
+.app.view-matches .matches-collaborator-filters {
+  position: relative;
+  z-index: 20;
+  overflow: visible;
+}
+
+.app.view-matches .matches-collaborator-filters > label {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+
+.app.view-matches .matches-collaborator-filters > label:focus-within {
+  z-index: 2;
+}
+
+.app.view-matches .matches-collaborator-filters .searchable-combobox-menu {
+  position: absolute;
+  z-index: 3;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  max-height: 120px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 6px;
+  border: 1px solid var(--surface-border) !important;
+  border-radius: var(--app-radius-control);
+  background: var(--surface-glass-strong) !important;
+  box-shadow: var(--surface-shadow) !important;
+  overscroll-behavior: contain;
+}
+
+.app.view-matches .matches-collaborator-filters .searchable-combobox-option {
+  display: block;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: var(--text-primary) !important;
+  background: transparent !important;
+}
+
+.app.view-matches .matches-collaborator-filters .searchable-combobox-option:hover,
+.app.view-matches .matches-collaborator-filters .searchable-combobox-option:focus-visible,
+.app.view-matches .matches-collaborator-filters .searchable-combobox-option.highlighted {
+  color: var(--text-primary) !important;
+  background: var(--selected-blue-bg) !important;
+  outline: none;
+}
+
+.app.view-matches .match-results-section {
+  position: relative;
+  z-index: 1;
+}
+
 .searchable-combobox-option {
   display: block;
   width: 100%;
