@@ -111,6 +111,41 @@ const createOptionalMembershipBackendError = (backendError) => {
   return error;
 };
 
+const isOptionalClassTeamBackendError = (error) => {
+  const code = String(error?.code || '').toUpperCase();
+  const message = String(error?.message || '').toLowerCase();
+  const classTeamIdentifier = [
+    'class_team_memberships',
+    'class_team_invites',
+    'get_class_team_members',
+    'list_class_team_invite_candidates',
+    'list_class_team_invites',
+    'invite_class_team_member',
+    'respond_class_team_invite',
+    'remove_class_team_member',
+    'leave_class_team',
+    'leave_class',
+  ].some((identifier) => message.includes(identifier));
+
+  return classTeamIdentifier && (
+    ['PGRST202', 'PGRST204', '42P01', '42883'].includes(code)
+    || message.includes('could not find')
+    || message.includes('does not exist')
+    || message.includes('schema cache')
+    || message.includes('relation')
+    || message.includes('function')
+  );
+};
+
+const createOptionalClassTeamBackendError = (backendError) => {
+  const error = new Error('Class team management is unavailable until the class-team migration is applied.');
+  error.code = 'OPTIONAL_CLASS_TEAM_BACKEND_UNAVAILABLE';
+  error.cause = backendError;
+  error.backendCode = backendError?.code;
+  error.backendMessage = backendError?.message;
+  return error;
+};
+
 const isClassProfileRestrictionError = (error) => {
   const message = String(error?.message || '').toLowerCase();
   return message.includes('class code not found for this profile')
@@ -218,11 +253,15 @@ export const createProfile = async (profileData) => {
     profileData.contact_type,
     profileData.contact_value,
   );
-  const role = profileData.role === 'lecturer' ? 'lecturer' : 'student';
+  const role = profileData.role === 'lecturer'
+    ? 'lecturer'
+    : profileData.role === 'participant'
+      ? 'participant'
+      : 'student';
   const corePayload = {
     full_name: String(profileData.full_name || '').trim(),
     school: normalizedSchool,
-    major: String(profileData.major || '').trim(),
+    major: profileData.major ? String(profileData.major).trim() : null,
     skills: Array.isArray(profileData.skills) ? profileData.skills : [],
     ...normalizedContact,
     short_bio: profileData.short_bio ? String(profileData.short_bio).trim() : null,
@@ -426,7 +465,11 @@ export const updateProfile = async (profileId, profileData) => {
     // New profiles already have an owner; this only helps older local profiles.
   }
 
-  const role = profileData.role === 'lecturer' ? 'lecturer' : 'student';
+  const role = profileData.role === 'lecturer'
+    ? 'lecturer'
+    : profileData.role === 'participant'
+      ? 'participant'
+      : 'student';
   const normalizedSchool = normalizeProfileSchool(profileData.school);
   const normalizedContact = normalizeProfileContact(
     profileData.contact_type,
@@ -1345,7 +1388,11 @@ const requestSessionKey = (request = {}) => {
 
 const requestsShareCourseAndSession = (left, right) => {
   if (left?.class_id || right?.class_id) {
-    const sameClass = Boolean(left?.class_id && left.class_id === right?.class_id);
+    const sameClass = Boolean(
+      left?.class_id
+      && right?.class_id
+      && normalizeValue(left.class_id) === normalizeValue(right.class_id),
+    );
     const leftSession = requestSessionKey(left);
     const rightSession = requestSessionKey(right);
     return Boolean(sameClass && (!leftSession || !rightSession || leftSession === rightSession));
@@ -1492,7 +1539,10 @@ export const getMatchesForRequest = async (requestId) => {
     .filter((request) => request.profile_id !== currentRequest.profile_id)
     .filter((request) => {
       if (currentRequest.class_id) {
-        return request.class_id === currentRequest.class_id;
+        return Boolean(
+          request.class_id
+          && normalizeValue(request.class_id) === normalizeValue(currentRequest.class_id),
+        );
       }
 
       if (isOpenOpportunityRequest(currentRequest)) {
@@ -1637,6 +1687,88 @@ export const removeTeamRequestMember = async ({ requestId, ownerProfileId, membe
   if (!data?.length) throw new Error('Project member could not be removed.');
   return data[0];
 };
+
+const callClassTeamRpc = async (functionName, params, { fallback = null } = {}) => {
+  const { client } = await getAuthenticatedClient();
+  const { data, error } = await client.rpc(functionName, params);
+  if (!error) return data || fallback;
+  if (isOptionalClassTeamBackendError(error)) {
+    if (fallback !== null) return fallback;
+    throw createOptionalClassTeamBackendError(error);
+  }
+  throw error;
+};
+
+export const getClassTeamMembers = async ({ classId, teamRequestId, profileId }) => (
+  callClassTeamRpc('get_class_team_members', {
+    p_class_id: classId,
+    p_team_request_id: teamRequestId,
+    p_profile_id: profileId,
+  }, { fallback: [] })
+);
+
+export const listClassTeamInviteCandidates = async ({ classId, teamRequestId, ownerProfileId }) => (
+  callClassTeamRpc('list_class_team_invite_candidates', {
+    p_class_id: classId,
+    p_team_request_id: teamRequestId,
+    p_owner_profile_id: ownerProfileId,
+  }, { fallback: [] })
+);
+
+export const listClassTeamInvites = async ({ classId, profileId }) => (
+  callClassTeamRpc('list_class_team_invites', {
+    p_class_id: classId,
+    p_profile_id: profileId,
+  }, { fallback: [] })
+);
+
+export const listAccessibleClassTeamRequests = async ({ classId, profileId }) => (
+  callClassTeamRpc('list_class_team_requests_for_class', {
+    p_class_id: classId,
+    p_profile_id: profileId,
+  }, { fallback: [] })
+);
+
+export const inviteClassTeamMember = async ({ classId, teamRequestId, ownerProfileId, inviteeProfileId }) => (
+  callClassTeamRpc('invite_class_team_member', {
+    p_class_id: classId,
+    p_team_request_id: teamRequestId,
+    p_owner_profile_id: ownerProfileId,
+    p_invitee_profile_id: inviteeProfileId,
+  })
+);
+
+export const respondClassTeamInvite = async ({ inviteId, profileId, response }) => (
+  callClassTeamRpc('respond_class_team_invite', {
+    p_invite_id: inviteId,
+    p_profile_id: profileId,
+    p_response: response,
+  })
+);
+
+export const removeClassTeamMember = async ({ classId, teamRequestId, ownerProfileId, memberProfileId }) => (
+  callClassTeamRpc('remove_class_team_member', {
+    p_class_id: classId,
+    p_team_request_id: teamRequestId,
+    p_owner_profile_id: ownerProfileId,
+    p_member_profile_id: memberProfileId,
+  })
+);
+
+export const leaveClassTeam = async ({ classId, teamRequestId, profileId }) => (
+  callClassTeamRpc('leave_class_team', {
+    p_class_id: classId,
+    p_team_request_id: teamRequestId,
+    p_profile_id: profileId,
+  })
+);
+
+export const leaveClass = async ({ classId, profileId }) => (
+  callClassTeamRpc('leave_class', {
+    p_class_id: classId,
+    p_profile_id: profileId,
+  })
+);
 
 export const leaveTeamRequest = async (requestId, memberProfileId) => {
   const { client } = await getAuthenticatedClient();

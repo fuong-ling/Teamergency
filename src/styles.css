@@ -6271,6 +6271,12 @@ option {
   align-items: start;
 }
 
+.collabs-marketplace-main {
+  display: grid;
+  gap: 30px;
+  min-width: 0;
+}
+
 .collab-marketplace-list {
   min-width: 0;
 }
@@ -6291,12 +6297,26 @@ option {
   margin: 0;
 }
 
-.collabs-screen .collab-joined-projects-panel .compact-header .eyebrow {
-  color: var(--brand-red);
-  font-size: var(--type-small);
+.collab-joined-projects-section {
+  min-width: 0;
+}
+
+.collab-section-heading {
+  margin: 0 0 19px;
+  color: var(--app-text);
+  font-size: 18px;
   font-weight: var(--weight-card);
-  letter-spacing: 0.04em;
-  line-height: 1.3;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.collab-request-state {
+  align-self: center;
+  color: var(--app-text-soft);
+  font-size: var(--type-small);
+  font-weight: var(--weight-control);
+  line-height: 1.4;
+  white-space: nowrap;
 }
 
 .collab-my-request-panel .request-row-actions {
@@ -6360,8 +6380,7 @@ option {
   border-left: 1px solid var(--app-border);
 }
 
-.collab-filters-panel,
-.collab-joined-projects-panel {
+.collab-filters-panel {
   margin-top: 0;
 }
 
@@ -6405,10 +6424,6 @@ option {
   border-color: var(--app-blue);
   color: var(--app-text);
   background: var(--app-blue-soft);
-}
-
-.collab-joined-projects-panel .request-list {
-  margin-top: 12px;
 }
 
 .request-creator-section {
@@ -7251,10 +7266,75 @@ option {
   margin-top: 18px;
 }
 
+.class-team-member-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.class-team-invites {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--app-border);
+}
+
+.class-team-invites h3 {
+  margin: 0 0 10px;
+}
+
+.class-team-invite-list {
+  display: grid;
+  gap: 0;
+  margin-top: 14px;
+  max-height: min(52vh, 420px);
+  overflow-y: auto;
+}
+
+.class-team-invite-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--app-border);
+}
+
+.class-team-invite-row:last-child {
+  border-bottom: 0;
+}
+
+.class-team-invite-row > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.class-team-invite-row span {
+  color: var(--app-text-secondary);
+  font-size: 0.9rem;
+}
+
+.class-team-invite-modal {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.class-team-invite-modal > input {
+  width: 100%;
+}
+
 @media (max-width: 720px) {
   .profile-actions,
-  .connection-action-row {
+  .connection-action-row,
+  .class-team-member-actions,
+  .class-team-invite-row {
     grid-template-columns: 1fr;
+  }
+
+  .class-team-invite-row {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 
@@ -7303,17 +7383,19 @@ option {
 }
 
 .app.theme-light .class-dashboard :is(.class-info-panel, .class-team-panel, .class-request-panel, .class-team-editor) {
-  border-color: rgba(37, 99, 235, 0.16) !important;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.64)),
-    rgba(255, 255, 255, 0.72) !important;
+  border-color: var(--surface-border) !important;
+  background: var(--surface-glass) !important;
+  box-shadow: var(--surface-shadow) !important;
+  backdrop-filter: var(--surface-blur) !important;
+  -webkit-backdrop-filter: var(--surface-blur) !important;
 }
 
 .app.theme-dark .class-dashboard :is(.class-info-panel, .class-team-panel, .class-request-panel, .class-team-editor) {
-  border-color: rgba(255, 255, 255, 0.18) !important;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.035)),
-    rgba(13, 44, 78, 0.68) !important;
+  border-color: var(--surface-border) !important;
+  background: var(--surface-glass) !important;
+  box-shadow: var(--surface-shadow) !important;
+  backdrop-filter: var(--surface-blur) !important;
+  -webkit-backdrop-filter: var(--surface-blur) !important;
 }
 
 .class-request-panel .compact-header {
@@ -8423,8 +8505,8 @@ option {
   border-color: color-mix(in srgb, var(--app-border) 84%, var(--app-blue) 16%) !important;
   background: color-mix(in srgb, var(--app-surface) 74%, transparent) !important;
   box-shadow: 0 10px 28px color-mix(in srgb, var(--app-text) 7%, transparent) !important;
-  backdrop-filter: blur(14px) saturate(120%);
-  -webkit-backdrop-filter: blur(14px) saturate(120%);
+  backdrop-filter: var(--surface-blur);
+  -webkit-backdrop-filter: var(--surface-blur);
 }
 
 .app.landing-mode .landing-role-card {
@@ -8818,6 +8900,11 @@ option {
   --surface-primary: var(--app-surface);
   --surface-secondary: var(--app-surface-2);
   --surface-elevated: var(--app-surface-3);
+  --surface-glass: var(--app-surface-glass);
+  --surface-glass-strong: var(--app-surface-glass-strong);
+  --surface-border: var(--app-surface-border);
+  --surface-shadow: var(--app-surface-shadow);
+  --surface-blur: blur(10px) saturate(108%);
   --border-subtle: var(--app-border);
   --border-strong: var(--app-border-strong);
   --text-primary: var(--app-text);
@@ -8872,63 +8959,71 @@ option {
   --app-radius-control: 8px;
   --app-radius-surface: 12px;
   --app-radius-large: 16px;
-  --app-nav-blur: blur(14px) saturate(120%);
+  --app-nav-blur: blur(10px) saturate(108%);
   --app-green: #16a34a;
   --app-green-soft: #ecfdf3;
   --app-yellow: #b7791f;
   --app-yellow-soft: #fffaeb;
   --app-shadow: var(--app-shadow-subtle);
-  --app-shadow-subtle: 0 10px 28px color-mix(in srgb, var(--app-text) 7%, transparent);
-  --app-shadow-elevated: 0 16px 38px color-mix(in srgb, var(--app-text) 10%, transparent);
+  --app-shadow-subtle: 0 10px 28px color-mix(in srgb, var(--app-text) 6%, transparent);
+  --app-shadow-elevated: 0 16px 38px color-mix(in srgb, var(--app-text) 8%, transparent);
 }
 
 .app.theme-light {
-  --app-bg: #f7f8fc;
-  --app-bg-soft: #eef2f8;
+  --app-bg: #f3f5f8;
+  --app-bg-soft: #e9eef5;
   --app-surface: #ffffff;
   --app-surface-2: #f5f7fb;
   --app-surface-3: #ffffff;
-  --app-text: #101828;
-  --app-text-soft: #344054;
-  --app-muted: #667085;
-  --app-border: rgba(39, 85, 192, 0.14);
-  --app-border-strong: rgba(39, 85, 192, 0.32);
+  --app-text: #1c2533;
+  --app-text-soft: #4b5566;
+  --app-muted: #748096;
+  --app-border: rgba(80, 96, 120, 0.16);
+  --app-border-strong: rgba(80, 96, 120, 0.3);
   --app-blue-soft: rgba(39, 85, 192, 0.09);
   --app-red-soft: rgba(236, 49, 56, 0.09);
-  --app-input: #ffffff;
-  --app-nav-surface: rgba(255, 255, 255, 0.82);
-  --app-nav-border: rgba(39, 85, 192, 0.14);
-  --app-nav-shadow: 0 10px 28px rgba(16, 24, 40, 0.06);
+  --app-input: rgba(255, 255, 255, 0.78);
+  --app-surface-glass: rgba(255, 255, 255, 0.72);
+  --app-surface-glass-strong: rgba(255, 255, 255, 0.86);
+  --app-surface-border: rgba(80, 96, 120, 0.18);
+  --app-surface-shadow: 0 12px 30px rgba(31, 41, 55, 0.07);
+  --app-nav-surface: rgba(255, 255, 255, 0.72);
+  --app-nav-border: rgba(80, 96, 120, 0.16);
+  --app-nav-shadow: 0 10px 28px rgba(31, 41, 55, 0.06);
   background:
-    radial-gradient(circle at 10% 16%, rgba(39, 85, 192, 0.06), transparent 28rem),
-    radial-gradient(circle at 90% 18%, rgba(236, 49, 56, 0.05), transparent 28rem),
+    radial-gradient(circle at 10% 16%, rgba(39, 85, 192, 0.045), transparent 28rem),
+    radial-gradient(circle at 90% 18%, rgba(236, 49, 56, 0.035), transparent 28rem),
     var(--app-bg) !important;
 }
 
 .app.theme-dark {
-  --app-bg: #050506;
-  --app-bg-soft: #0b0b10;
-  --app-surface: #101014;
-  --app-surface-2: #16161c;
-  --app-surface-3: #1c1c23;
-  --app-text: #f7f8fc;
-  --app-text-soft: #d7d9e2;
-  --app-muted: #a4a6b2;
-  --app-border: rgba(255, 255, 255, 0.11);
-  --app-border-strong: rgba(39, 85, 192, 0.62);
+  --app-bg: #0b0d12;
+  --app-bg-soft: #11141b;
+  --app-surface: #151820;
+  --app-surface-2: #1b1e27;
+  --app-surface-3: #222630;
+  --app-text: #eceef3;
+  --app-text-soft: #c4c8d2;
+  --app-muted: #969caa;
+  --app-border: rgba(255, 255, 255, 0.09);
+  --app-border-strong: rgba(39, 85, 192, 0.46);
   --app-blue-soft: rgba(39, 85, 192, 0.2);
   --app-red-soft: rgba(236, 49, 56, 0.16);
-  --app-input: #0d0d12;
-  --app-nav-surface: rgba(5, 5, 6, 0.78);
-  --app-nav-border: rgba(255, 255, 255, 0.1);
-  --app-nav-shadow: 0 14px 36px rgba(0, 0, 0, 0.22);
+  --app-input: rgba(20, 22, 29, 0.78);
+  --app-surface-glass: rgba(21, 24, 32, 0.72);
+  --app-surface-glass-strong: rgba(27, 30, 39, 0.86);
+  --app-surface-border: rgba(255, 255, 255, 0.09);
+  --app-surface-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+  --app-nav-surface: rgba(11, 13, 18, 0.72);
+  --app-nav-border: rgba(255, 255, 255, 0.08);
+  --app-nav-shadow: 0 14px 36px rgba(0, 0, 0, 0.18);
   --app-green: #44d782;
   --app-green-soft: rgba(68, 215, 130, 0.12);
   --app-yellow: #ffd166;
   --app-yellow-soft: rgba(255, 209, 102, 0.12);
   background:
-    radial-gradient(circle at 12% 18%, rgba(39, 85, 192, 0.09), transparent 30rem),
-    radial-gradient(circle at 88% 22%, rgba(236, 49, 56, 0.06), transparent 28rem),
+    radial-gradient(circle at 12% 18%, rgba(39, 85, 192, 0.07), transparent 30rem),
+    radial-gradient(circle at 88% 22%, rgba(236, 49, 56, 0.04), transparent 28rem),
     var(--app-bg) !important;
 }
 
@@ -9004,7 +9099,14 @@ option {
   .class-info-panel,
   .class-team-panel,
   .class-request-panel,
-  .class-team-editor
+  .class-team-editor,
+  .my-class-card,
+  .collab-request-card,
+  .collab-mini-request,
+  .collab-my-request-panel,
+  .class-team-invites,
+  .class-team-members-list,
+  .connect-modal
 ),
 .app.theme-dark:not(.landing-mode) :is(
   .flow-panel,
@@ -9032,22 +9134,29 @@ option {
   .class-info-panel,
   .class-team-panel,
   .class-request-panel,
-  .class-team-editor
+  .class-team-editor,
+  .my-class-card,
+  .collab-request-card,
+  .collab-mini-request,
+  .collab-my-request-panel,
+  .class-team-invites,
+  .class-team-members-list,
+  .connect-modal
 ) {
-  border: 1px solid var(--border-subtle) !important;
+  border: 1px solid var(--surface-border) !important;
   border-radius: var(--app-radius-surface);
-  background: var(--surface-primary) !important;
-  box-shadow: none !important;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  background: var(--surface-glass) !important;
+  box-shadow: var(--surface-shadow) !important;
+  backdrop-filter: var(--surface-blur);
+  -webkit-backdrop-filter: var(--surface-blur);
 }
 
 .app.theme-light:not(.landing-mode) :is(.status-grid div, .profile-strip, .demo-step, .compact-info, .class-code-box, .request-summary-box),
 .app.theme-dark:not(.landing-mode) :is(.status-grid div, .profile-strip, .demo-step, .compact-info, .class-code-box, .request-summary-box) {
-  border-color: var(--border-subtle) !important;
+  border-color: var(--surface-border) !important;
   border-radius: var(--app-radius-control);
-  background: var(--surface-secondary) !important;
-  box-shadow: none !important;
+  background: var(--surface-glass-strong) !important;
+  box-shadow: var(--surface-shadow) !important;
 }
 
 /* Consistent functional controls. */
@@ -9175,12 +9284,12 @@ option {
 .app.theme-dark:not(.landing-mode) .class-directory-search,
 .app.theme-light:not(.landing-mode) .searchable-combobox-menu,
 .app.theme-dark:not(.landing-mode) .searchable-combobox-menu {
-  border: 1px solid var(--control-border) !important;
+  border: 1px solid var(--surface-border) !important;
   border-radius: var(--app-radius-control);
-  background: var(--surface-elevated) !important;
-  box-shadow: var(--app-shadow-elevated) !important;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  background: var(--surface-glass-strong) !important;
+  box-shadow: var(--surface-shadow) !important;
+  backdrop-filter: var(--surface-blur);
+  -webkit-backdrop-filter: var(--surface-blur);
 }
 
 .app.theme-light:not(.landing-mode) .searchable-combobox-option,
@@ -9389,8 +9498,7 @@ option {
   line-height: 1.2;
 }
 
-/* Internal cards use surface contrast and borders for hierarchy; no colored
-   outer glow or page-specific blur is needed for task-focused UI. */
+/* Internal content surfaces share one restrained glass treatment. */
 .app.theme-light:not(.landing-mode) :is(
   .flow-panel,
   .form-shell,
@@ -9455,15 +9563,15 @@ option {
   .message-bubble,
   .message-compose
 ) {
-  box-shadow: none !important;
+  box-shadow: var(--surface-shadow) !important;
   filter: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
+  backdrop-filter: var(--surface-blur) !important;
+  -webkit-backdrop-filter: var(--surface-blur) !important;
 }
 
 .app.theme-light:not(.landing-mode) .topbar,
 .app.theme-dark:not(.landing-mode) .topbar {
-  box-shadow: none !important;
+  box-shadow: var(--surface-shadow) !important;
 }
 
 /* Canonical navbar wordmark. Keep the inner brand element explicit so the
@@ -9741,13 +9849,13 @@ option {
   padding: 20px;
   gap: 12px;
   overflow: visible;
-  border: 1px solid var(--border-subtle) !important;
+  border: 1px solid var(--surface-border) !important;
   border-radius: var(--app-radius-surface);
   color: var(--text-primary);
-  background: var(--surface-primary) !important;
-  box-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
+  background: var(--surface-glass) !important;
+  box-shadow: var(--surface-shadow) !important;
+  backdrop-filter: var(--surface-blur) !important;
+  -webkit-backdrop-filter: var(--surface-blur) !important;
   opacity: 0.55;
   filter: blur(4px);
   transform: translateY(20px);
@@ -10204,24 +10312,24 @@ option {
 .app.theme-light:not(.landing-mode) .collabs-screen .collab-request-card,
 .app.theme-dark:not(.landing-mode) .collabs-screen .collab-request-card {
   padding: 18px;
-  border: 1px solid var(--border-subtle) !important;
+  border: 1px solid var(--surface-border) !important;
   border-radius: var(--app-radius-surface);
-  background: var(--surface-primary) !important;
-  box-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
+  background: var(--surface-glass) !important;
+  box-shadow: var(--surface-shadow) !important;
+  backdrop-filter: var(--surface-blur) !important;
+  -webkit-backdrop-filter: var(--surface-blur) !important;
 }
 
 .app.theme-light:not(.landing-mode) .collabs-screen .collab-mini-request,
 .app.theme-dark:not(.landing-mode) .collabs-screen .collab-mini-request,
 .app.theme-light:not(.landing-mode) .collabs-screen .collab-my-request-panel,
 .app.theme-dark:not(.landing-mode) .collabs-screen .collab-my-request-panel {
-  border: 1px solid var(--border-subtle) !important;
+  border: 1px solid var(--surface-border) !important;
   border-radius: var(--app-radius-surface);
-  background: var(--surface-primary) !important;
-  box-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
+  background: var(--surface-glass) !important;
+  box-shadow: var(--surface-shadow) !important;
+  backdrop-filter: var(--surface-blur) !important;
+  -webkit-backdrop-filter: var(--surface-blur) !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -10289,12 +10397,12 @@ option {
 .app.theme-light:not(.landing-mode) .my-profile-panel,
 .app.theme-dark:not(.landing-mode) .my-profile-panel {
   padding: 28px;
-  border: 1px solid var(--border-subtle) !important;
-  border-radius: 0;
-  background: var(--surface-primary) !important;
-  box-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
+  border: 1px solid var(--surface-border) !important;
+  border-radius: var(--app-radius-surface);
+  background: var(--surface-glass) !important;
+  box-shadow: var(--surface-shadow) !important;
+  backdrop-filter: var(--surface-blur) !important;
+  -webkit-backdrop-filter: var(--surface-blur) !important;
 }
 
 .my-profile-composition {
@@ -10614,14 +10722,6 @@ option {
   -webkit-backdrop-filter: none !important;
 }
 
-.app.theme-light:not(.landing-mode) .collabs-screen .collab-joined-projects-panel,
-.app.theme-dark:not(.landing-mode) .collabs-screen .collab-joined-projects-panel {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
 @media (max-width: 760px) {
   .app.theme-light:not(.landing-mode) .collabs-screen .collabs-page-header,
   .app.theme-dark:not(.landing-mode) .collabs-screen .collabs-page-header {
@@ -10794,4 +10894,41 @@ option {
   .contact-feedback-link {
     width: 100%;
   }
+}
+
+/* Match Results: keep the approved red badge treatment local to the score. */
+.match-results-score {
+  padding: 8px 13px !important;
+  border: 1px solid rgba(190, 100, 104, 0.28) !important;
+  border-radius: 10px !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  outline: none !important;
+  mix-blend-mode: normal !important;
+  isolation: isolate;
+}
+
+.match-results-score::before,
+.match-results-score::after {
+  content: none !important;
+  display: none !important;
+  box-shadow: none !important;
+  filter: none !important;
+}
+
+.app.theme-light:not(.landing-mode) .match-results-score {
+  color: #30323a !important;
+  border-color: rgba(190, 72, 78, 0.24) !important;
+  background: linear-gradient(135deg, #dc555a 0%, #e9a6a7 48%, rgba(255, 248, 248, 0.88) 100%) !important;
+  background-image: linear-gradient(135deg, #dc555a 0%, #e9a6a7 48%, rgba(255, 248, 248, 0.88) 100%) !important;
+}
+
+.app.theme-dark:not(.landing-mode) .match-results-score {
+  color: #f3f1f0 !important;
+  border-color: rgba(236, 177, 177, 0.2) !important;
+  background: linear-gradient(135deg, #cf4348 0%, #6c3338 48%, #352326 100%) !important;
+  background-image: linear-gradient(135deg, #cf4348 0%, #6c3338 48%, #352326 100%) !important;
 }

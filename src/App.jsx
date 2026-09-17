@@ -67,9 +67,18 @@ import {
   listMyClassesWithStatus,
   getTeamRequestProgress,
   getTeamRequestJoinState,
-  getTeamRequestMembers,
-  getJoinedTeamRequests,
-  removeTeamRequestMember,
+	  getTeamRequestMembers,
+	  getJoinedTeamRequests,
+	  getClassTeamMembers,
+	  listClassTeamInviteCandidates,
+	  listClassTeamInvites,
+	  listAccessibleClassTeamRequests,
+	  inviteClassTeamMember,
+	  respondClassTeamInvite,
+	  removeClassTeamMember,
+	  leaveClassTeam,
+	  leaveClass,
+	  removeTeamRequestMember,
   leaveTeamRequest,
   requestToJoinTeamRequest,
   getTeamRequestById,
@@ -365,7 +374,11 @@ const getSocialLinkErrors = (links = {}, t = translate.bind(null, 'en')) =>
   }, {});
 
 const createProfileFormState = (initialRole = 'student', initialData = {}) => {
-  const role = initialRole === 'lecturer' ? 'lecturer' : 'student';
+  const role = initialRole === 'lecturer'
+    ? 'lecturer'
+    : initialRole === 'participant'
+      ? 'participant'
+      : 'student';
   const initialUniversity = initialData.university || emptyProfile.university;
   const initialSchool = normalizeCatalogAcademicValue('school', initialData.school || '');
   const initialMajor = normalizeCatalogAcademicValue('major', initialData.major || '');
@@ -1135,7 +1148,7 @@ const getTeamProgress = (request, progress = {}) => {
 };
 
 const getCollabJoinAction = (request, joinState, metrics, t = translate.bind(null, 'en')) => {
-  if (joinState?.status === 'accepted') {
+  if (joinState?.status === 'accepted' && request?.joinedByCurrentProfile) {
     return { label: t('opportunities.joined'), status: 'accepted', disabled: true, available: false };
   }
 
@@ -1320,7 +1333,7 @@ const getGoogleProfileSeed = (authSession, role = 'student') => {
   const email = user.email || metadata.email || '';
 
   return {
-    role: role === 'lecturer' ? 'lecturer' : 'student',
+    role: role === 'lecturer' || role === 'participant' ? role : 'student',
     full_name: metadata.full_name || metadata.name || '',
     avatar_url: metadata.avatar_url || metadata.picture || '',
     contact_type: 'email',
@@ -1360,9 +1373,13 @@ const profileRequiredLabels = {
 };
 
 const getProfileRequiredFields = (form = {}) => {
-  const role = form.role === 'lecturer' ? 'lecturer' : 'student';
+  const role = getProfileRole(form);
   if (role === 'lecturer') {
     return ['full_name', 'university', 'school', 'academic_field', 'lecturer_id', 'lecturer_contact_detail'];
+  }
+
+  if (role === 'participant') {
+    return ['full_name', 'skills', 'short_bio'];
   }
 
   const base = ['full_name', 'university', 'major', 'skills', 'short_bio'];
@@ -1377,7 +1394,7 @@ const isProfileFieldRequired = (form = {}, field) => {
 };
 
 const getProfileFieldErrors = (form, t = translate.bind(null, 'en')) => {
-  const role = form.role === 'lecturer' ? 'lecturer' : 'student';
+  const role = getProfileRole(form);
   const isFilled = (field) => {
     if (field === 'university') {
       return Boolean(resolveProfileUniversity(form));
@@ -1408,7 +1425,7 @@ const getProfileFieldErrors = (form, t = translate.bind(null, 'en')) => {
 
 const isProfileCompleteForRole = (profile, role) => {
   if (!profile) return false;
-  const normalizedRole = role === 'lecturer' ? 'lecturer' : 'student';
+  const normalizedRole = role === 'lecturer' || role === 'participant' ? role : 'student';
   const profileLikeForm = {
     ...profile,
     role: normalizedRole,
@@ -1774,7 +1791,13 @@ const displayName = (name) => String(name || '').replace(/\s*\(Demo\)\s*$/i, '')
 
 const displayInitial = (name) => displayName(name).slice(0, 1) || '?';
 
-const getProfileRole = (profile) => (profile?.role === 'lecturer' ? 'lecturer' : 'student');
+const getProfileRole = (profile) => (
+  profile?.role === 'lecturer'
+    ? 'lecturer'
+    : profile?.role === 'participant'
+      ? 'participant'
+      : 'student'
+);
 
 const isLecturerProfile = (profile) => getProfileRole(profile) === 'lecturer';
 
@@ -2084,7 +2107,7 @@ function Home({
   authSession,
   t = translate.bind(null, 'en'),
 }) {
-  const activeRole = selectedRole === 'lecturer' ? 'lecturer' : selectedRole === 'student' ? 'student' : '';
+  const activeRole = ['student', 'lecturer', 'participant'].includes(selectedRole) ? selectedRole : '';
   const landingRef = useRef(null);
   const roleCards = [
     {
@@ -2098,6 +2121,12 @@ function Home({
       title: t('home.lecturerTitle'),
       icon: UserRound,
       accent: 'lecturer',
+    },
+    {
+      value: 'participant',
+      title: t('home.participantTitle'),
+      icon: UsersRound,
+      accent: 'participant',
     },
   ];
   const featureItems = [
@@ -2297,7 +2326,7 @@ function Home({
             <p className="note">
               {email
                 ? t('profile.googleSignedIn')
-                : `${t('home.selectedRole')}: ${activeRole === 'lecturer' ? t('profile.lecturer') : t('profile.student')}`}
+                : `${t('home.selectedRole')}: ${activeRole === 'lecturer' ? t('profile.lecturer') : activeRole === 'participant' ? t('profile.participant') : t('profile.student')}`}
             </p>
           )}
           {!hasSupabaseConfig && <p className="field-helper">{t('profile.googleUnavailable')}</p>}
@@ -2857,9 +2886,9 @@ function TeamStatusEditor({ classItem, teamStatus, saving, error, onSave, onCanc
 	          <span className="field-helper">{t('teamStatus.helper')}</span>
         </label>
       </div>
-      {error && <p className="error">{error}</p>}
-      <div className="hero-actions">
-        <button
+	      {error && <p className="error">{error}</p>}
+	      <div className="hero-actions">
+	        <button
           className="primary"
           type="button"
           disabled={saving}
@@ -2872,7 +2901,7 @@ function TeamStatusEditor({ classItem, teamStatus, saving, error, onSave, onCanc
               .map((item) => item.trim())
               .filter(Boolean),
           })}
-        >
+	        >
 	          {saving ? t('request.saving') : t('teamStatus.save')}
 	        </button>
 	        <button className="secondary" type="button" onClick={onCancel}>{t('common.cancel')}</button>
@@ -2900,6 +2929,12 @@ function ClassDetailPage({
 	    classItem: null,
 	    requests: [],
 	    progressByRequest: {},
+	    classTeamMembersByRequest: {},
+	    classTeamInvites: [],
+	    inviteCandidates: [],
+	    inviteOpen: false,
+	    inviteSearch: '',
+	    classTeamBackendAvailable: true,
 		    teamStatus: null,
 		    editingTeamStatus: false,
 		    savingTeamStatus: false,
@@ -2920,6 +2955,12 @@ function ClassDetailPage({
 	        classItem: null,
 	        requests: [],
 	        progressByRequest: {},
+	        classTeamMembersByRequest: {},
+	        classTeamInvites: [],
+	        inviteCandidates: [],
+	        inviteOpen: false,
+	        inviteSearch: '',
+	        classTeamBackendAvailable: true,
 		        teamStatus: null,
 		        editingTeamStatus: false,
 		        savingTeamStatus: false,
@@ -2937,11 +2978,17 @@ function ClassDetailPage({
 	    Promise.all([
 	      listMyClassesWithStatus(profileId),
 	      listMyTeamRequests(profileId),
+	      listAccessibleClassTeamRequests({ classId, profileId }).catch(() => []),
 	      getMyClassTeamStatus(profileId, classId).catch(() => null),
 	    ])
-	      .then(async ([classes, requests, teamStatus]) => {
-        const classItem = classes.find((item) => item.id === classId) || null;
-        const classRequests = requests.filter((request) => request.class_id === classId);
+	      .then(async ([classes, ownedRequests, accessibleRequests, teamStatus]) => {
+	        const classItem = classes.find((item) => item.id === classId) || null;
+	        const requestMap = new Map(
+	          [...ownedRequests, ...accessibleRequests]
+	            .filter((request) => request.class_id === classId)
+	            .map((request) => [request.id, request]),
+	        );
+	        const classRequests = [...requestMap.values()];
         const progressEntries = await Promise.all(
           classRequests.map(async (request) => {
             try {
@@ -2952,15 +2999,31 @@ function ClassDetailPage({
           }),
         );
 
-        if (alive) {
-          setState({
+	        const memberEntries = await Promise.all(classRequests.map(async (request) => {
+	          const members = await getClassTeamMembers({
+            classId,
+            teamRequestId: request.id,
+            profileId,
+          }).catch(() => []);
+	          return [request.id, members];
+	        }));
+        const classTeamInvites = await listClassTeamInvites({ classId, profileId }).catch(() => []);
+
+	        if (alive) {
+	          setState({
             loading: false,
 	            error: '',
 	            actionError: '',
 	            classItem,
 	            requests: classRequests,
 	            progressByRequest: Object.fromEntries(progressEntries),
-	            teamStatus,
+	            classTeamMembersByRequest: Object.fromEntries(memberEntries),
+	            classTeamInvites,
+	            inviteCandidates: [],
+	            inviteOpen: false,
+	            inviteSearch: '',
+	            classTeamBackendAvailable: true,
+		            teamStatus,
 	          });
         }
       })
@@ -2974,6 +3037,12 @@ function ClassDetailPage({
 	            classItem: null,
 	            requests: [],
 	            progressByRequest: {},
+	            classTeamMembersByRequest: {},
+	            classTeamInvites: [],
+	            inviteCandidates: [],
+	            inviteOpen: false,
+	            inviteSearch: '',
+	            classTeamBackendAvailable: false,
 		            teamStatus: null,
 		            editingTeamStatus: false,
 		            savingTeamStatus: false,
@@ -3014,8 +3083,10 @@ function ClassDetailPage({
     );
   }
 
-	  const activeRequest = state.requests.find((request) => request.status === 'looking') || null;
-	  const selectedRequest = activeRequest || pickClassRequest(state.requests, state.classItem.id);
+		  const activeRequest = state.requests.find((request) => request.status === 'looking') || null;
+		  const selectedRequest = activeRequest || pickClassRequest(state.requests, state.classItem.id);
+		  const isRequestOwner = selectedRequest?.profile_id === profileId;
+		  const ownedActiveRequest = activeRequest?.profile_id === profileId ? activeRequest : null;
 	  const progress = selectedRequest ? state.progressByRequest[selectedRequest.id] || { found_count: 0, teammates: [] } : null;
 	  const requestMetrics = selectedRequest ? getTeamProgress(selectedRequest, progress) : null;
 	  const editableStatus = getTeamStatusFromEditableTeam(state.teamStatus, t);
@@ -3023,8 +3094,12 @@ function ClassDetailPage({
 	  const status = requestMetrics
     ? classTeamStatus(state.classItem, selectedRequest, requestMetrics, t)
     : editableStatus || classTeamStatus(state.classItem, selectedRequest, requestMetrics, t);
-	  const teammates = progress?.teammates || [];
-	  const classClosed = state.classItem.formation_status === 'formation_complete' || state.classItem.status === 'closed';
+		  const teammates = progress?.teammates || [];
+		  const classTeamMembers = selectedRequest ? state.classTeamMembersByRequest[selectedRequest.id] || [] : [];
+		  const displayedTeamMembers = classTeamMembers.length
+		    ? classTeamMembers.filter((member) => !member.is_owner)
+		    : teammates;
+		  const classClosed = state.classItem.formation_status === 'formation_complete' || state.classItem.status === 'closed';
 
 		  const saveTeamStatus = async (values) => {
 	    setState((current) => ({ ...current, savingTeamStatus: true, actionError: '', actionSuccess: '' }));
@@ -3095,6 +3170,128 @@ function ClassDetailPage({
 		      }));
 		    }
 		  };
+
+      const refreshClassTeamData = async (request = selectedRequest) => {
+        if (!request?.id) return;
+        const [members, invites, progress] = await Promise.all([
+          getClassTeamMembers({ classId: state.classItem.id, teamRequestId: request.id, profileId }).catch(() => []),
+          listClassTeamInvites({ classId: state.classItem.id, profileId }).catch(() => []),
+          getTeamRequestProgress(request.id, profileId).catch(() => null),
+        ]);
+        setState((current) => ({
+          ...current,
+          classTeamMembersByRequest: {
+            ...current.classTeamMembersByRequest,
+            [request.id]: members,
+          },
+          classTeamInvites: invites,
+          progressByRequest: progress
+            ? { ...current.progressByRequest, [request.id]: progress }
+            : current.progressByRequest,
+        }));
+      };
+
+      const openClassTeamInvite = async () => {
+        if (!activeRequest || activeRequest.profile_id !== profileId) return;
+        setState((current) => ({ ...current, inviteOpen: true, inviteSearch: '', actionError: '' }));
+        const candidates = await listClassTeamInviteCandidates({
+          classId: state.classItem.id,
+          teamRequestId: activeRequest.id,
+          ownerProfileId: profileId,
+        }).catch(() => []);
+        setState((current) => ({ ...current, inviteCandidates: candidates }));
+      };
+
+      const sendClassTeamInvite = async (candidate) => {
+        if (!activeRequest || !candidate?.profile_id) return;
+        setState((current) => ({ ...current, actionError: '', actionSuccess: '' }));
+        try {
+          await inviteClassTeamMember({
+            classId: state.classItem.id,
+            teamRequestId: activeRequest.id,
+            ownerProfileId: profileId,
+            inviteeProfileId: candidate.profile_id,
+          });
+          setState((current) => ({
+            ...current,
+            inviteCandidates: current.inviteCandidates.map((item) => (
+              item.profile_id === candidate.profile_id ? { ...item, invite_status: 'pending' } : item
+            )),
+            actionSuccess: t('class.inviteSent'),
+          }));
+        } catch (err) {
+          setState((current) => ({ ...current, actionError: getFriendlyError(err, t('class.inviteFail')) }));
+        }
+      };
+
+      const respondToClassTeamInvite = async (invite, response) => {
+        try {
+          await respondClassTeamInvite({ inviteId: invite.id, profileId, response });
+          await refreshClassTeamData({ id: invite.team_request_id });
+          setState((current) => ({
+            ...current,
+            classTeamInvites: current.classTeamInvites.filter((item) => item.id !== invite.id),
+            actionSuccess: response === 'accepted' ? t('class.inviteAccepted') : t('class.inviteDeclined'),
+          }));
+        } catch (err) {
+          setState((current) => ({ ...current, actionError: getFriendlyError(err, t('class.teamActionUnavailable')) }));
+        }
+      };
+
+      const removeClassMember = async (member) => {
+        if (!selectedRequest || selectedRequest.profile_id !== profileId || member?.profile_id === profileId) return;
+        const confirmed = typeof window === 'undefined' || window.confirm(
+          `${t('class.removeMemberQuestion', { name: displayName(member.full_name) })}\n${t('class.removeMemberHelper')}`,
+        );
+        if (!confirmed) return;
+        try {
+          await removeClassTeamMember({
+            classId: state.classItem.id,
+            teamRequestId: selectedRequest.id,
+            ownerProfileId: profileId,
+            memberProfileId: member.profile_id,
+          });
+          await refreshClassTeamData(selectedRequest);
+          setState((current) => ({ ...current, actionSuccess: t('class.memberRemoved'), actionError: '' }));
+        } catch (err) {
+          setState((current) => ({ ...current, actionError: getFriendlyError(err, t('class.teamActionUnavailable')) }));
+        }
+      };
+
+      const leaveCurrentTeam = async () => {
+        if (!selectedRequest || selectedRequest.profile_id === profileId) return;
+        const confirmed = typeof window === 'undefined' || window.confirm(
+          `${t('class.leaveTeamQuestion')}\n${t('class.leaveTeamHelper')}`,
+        );
+        if (!confirmed) return;
+        try {
+          await leaveClassTeam({ classId: state.classItem.id, teamRequestId: selectedRequest.id, profileId });
+          await refreshClassTeamData(selectedRequest);
+          setState((current) => ({ ...current, actionSuccess: t('class.teamLeft'), actionError: '' }));
+        } catch (err) {
+          setState((current) => ({ ...current, actionError: getFriendlyError(err, t('class.teamActionUnavailable')) }));
+        }
+      };
+
+      const leaveCurrentClass = async () => {
+        if (selectedRequest?.profile_id === profileId) {
+          setState((current) => ({ ...current, actionError: t('class.ownerLeaveClass') }));
+          return;
+        }
+        const hasTeam = Boolean(selectedRequest && (teammates.length > 0 || classTeamMembers.length > 0));
+        const helper = hasTeam ? t('class.leaveClassHelper') : t('class.leaveClassIndependentHelper');
+        const confirmed = typeof window === 'undefined' || window.confirm(
+          `${t('class.leaveClassQuestion')}\n${helper}`,
+        );
+        if (!confirmed) return;
+        try {
+          await leaveClass({ classId: state.classItem.id, profileId });
+          setState((current) => ({ ...current, actionSuccess: t('class.classLeft'), actionError: '' }));
+          onBack();
+        } catch (err) {
+          setState((current) => ({ ...current, actionError: getFriendlyError(err, t('class.teamActionUnavailable')) }));
+        }
+      };
 
 		  if (state.editingRequest && profile) {
 		    return (
@@ -3181,31 +3378,62 @@ function ClassDetailPage({
 	          )}
 
 		          {classClosed && <p className="note">{t('class.closed')}</p>}
-	
-          <div className="hero-actions">
-            <button
-              className={activeRequest ? 'secondary' : 'primary'}
-              type="button"
-              onClick={() => {
-                if (activeRequest) {
-                  setState((current) => ({ ...current, editingRequest: activeRequest, actionError: '', actionSuccess: '' }));
-                } else {
-                  onFindTeammates(state.classItem, state.teamStatus);
-                }
+
+	          <div className="hero-actions">
+	            {activeRequest?.profile_id === profileId && (
+	              <button className="secondary" type="button" onClick={openClassTeamInvite}>
+	                <UserPlus size={18} />
+	                {t('class.inviteTeammates')}
+	              </button>
+	            )}
+		            {isRequestOwner || !selectedRequest ? <button
+		              className={ownedActiveRequest ? 'secondary' : 'primary'}
+		              type="button"
+		              onClick={() => {
+		                if (ownedActiveRequest) {
+		                  setState((current) => ({ ...current, editingRequest: ownedActiveRequest, actionError: '', actionSuccess: '' }));
+		                } else {
+		                  onFindTeammates(state.classItem, state.teamStatus);
+		                }
               }}
             >
               <Pencil size={18} />
-              {activeRequest ? t('request.editClass') : t('class.createRequest')}
+	              {ownedActiveRequest ? t('request.editClass') : t('class.createRequest')}
+	            </button> : null}
+            {isRequestOwner && <button
+	              className="primary"
+	              type="button"
+	              disabled={!ownedActiveRequest || classClosed}
+	              onClick={() => ownedActiveRequest && onViewMatches(ownedActiveRequest.id)}
+	            >
+	              {t('class.findTeammates')}
+	            </button>}
+	            <button className="secondary quiet-action" type="button" onClick={leaveCurrentClass}>
+              {t('class.leaveClass')}
             </button>
-            <button
-              className="primary"
-              type="button"
-              disabled={!activeRequest || classClosed}
-              onClick={() => activeRequest && onViewMatches(activeRequest.id)}
-            >
-              {t('class.findTeammates')}
-            </button>
-          </div>
+	          </div>
+
+	          {state.classTeamInvites.length > 0 && (
+	            <section className="class-team-invites">
+	              <h3>{t('class.invites')}</h3>
+	              {state.classTeamInvites.map((invite) => (
+                <article className="class-team-invite-row" key={invite.id}>
+                  <div>
+                    <strong>{displayName(invite.team_request_title || invite.owner_name || t('class.detail'))}</strong>
+                    <span>{invite.owner_name || t('class.inviteTeammates')}</span>
+                  </div>
+                  <div className="class-team-member-actions">
+                    <button className="primary" type="button" onClick={() => respondToClassTeamInvite(invite, 'accepted')}>
+                      {t('class.acceptInvite')}
+                    </button>
+                    <button className="secondary" type="button" onClick={() => respondToClassTeamInvite(invite, 'declined')}>
+                      {t('class.declineInvite')}
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </section>
+          )}
 	        </section>
       </div>
 
@@ -3227,7 +3455,7 @@ function ClassDetailPage({
             <div>
 	              <p className="eyebrow">{t('class.currentRequest')}</p>
             </div>
-            {activeRequest && (
+	            {ownedActiveRequest && (
               <div className="hero-actions">
                 <button className="secondary quiet-action" onClick={() => setState((current) => ({ ...current, deleteRequestTarget: activeRequest, actionError: '', actionSuccess: '' }))}>
                   <Trash2 size={18} />
@@ -3246,22 +3474,36 @@ function ClassDetailPage({
             <div><dt>{t('request.anythingElse')}</dt><dd>{selectedRequest.requirements || t('common.notSpecified')}</dd></div>
           </dl>
 
-          <section className="matched-list class-team-members-list">
-	            <h3>{t('class.teamMembersFound')} ({metrics?.matchedCount || 0})</h3>
-            {teammates.length === 0 ? (
-	              <p className="note">{t('class.noConnected')}</p>
-            ) : (
-              teammates.map((teammate) => (
-                <article className="matched-row" key={teammate.profile_id}>
-                  <div>
-                    <strong>{displayName(teammate.full_name)} {teammate.is_demo && <DemoBadge />}</strong>
-                    <span>{majorLabel(teammate.major) || t('common.notSpecified')}</span>
-                  </div>
-                  <button className="secondary" onClick={() => onOpenChat(teammate.connection_id)}>
-                    <MessageCircle size={18} />
-	                    {t('common.message')}
-                  </button>
-                </article>
+	          <section className="matched-list class-team-members-list">
+	            <h3>{t('class.teamMembersFound')} ({displayedTeamMembers.length})</h3>
+	            {displayedTeamMembers.length === 0 ? (
+		              <p className="note">{t('class.noConnected')}</p>
+	            ) : (
+	              displayedTeamMembers.map((teammate) => (
+	                <article className="matched-row" key={teammate.profile_id}>
+	                  <div>
+	                    <strong>{displayName(teammate.full_name)} {teammate.is_demo && <DemoBadge />}</strong>
+	                    <span>{majorLabel(teammate.major) || t('common.notSpecified')}</span>
+	                  </div>
+	                  <div className="class-team-member-actions">
+	                    {teammate.connection_id && (
+	                      <button className="secondary" type="button" onClick={() => onOpenChat(teammate.connection_id)}>
+	                        <MessageCircle size={18} />
+	                        {t('common.message')}
+                      </button>
+	                    )}
+	                    {isRequestOwner && !teammate.is_owner && (
+	                      <button className="secondary quiet-action" type="button" onClick={() => removeClassMember(teammate)}>
+	                        {t('class.removeMember')}
+	                      </button>
+	                    )}
+	                    {!isRequestOwner && teammate.profile_id === profileId && !teammate.is_owner && (
+	                      <button className="secondary quiet-action" type="button" onClick={leaveCurrentTeam}>
+	                        {t('class.leaveTeam')}
+	                      </button>
+	                    )}
+	                  </div>
+	                </article>
               ))
             )}
 	          </section>
@@ -3269,8 +3511,58 @@ function ClassDetailPage({
 	      )}
 	      </section>
 
-	      {state.actionSuccess && <p className="success">{state.actionSuccess}</p>}
-		      {state.actionError && !state.editingTeamStatus && <p className="error">{state.actionError}</p>}
+		      {state.actionSuccess && <p className="success">{state.actionSuccess}</p>}
+			      {state.actionError && !state.editingTeamStatus && <p className="error">{state.actionError}</p>}
+		      {state.inviteOpen && (
+		        <div className="modal-backdrop" role="presentation">
+		          <section className="connect-modal class-team-invite-modal" role="dialog" aria-modal="true" aria-label={t('class.inviteTeammates')}>
+		            <div className="modal-header">
+		              <div>
+		                <p className="eyebrow">{t('class.inviteTeammates')}</p>
+		                <h2>{t('class.inviteTeammates')}</h2>
+		              </div>
+		              <button className="ghost" onClick={() => setState((current) => ({ ...current, inviteOpen: false }))} type="button">{t('common.close')}</button>
+		            </div>
+	            <input
+	              value={state.inviteSearch}
+	              onChange={(event) => setState((current) => ({ ...current, inviteSearch: event.target.value }))}
+	              placeholder={t('class.searchFriends')}
+	              aria-label={t('class.searchFriends')}
+	            />
+	            <div className="class-team-invite-list">
+	              {state.inviteCandidates
+	                .filter((candidate) => {
+	                  const search = state.inviteSearch.trim().toLowerCase();
+	                  if (!search) return true;
+                  return [candidate.full_name, candidate.university, candidate.school, candidate.major]
+                    .some((value) => String(value || '').toLowerCase().includes(search));
+                })
+                .map((candidate) => {
+                  const isPending = candidate.invite_status === 'pending';
+                  const isMember = candidate.membership_status === 'active';
+                  const isFull = candidate.eligible === false && !isPending && !isMember;
+                  return (
+                    <article className="class-team-invite-row" key={candidate.profile_id}>
+                      <div>
+                        <strong>{displayName(candidate.full_name)}</strong>
+                        <span>{[candidate.university, majorLabel(candidate.major)].filter(Boolean).join(' · ')}</span>
+                      </div>
+                      <button
+                        className="secondary"
+                        type="button"
+                        disabled={isPending || isMember || isFull}
+                        onClick={() => sendClassTeamInvite(candidate)}
+                      >
+                        {isMember ? t('class.alreadyInTeam') : isPending ? t('class.invited') : isFull ? t('class.teamFull') : t('class.invite')}
+                      </button>
+                    </article>
+                  );
+                })}
+              {state.inviteCandidates.length === 0 && <p className="note">{t('class.inviteUnavailable')}</p>}
+            </div>
+		          </section>
+		        </div>
+		      )}
 		      {state.deleteRequestTarget && (
 		        <div className="modal-backdrop" role="presentation">
 		          <section className="connect-modal" role="dialog" aria-modal="true" aria-label={t('request.deleteClassTitle')}>
@@ -3721,6 +4013,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
   const [fieldErrors, setFieldErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const isLecturer = form.role === 'lecturer';
+  const isParticipant = form.role === 'participant';
   const resolvedUniversity = resolveProfileUniversity(form);
   const usesOtherUniversity = isOtherUniversityForm(form);
   const isRequiredField = (field) => isProfileFieldRequired(form, field);
@@ -3879,7 +4172,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
     setSaving(true);
 
     try {
-      const role = isLecturer ? 'lecturer' : 'student';
+      const role = getProfileRole(form);
       const profileContact = normalizeProfileContact(
         isLecturer ? 'email' : null,
         isLecturer ? form.lecturer_contact_detail : null,
@@ -3888,7 +4181,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
         full_name: form.full_name.trim(),
         university: normalizeCatalogAcademicValue('university', resolvedUniversity) || 'RMIT University',
         school: normalizeCatalogAcademicValue('school', getFormSchoolValue(form)),
-        major: isLecturer ? 'Lecturer' : normalizeCatalogAcademicValue('major', getFormMajorValue(form)),
+        major: isLecturer ? 'Lecturer' : normalizeCatalogAcademicValue('major', getFormMajorValue(form)) || null,
         skills: isLecturer ? ['Teaching'] : skills,
         avatar_url: form.avatar_url || null,
         availability: [],
@@ -3950,8 +4243,8 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
           <UserRound size={28} />
           <div>
 	            <div className="app-page-title-mask"><h2 className="app-page-title">{t('profile.completeTitle')}</h2></div>
-	              <p className="note app-page-description">{isLecturer ? t('profile.lecturerProfileHint') : t('profile.studentProfileHint')}</p>
-              <p className="signed-in-line">{t('profile.role')}: {isLecturer ? t('profile.lecturer') : t('profile.student')}</p>
+              <p className="note app-page-description">{isLecturer ? t('profile.lecturerProfileHint') : isParticipant ? t('profile.participantProfileHint') : t('profile.studentProfileHint')}</p>
+              <p className="signed-in-line">{t('profile.role')}: {isLecturer ? t('profile.lecturer') : isParticipant ? t('profile.participant') : t('profile.student')}</p>
               <p className="required-note">{t('profile.requiredNote')}</p>
           </div>
         </div>
@@ -4161,7 +4454,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
               value={form.short_bio}
               onChange={(event) => updateField('short_bio', event.target.value)}
               rows="4"
-              required={!isLecturer}
+              required={isRequiredField('short_bio')}
             />
             {!isLecturer && <FieldError message={fieldErrors.short_bio} />}
           </label>
@@ -4191,6 +4484,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
 
 function ProfileSaved({ profile, onContinue, t = translate.bind(null, 'en') }) {
   const isLecturer = isLecturerProfile(profile);
+  const isParticipant = getProfileRole(profile) === 'participant';
 
   return (
     <main className="screen compact">
@@ -4202,10 +4496,12 @@ function ProfileSaved({ profile, onContinue, t = translate.bind(null, 'en') }) {
 	        <p>
 	          {isLecturer
 	            ? t('profile.lecturerSaved')
-	            : t('profile.studentSaved')}
+	            : isParticipant
+	              ? t('profile.participantSaved')
+	              : t('profile.studentSaved')}
 	        </p>
 	        <button className="primary" onClick={onContinue}>
-	          {isLecturer ? t('profile.openLecturer') : t('classes.title')}
+	          {isLecturer ? t('profile.openLecturer') : isParticipant ? t('nav.discover') : t('classes.title')}
 	        </button>
       </section>
     </main>
@@ -4786,18 +5082,30 @@ function RequestForm({ profile, onCreated, onUpdated, onBack, request = null, mo
   );
 }
 
-function MatchCard({ request, connectionState, onView, onConnect, connecting, t = translate.bind(null, 'en') }) {
+function MatchCard({
+  request,
+  connectionState,
+  onView,
+  onConnect,
+  onInvite,
+  connecting,
+  inviting,
+  actionLabel,
+  alreadyInProject = false,
+  classTeamInviteState = null,
+  t = translate.bind(null, 'en'),
+}) {
   const teamStatus = request.team_status || {};
   const liveMetrics = getRequestStatusMetrics(request);
   const teamStatusText = teamStatus.status_label
     || (liveMetrics.remaining > 0
       ? `${t('matches.lookingFor')} ${liveMetrics.remaining} ${liveMetrics.remaining === 1 ? t('matches.spot') : t('matches.spots')}`
       : t('matches.teamNotSpecified'));
-  const canConnect = connectionState === 'none' && !connecting;
+  const canConnect = connectionState === 'none' && !connecting && !alreadyInProject;
 
   return (
     <article className={isPremiumProfile(request.profile) || isRequestPinned(request) ? 'match-card premium-card' : 'match-card'}>
-      <div className="score">
+      <div className="score match-results-score">
         <Sparkles size={18} />
         {t('matches.matchPercent', { score: request.matchScore })}
       </div>
@@ -4850,17 +5158,35 @@ function MatchCard({ request, connectionState, onView, onConnect, connecting, t 
         <button className="secondary" onClick={() => onView(request.id, request.matchScore)}>
           {t('common.viewProfile')}
         </button>
-        {canConnect && (
-          <button className="primary" type="button" onClick={() => onConnect(request)} disabled={connecting}>
-            {connecting ? t('matches.sending') : t('matches.connect')}
+        {alreadyInProject ? (
+          <span>
+            {classTeamInviteState ? t('class.alreadyInTeam') : t('matches.alreadyInProject')}
+          </span>
+        ) : classTeamInviteState?.status === 'pending' ? (
+          <span>{t('class.invited')}</span>
+        ) : classTeamInviteState?.status === 'full' ? (
+          <span>{t('class.teamFull')}</span>
+        ) : classTeamInviteState?.status === 'not_in_class' ? (
+          <span>{t('class.notInClass')}</span>
+        ) : classTeamInviteState?.status === 'different_session' ? (
+          <span>{t('class.differentSession')}</span>
+        ) : classTeamInviteState?.status === 'eligible' && connectionState === 'accepted' ? (
+          <button className="primary" type="button" onClick={() => onInvite?.(request)} disabled={inviting}>
+            {inviting ? t('class.inviting') : t('class.invite')}
           </button>
-        )}
+        ) : connectionState === 'sent_pending' ? (
+          <span>{t('matches.invited')}</span>
+        ) : canConnect ? (
+          <button className="primary" type="button" onClick={() => onConnect(request)} disabled={connecting}>
+            {connecting ? t('matches.sending') : actionLabel || t('matches.connect')}
+          </button>
+        ) : null}
       </div>
     </article>
   );
 }
 
-function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurrent, onCreateNew, onSelectRequest, t = translate.bind(null, 'en') }) {
+function MatchResults({ requestId, currentProfileId, onViewProfile, onOpenProfile, onViewCurrent, onCreateNew, onSelectRequest, t = translate.bind(null, 'en') }) {
   const [state, setState] = useState({
     activeLoading: true,
     matchesLoading: false,
@@ -4871,8 +5197,20 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
     activeRequests: [],
     progressById: {},
     connectionsByProfile: {},
+    collaboratorProfiles: [],
+    collaboratorConnectionsByProfile: {},
+    collaboratorMemberIds: [],
+    collaboratorLoading: false,
+    classTeamMemberIds: [],
+    classTeamInviteStateByProfile: {},
+    classTeamLoading: false,
   });
   const matchesViewedTrackedRef = useRef(new Set());
+  const [collaboratorFilters, setCollaboratorFilters] = useState({ search: '', skill: '', availability: '' });
+
+  useEffect(() => {
+    setCollaboratorFilters({ search: '', skill: '', availability: '' });
+  }, [requestId]);
 
   useEffect(() => {
     let alive = true;
@@ -4995,6 +5333,142 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
   }, [requestId, currentProfileId]);
 
   useEffect(() => {
+    let alive = true;
+    const currentRequest = state.data?.currentRequest;
+
+    if (!currentProfileId || !currentRequest?.id || currentRequest.class_id) {
+      setState((current) => ({
+        ...current,
+        collaboratorProfiles: [],
+        collaboratorConnectionsByProfile: {},
+        collaboratorMemberIds: [],
+        collaboratorLoading: false,
+      }));
+      return () => {
+        alive = false;
+      };
+    }
+
+    setState((current) => ({ ...current, collaboratorLoading: true }));
+
+    Promise.all([
+      getDiscoverProfiles().catch(() => []),
+      getTeamRequestMembers(currentRequest.id, currentProfileId).catch(() => []),
+    ]).then(async ([profiles, members]) => {
+      const recommendedProfiles = (state.data?.matches || [])
+        .map((match) => match.profile)
+        .filter(Boolean);
+      const profileById = new Map(
+        [...(profiles || []), ...recommendedProfiles]
+          .filter((candidate) => candidate?.id)
+          .map((candidate) => [candidate.id, candidate]),
+      );
+      const pool = [...profileById.values()].filter((candidate) => candidate.id !== currentProfileId);
+      const connectionEntries = await Promise.all(
+        pool.map(async (candidate) => {
+          try {
+            return [candidate.id, await getConnectionBetween(currentProfileId, candidate.id, 'team_request')];
+          } catch {
+            return [candidate.id, null];
+          }
+        }),
+      );
+
+      if (alive) {
+        setState((current) => ({
+          ...current,
+          collaboratorProfiles: pool,
+          collaboratorConnectionsByProfile: Object.fromEntries(connectionEntries),
+          collaboratorMemberIds: (members || []).map((member) => member.profile_id).filter(Boolean),
+          collaboratorLoading: false,
+        }));
+      }
+    }).catch(() => {
+      if (alive) {
+        setState((current) => ({
+          ...current,
+          collaboratorProfiles: [],
+          collaboratorConnectionsByProfile: {},
+          collaboratorMemberIds: [],
+          collaboratorLoading: false,
+        }));
+      }
+    });
+
+    return () => {
+      alive = false;
+    };
+  }, [currentProfileId, state.data?.currentRequest?.id]);
+
+  useEffect(() => {
+    let alive = true;
+    const currentRequest = state.data?.currentRequest;
+
+    if (!currentProfileId || !currentRequest?.id || !currentRequest.class_id) {
+      setState((current) => ({
+        ...current,
+        classTeamMemberIds: [],
+        classTeamInviteStateByProfile: {},
+        classTeamLoading: false,
+      }));
+      return () => {
+        alive = false;
+      };
+    }
+
+    setState((current) => ({ ...current, classTeamLoading: true }));
+
+    Promise.all([
+      getClassTeamMembers({
+        classId: currentRequest.class_id,
+        teamRequestId: currentRequest.id,
+        profileId: currentProfileId,
+      }).catch(() => []),
+      listClassTeamInviteCandidates({
+        classId: currentRequest.class_id,
+        teamRequestId: currentRequest.id,
+        ownerProfileId: currentProfileId,
+      }).catch(() => []),
+    ]).then(([members, candidates]) => {
+      if (!alive) return;
+
+      const inviteStateByProfile = Object.fromEntries(
+        (candidates || []).map((candidate) => [normalizeFilterValue(candidate.profile_id), {
+          status: candidate.invite_status === 'pending'
+            ? 'pending'
+            : candidate.membership_status === 'active'
+              ? 'active'
+              : candidate.eligible === false
+                ? 'full'
+                : 'eligible',
+        }]),
+      );
+
+      setState((current) => ({
+        ...current,
+        classTeamMemberIds: (members || [])
+          .map((member) => normalizeFilterValue(member.profile_id))
+          .filter(Boolean),
+        classTeamInviteStateByProfile: inviteStateByProfile,
+        classTeamLoading: false,
+      }));
+    }).catch(() => {
+      if (alive) {
+        setState((current) => ({
+          ...current,
+          classTeamMemberIds: [],
+          classTeamInviteStateByProfile: {},
+          classTeamLoading: false,
+        }));
+      }
+    });
+
+    return () => {
+      alive = false;
+    };
+  }, [currentProfileId, state.data?.currentRequest?.id]);
+
+  useEffect(() => {
     const currentRequest = state.data?.currentRequest;
     if (!currentProfileId || !currentRequest?.id) return;
 
@@ -5068,6 +5542,130 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
       || Number(Boolean(a.profile?.is_demo)) - Number(Boolean(b.profile?.is_demo))
       || new Date(b.created_at) - new Date(a.created_at),
     );
+  const recommendedByProfile = new Map(matches.map((match) => [match.profile_id, match]));
+  const collaboratorCandidates = state.collaboratorProfiles
+    .map((candidate) => ({
+      profile: candidate,
+      request: recommendedByProfile.get(candidate.id) || null,
+      connection: state.collaboratorConnectionsByProfile[candidate.id] || null,
+    }))
+    .sort((left, right) => {
+      const leftRequest = left.request;
+      const rightRequest = right.request;
+      return Number(Boolean(rightRequest)) - Number(Boolean(leftRequest))
+        || Number(rightRequest?.matchScore || 0) - Number(leftRequest?.matchScore || 0)
+        || String(left.profile.full_name || '').localeCompare(String(right.profile.full_name || ''));
+    });
+  const collaboratorSkillOptions = [
+    { value: '', label: t('matches.allSkills'), searchText: t('matches.allSkills') },
+    ...mergeOptionSets(
+      getAllSkills(),
+      collaboratorCandidates.flatMap((candidate) => candidate.profile.skills || []),
+    ).filter((skill) => skill !== 'Other').map((skill) => ({ value: skill, label: localizedOption(skill, 'options.skill', t), searchText: skill })),
+  ];
+  const collaboratorAvailabilityOptions = [
+    { value: '', label: t('matches.allAvailability'), searchText: t('matches.allAvailability') },
+    { value: 'available', label: t('matches.available'), searchText: t('matches.available') },
+    { value: 'unavailable', label: t('matches.unavailable'), searchText: t('matches.unavailable') },
+  ];
+  const filteredCollaboratorCandidates = collaboratorCandidates.filter((candidate) => {
+    const profileText = [
+      candidate.profile.full_name,
+      candidate.profile.university,
+      candidate.profile.school,
+      candidate.profile.major,
+    ].filter(Boolean).join(' ');
+    const matchesSearch = !collaboratorFilters.search
+      || normalizeFilterValue(profileText).includes(normalizeFilterValue(collaboratorFilters.search));
+    const matchesSkill = !collaboratorFilters.skill
+      || (candidate.profile.skills || []).some((skill) => normalizeFilterValue(skill) === normalizeFilterValue(collaboratorFilters.skill));
+    const matchesAvailability = !collaboratorFilters.availability
+      || (collaboratorFilters.availability === 'available' && candidate.profile.is_available !== false)
+      || (collaboratorFilters.availability === 'unavailable' && candidate.profile.is_available === false);
+    return matchesSearch && matchesSkill && matchesAvailability;
+  });
+
+  const updateCollaboratorFilter = (key, value) => {
+    setCollaboratorFilters((current) => ({ ...current, [key]: value }));
+  };
+
+  const isCurrentProjectConnection = (connection) => Boolean(
+    connection?.status === 'pending'
+      && [connection.sender_team_request_id, connection.receiver_team_request_id].includes(currentRequest.id),
+  );
+
+  const renderAdditionalCollaborator = (candidate) => {
+    const connectionState = getConnectionState(candidate.connection, currentProfileId);
+    const alreadyInProject = state.collaboratorMemberIds.includes(candidate.profile.id);
+    const invited = isCurrentProjectConnection(candidate.connection);
+    const canInvite = !alreadyInProject && !invited && connectionState !== 'received_pending';
+    const candidateRequest = candidate.request || { profile_id: candidate.profile.id, profile: candidate.profile };
+
+    return (
+      <article className="match-card" key={`collaborator-${candidate.profile.id}`}>
+        {candidate.request && (
+          <div className="score">
+            <Sparkles size={18} />
+            {t('matches.matchPercent', { score: candidate.request.matchScore })}
+          </div>
+        )}
+        <h3>{displayName(candidate.profile.full_name)} {candidate.profile.is_demo && <DemoBadge />}</h3>
+        <p>{formatProfileAcademicLine(candidate.profile)}</p>
+        <div className="mini-detail">
+          <strong>{t('matches.skillsHave')}</strong>
+          <span>{joinList(candidate.profile.skills)}</span>
+        </div>
+        <div className="mini-detail">
+          <strong>{t('matches.availability')}</strong>
+          <span>{candidate.profile.is_available === false ? t('matches.unavailable') : t('matches.available')}</span>
+        </div>
+        <ConnectionStateBadge state={connectionState} t={t} />
+        <div className="hero-actions">
+          <button
+            className="secondary"
+            type="button"
+            onClick={() => (candidate.request
+              ? onViewProfile(candidate.request.id, candidate.request.matchScore)
+              : onOpenProfile?.(candidate.profile.id))}
+          >
+            {t('common.viewProfile')}
+          </button>
+          {alreadyInProject ? (
+            <button className="secondary" type="button" disabled>{t('matches.alreadyInProject')}</button>
+          ) : invited ? (
+            <button className="secondary" type="button" disabled>{t('matches.invited')}</button>
+          ) : canInvite ? (
+            <button
+              className="primary"
+              type="button"
+              onClick={() => sendMatchConnect(candidateRequest)}
+              disabled={state.sendingProfileId === candidate.profile.id}
+            >
+              {state.sendingProfileId === candidate.profile.id ? t('matches.sending') : t('matches.invite')}
+            </button>
+          ) : null}
+        </div>
+      </article>
+    );
+  };
+
+  const renderCollaboratorCandidate = (candidate) => {
+    if (!candidate.request) return renderAdditionalCollaborator(candidate);
+
+    return (
+      <MatchCard
+        request={candidate.request}
+        connectionState={getConnectionState(candidate.connection, currentProfileId)}
+        key={`recommended-collaborator-${candidate.profile.id}`}
+        onView={viewMatchProfile}
+        onConnect={sendMatchConnect}
+        connecting={state.sendingProfileId === candidate.profile.id}
+        actionLabel={t('matches.invite')}
+        alreadyInProject={state.collaboratorMemberIds.includes(candidate.profile.id)}
+        t={t}
+      />
+    );
+  };
 
   const handleRequestChange = (value) => {
     if (value === '__new__') {
@@ -5155,6 +5753,14 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
             receiver_profile_id: request.profile_id,
           },
         },
+        collaboratorConnectionsByProfile: {
+          ...current.collaboratorConnectionsByProfile,
+          [request.profile_id]: {
+            ...connection,
+            sender_profile_id: currentProfileId,
+            receiver_profile_id: request.profile_id,
+          },
+        },
       }));
     } catch (err) {
       setState((current) => ({
@@ -5165,7 +5771,79 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
     }
   };
 
+  const sendClassTeamInvite = async (request) => {
+    if (!currentProfileId || !currentRequest?.class_id || !request?.profile_id) return;
+
+    setState((current) => ({
+      ...current,
+      connectError: '',
+      sendingProfileId: request.profile_id,
+    }));
+
+    try {
+      await inviteClassTeamMember({
+        classId: currentRequest.class_id,
+        teamRequestId: currentRequest.id,
+        ownerProfileId: currentProfileId,
+        inviteeProfileId: request.profile_id,
+      });
+      setState((current) => ({
+        ...current,
+        sendingProfileId: '',
+        classTeamInviteStateByProfile: {
+          ...current.classTeamInviteStateByProfile,
+          [normalizeFilterValue(request.profile_id)]: { status: 'pending' },
+        },
+      }));
+    } catch (err) {
+      setState((current) => ({
+        ...current,
+        sendingProfileId: '',
+        connectError: getFriendlyError(err, t('class.inviteFail')),
+      }));
+    }
+  };
+
   const isClassRequest = Boolean(currentRequest.class_id);
+
+  const getClassId = (request = {}) => request.class_id || request.classId || '';
+  const getSessionIdentity = (request = {}) => {
+    const sessionValue = request.session_code || request.class_session || '';
+    const sessionCode = getSessionCodeFromValue(sessionValue);
+    return sessionCode ? `session-${sessionCode}` : normalizeFilterValue(sessionValue);
+  };
+
+  const getClassTeamInviteState = (request) => {
+    if (!isClassRequest) return null;
+
+    const candidateProfileId = normalizeFilterValue(request.profile_id);
+    const knownState = state.classTeamInviteStateByProfile[candidateProfileId];
+    if (knownState) return knownState;
+    if (state.classTeamLoading) return null;
+
+    const candidateClassId = normalizeFilterValue(getClassId(request));
+    const currentClassId = normalizeFilterValue(getClassId(currentRequest));
+    const sameClass = Boolean(candidateClassId && currentClassId && candidateClassId === currentClassId);
+    const candidateSession = getSessionIdentity(request);
+    const currentSession = getSessionIdentity(currentRequest);
+    const sameSession = !candidateSession || !currentSession || candidateSession === currentSession;
+
+    if (candidateClassId && currentClassId && !sameClass) {
+      return { status: 'not_in_class' };
+    }
+
+    if (sameClass && !sameSession) {
+      return { status: 'different_session' };
+    }
+
+    // A missing optional candidate-RPC row is not proof that the candidate is
+    // outside the class. The match query already returned this request for the
+    // current class/session; preserve that eligibility until authoritative
+    // membership or invite state says otherwise.
+    if (sameClass && sameSession) return { status: 'eligible' };
+
+    return { status: 'not_in_class' };
+  };
 
   return (
     <main className="screen results">
@@ -5206,7 +5884,76 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
 
       {state.connectError && <p className="error">{state.connectError}</p>}
 
-      {matches.length === 0 ? (
+      {!isClassRequest && (
+        <>
+          <section className="filter-panel matches-collaborator-filters" aria-label={t('matches.collaboratorFilters')}>
+            <label>
+              {t('matches.searchCollaborators')}
+              <SearchableCombobox
+                value={collaboratorFilters.search}
+                options={collaboratorCandidates.map((candidate) => ({
+                  value: candidate.profile.full_name || candidate.profile.id,
+                  label: displayName(candidate.profile.full_name),
+                  searchText: [candidate.profile.full_name, candidate.profile.university, candidate.profile.school, candidate.profile.major].filter(Boolean).join(' '),
+                }))}
+                placeholder={t('matches.searchCollaborators')}
+                onQueryChange={(value) => updateCollaboratorFilter('search', value)}
+                onSelect={(value) => updateCollaboratorFilter('search', value)}
+                onClear={() => updateCollaboratorFilter('search', '')}
+                clearLabel={t('opportunities.clearFilters')}
+                showOther={false}
+                noResultsLabel={t('matches.noCollaborators')}
+              />
+            </label>
+            <label>
+              {t('matches.skillFilter')}
+              <SearchableCombobox
+                value={collaboratorFilters.skill}
+                options={collaboratorSkillOptions}
+                placeholder={t('matches.allSkills')}
+                onSelect={(value) => updateCollaboratorFilter('skill', value)}
+                onClear={() => updateCollaboratorFilter('skill', '')}
+                clearLabel={t('opportunities.clearFilters')}
+                showOther={false}
+                noResultsLabel={t('matches.allSkills')}
+              />
+            </label>
+            <label>
+              {t('matches.availabilityFilter')}
+              <SearchableCombobox
+                value={collaboratorFilters.availability}
+                options={collaboratorAvailabilityOptions}
+                placeholder={t('matches.allAvailability')}
+                onSelect={(value) => updateCollaboratorFilter('availability', value)}
+                onClear={() => updateCollaboratorFilter('availability', '')}
+                clearLabel={t('opportunities.clearFilters')}
+                showOther={false}
+                noResultsLabel={t('matches.allAvailability')}
+              />
+            </label>
+            {Object.values(collaboratorFilters).some(Boolean) && (
+              <button className="ghost" type="button" onClick={() => setCollaboratorFilters({ search: '', skill: '', availability: '' })}>
+                {t('opportunities.clearFilters')}
+              </button>
+            )}
+          </section>
+        </>
+      )}
+
+      {!isClassRequest ? (
+        !state.collaboratorLoading && filteredCollaboratorCandidates.length > 0 ? (
+          <section className="match-results-section">
+            <h3>{t('matches.findCollaborators')}</h3>
+            <div className="match-grid">
+              {filteredCollaboratorCandidates.map(renderCollaboratorCandidate)}
+            </div>
+          </section>
+        ) : !state.collaboratorLoading ? (
+          <section className="empty-state">
+            <p>{t('matches.noCollaborators')}</p>
+          </section>
+        ) : null
+      ) : matches.length === 0 ? (
         <section className="empty-state">
           <p>{t('matches.noneActive')}</p>
           <button className="primary" onClick={onCreateNew}>{t('common.createAnother')}</button>
@@ -5225,7 +5972,14 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onViewCurren
               key={request.id}
               onView={viewMatchProfile}
               onConnect={sendMatchConnect}
+              onInvite={sendClassTeamInvite}
               connecting={state.sendingProfileId === request.profile_id}
+              inviting={state.sendingProfileId === request.profile_id && isClassRequest}
+              actionLabel={!isClassRequest ? t('matches.invite') : undefined}
+              classTeamInviteState={getClassTeamInviteState(request)}
+              alreadyInProject={isClassRequest
+                ? state.classTeamMemberIds.includes(normalizeFilterValue(request.profile_id))
+                : state.collaboratorMemberIds.includes(request.profile_id)}
               t={t}
             />
           ))}
@@ -7256,7 +8010,12 @@ function CurrentRequest({
         },
       }));
     } catch (err) {
-      console.error('Collab join request failed', err);
+      console.error('Collab join request failed', {
+        error: err,
+        requestId: request.id,
+        profileId: currentProfileId,
+        role: getProfileRole(profile),
+      });
       setState((current) => ({
         ...current,
         joinSendingRequestId: '',
@@ -7695,7 +8454,7 @@ function CurrentRequest({
                 {t('common.editRequest')}
               </button>
             )}
-            {!isOwner && isJoined && <span className="status-badge accepted">{t('opportunities.joined')}</span>}
+            {!isOwner && isJoined && <span className="collab-request-state">{t('opportunities.joined')}</span>}
             {!isOwner && joinAction && (
               <button
                 className={joinAction.available ? 'primary' : 'secondary'}
@@ -7844,7 +8603,7 @@ function CurrentRequest({
         onLeaveProject={leaveProject}
         memberActionId={state.memberActionId}
         membershipBackendAvailable={state.membershipBackendAvailable}
-        isCurrentMember={state.joinStateById[detailRequest.id]?.status === 'accepted'}
+        isCurrentMember={Boolean(detailRequest.joinedByCurrentProfile)}
         t={t}
       />
     );
@@ -7919,31 +8678,33 @@ function CurrentRequest({
           </button>
         )}
       </section>
-      {joinedRequests.length > 0 && (
-        <section className="request-panel standalone collab-joined-projects-panel">
-          <div className="compact-header"><p className="eyebrow">{t('opportunities.joinedProjects')}</p></div>
-          <div className="request-list">{joinedRequests.map((item) => renderCollabRequestCard(item))}</div>
-        </section>
-      )}
       <div className="collabs-marketplace">
-        <section className="request-panel standalone collab-requests-panel collab-marketplace-list">
-          {filteredMarketplaceRequests.length === 0 ? (
-            <p className="note">{t('opportunities.noOtherRequests')}</p>
-          ) : (
-            <div className="request-list">
-              {visibleMarketplaceRequests.map((item) => renderCollabRequestCard(item))}
-            </div>
+        <div className="collabs-marketplace-main">
+          {joinedRequests.length > 0 && (
+            <section className="collab-joined-projects-section">
+              <h3 className="collab-section-heading">{t('opportunities.joinedProjects')}</h3>
+              <div className="request-list">{joinedRequests.map((item) => renderCollabRequestCard(item))}</div>
+            </section>
           )}
-          <NumberedPagination
-            page={collabPage}
-            pageCount={collabPageCount}
-            onChange={(nextPage) => {
-              setCollabPage(nextPage);
-              writeSessionJson('teamergency.collabs.page', nextPage);
-            }}
-            t={t}
-          />
-        </section>
+          <section className="request-panel standalone collab-requests-panel collab-marketplace-list">
+            {filteredMarketplaceRequests.length === 0 ? (
+              <p className="note">{t('opportunities.noOtherRequests')}</p>
+            ) : (
+              <div className="request-list">
+                {visibleMarketplaceRequests.map((item) => renderCollabRequestCard(item))}
+              </div>
+            )}
+            <NumberedPagination
+              page={collabPage}
+              pageCount={collabPageCount}
+              onChange={(nextPage) => {
+                setCollabPage(nextPage);
+                writeSessionJson('teamergency.collabs.page', nextPage);
+              }}
+              t={t}
+            />
+          </section>
+        </div>
         <aside className="collabs-my-request-column">
           {renderMyRequestPanel()}
         </aside>
@@ -9196,7 +9957,7 @@ function MyProfile({
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
-  const currentRole = activeRole === 'lecturer' ? 'lecturer' : 'student';
+  const currentRole = activeRole === 'lecturer' || activeRole === 'participant' ? activeRole : 'student';
   const editingAsLecturer = form.role === 'lecturer';
   const authEmail = getAuthSessionEmail(authSession);
   const signedInWithGoogle = hasGoogleAuthSession(authSession);
@@ -9480,7 +10241,7 @@ function MyProfile({
           ? form.short_bio.trim() || t('profile.lecturerBioDefault')
           : form.short_bio.trim(),
 	        is_available: profile.is_available ?? !editingAsLecturer,
-	        role: editingAsLecturer ? 'lecturer' : 'student',
+	        role: getProfileRole(form),
 	        lecturer_title: editingAsLecturer ? form.lecturer_title.trim() || null : null,
 	        lecturer_id: editingAsLecturer ? form.lecturer_id.trim() : null,
         academic_field: editingAsLecturer
@@ -9496,7 +10257,7 @@ function MyProfile({
         entityType: 'profile',
         entityId: updated.id,
         metadata: {
-          role: editingAsLecturer ? 'lecturer' : 'student',
+          role: getProfileRole(form),
         },
       });
       onProfileUpdated(updated);
@@ -9739,7 +10500,7 @@ function MyProfile({
                   <div className="my-profile-header-content">
                     <h2>{displayName(profile.full_name)}</h2>
                     <p className="profile-header-meta">
-                      {currentRole === 'student' ? t('profile.student') : t('profile.lecturer')} · {subscriptionLabel(profile, t)}
+                      {currentRole === 'student' ? t('profile.student') : currentRole === 'participant' ? t('profile.participant') : t('profile.lecturer')} · {subscriptionLabel(profile, t)}
                     </p>
                     <p className="profile-header-university">{universityLabel(profile.university)}</p>
                     {signedInWithGoogle && (
@@ -9839,7 +10600,7 @@ function MyProfile({
                 {message && <p className="success">{message}</p>}
                 {error && <p className="error">{error}</p>}
                 <div className="stacked-actions profile-actions">
-                  {currentRole === 'student' ? (
+                  {currentRole !== 'lecturer' ? (
                     <button className="secondary link-button" onClick={onCreateSearch}>{t('opportunities.new')}</button>
                   ) : (
                     <button className="primary link-button" type="button" onClick={onOpenLecturer}>{t('profile.openLecturer')}</button>
@@ -10041,7 +10802,7 @@ export default function App() {
           }
           if (navigateAfterSignIn && hasGoogleAuthSession(session)) {
             clearPendingRole();
-            navigate(nextRole === 'lecturer' ? 'lecturer' : 'my-classes');
+            navigate(defaultRoleView(nextRole));
           }
           return;
         } catch {
@@ -10082,7 +10843,7 @@ export default function App() {
 	        }
 	        if (navigateAfterSignIn && hasGoogleAuthSession(session)) {
 	          clearPendingRole();
-	          navigate(nextRole === 'lecturer' ? 'lecturer' : 'my-classes');
+          navigate(defaultRoleView(nextRole));
 	        }
 	      } catch {
 	        if (hasGoogleAuthSession(session)) {
@@ -10144,13 +10905,15 @@ export default function App() {
   }, [t]);
 
   const hasProfile = Boolean(profileId);
-  const currentRole = activeRole === 'lecturer' ? 'lecturer' : 'student';
+  const currentRole = activeRole === 'lecturer' || activeRole === 'participant' ? activeRole : 'student';
   const currentLecturerSession = lecturerSession || lecturerSessionFromProfile(profile);
   const showStudentNavigation = hasProfile && currentRole === 'student';
+  const showParticipantNavigation = hasProfile && currentRole === 'participant';
   const showLecturerNavigation = hasProfile && currentRole === 'lecturer';
+  const defaultRoleView = (role) => role === 'lecturer' ? 'lecturer' : role === 'participant' ? 'discover' : 'my-classes';
 
   const selectLandingRole = (role) => {
-    const nextRole = role === 'lecturer' ? 'lecturer' : 'student';
+    const nextRole = role === 'lecturer' || role === 'participant' ? role : 'student';
     clearLoggedOut();
     setSelectedLandingRole(nextRole);
     setProfileFormRole(nextRole);
@@ -10159,7 +10922,7 @@ export default function App() {
   };
 
 	  const openProfileForm = (role = 'student') => {
-    const nextRole = role === 'lecturer' ? 'lecturer' : 'student';
+    const nextRole = role === 'lecturer' || role === 'participant' ? role : 'student';
     clearLoggedOut();
     setProfileFormRole(nextRole);
     setSelectedLandingRole(nextRole);
@@ -10169,7 +10932,7 @@ export default function App() {
   };
 
 	  const changeActiveRole = (role) => {
-    const nextRole = role === 'lecturer' ? 'lecturer' : 'student';
+    const nextRole = role === 'lecturer' || role === 'participant' ? role : 'student';
     setActiveRole(nextRole);
     storeActiveRole(nextRole);
 	  };
@@ -10231,7 +10994,7 @@ export default function App() {
 	    }
 
 	    clearPendingRole();
-	    navigate(nextRole === 'lecturer' ? 'lecturer' : 'my-classes');
+    navigate(defaultRoleView(nextRole));
 	  };
 
 	  const routeExistingGoogleSession = async (session, nextRole) => {
@@ -10249,7 +11012,7 @@ export default function App() {
 	  const handleGoogleSignIn = async (roleOverride = selectedLandingRole || profileFormRole || activeRole) => {
 	    setBootError('');
 	    setGoogleSigningIn(true);
-      const nextRole = roleOverride === 'lecturer' ? 'lecturer' : 'student';
+      const nextRole = roleOverride === 'lecturer' || roleOverride === 'participant' ? roleOverride : 'student';
       setSelectedLandingRole(nextRole);
       setProfileFormRole(nextRole);
       storePendingRole(nextRole);
@@ -10408,10 +11171,14 @@ export default function App() {
   };
 
   const navigate = (nextView) => {
+    const guardedView = currentRole === 'participant'
+      && ['my-classes', 'join-class', 'class-detail', 'lecturer'].includes(nextView)
+      ? 'discover'
+      : nextView;
     setViewHistory((current) => (
-      nextView === view ? current : [...current, view].slice(-20)
+      guardedView === view ? current : [...current, view].slice(-20)
     ));
-    setView(nextView);
+    setView(guardedView);
   };
 
   const goBack = (fallbackView = 'home') => {
@@ -10477,10 +11244,10 @@ export default function App() {
 	          ) : (
 	            <>
 	              {showStudentNavigation && <button className={navButtonClass('my-classes')} onClick={() => navigate('my-classes')}>{t('nav.myClasses')}</button>}
-	              {showStudentNavigation && <button className={navButtonClass('discover')} onClick={() => navigate('discover')}>{t('nav.discover')}</button>}
+              {(showStudentNavigation || showParticipantNavigation) && <button className={navButtonClass('discover')} onClick={() => navigate('discover')}>{t('nav.discover')}</button>}
 	              {showLecturerNavigation && <button className={navButtonClass('lecturer')} onClick={() => navigate('lecturer')}>{t('nav.lecturer')}</button>}
-	              {showStudentNavigation && profileId && <button className={navButtonClass('current-request')} onClick={() => navigate('current-request')}>{t('nav.openOpportunities')}</button>}
-	              {showStudentNavigation && <button className={navButtonClass('connections')} onClick={() => navigate('connections')}>{t('nav.connections')}{notificationCounts.connections > 0 && <span className="nav-badge">{notificationCounts.connections}</span>}</button>}
+              {(showStudentNavigation || showParticipantNavigation) && profileId && <button className={navButtonClass('current-request')} onClick={() => navigate('current-request')}>{t('nav.openOpportunities')}</button>}
+              {(showStudentNavigation || showParticipantNavigation) && <button className={navButtonClass('connections')} onClick={() => navigate('connections')}>{t('nav.connections')}{notificationCounts.connections > 0 && <span className="nav-badge">{notificationCounts.connections}</span>}</button>}
 	              {showLecturerNavigation && <button className={navButtonClass('connections')} onClick={() => navigate('messages')}>{t('nav.messages')}{notificationCounts.messages > 0 && <span className="nav-badge">{notificationCounts.messages}</span>}</button>}
 	              <button className={navButtonClass('my-profile')} onClick={() => navigate('my-profile')}>{t('nav.myProfile')}</button>
 	            </>
@@ -10528,7 +11295,7 @@ export default function App() {
       )}
 
 	      {view === 'profile-saved' && (
-	        <ProfileSaved profile={profile} onContinue={() => navigate(currentRole === 'lecturer' ? 'lecturer' : 'my-classes')} t={t} />
+	        <ProfileSaved profile={profile} onContinue={() => navigate(defaultRoleView(currentRole))} t={t} />
 	      )}
 
       {view === 'join-class' && (
@@ -10624,6 +11391,10 @@ export default function App() {
             setSelectedRequestId(id);
             setSelectedMatchScore(score);
             navigate('profile-detail');
+          }}
+	          onOpenProfile={(id) => {
+            setSelectedDiscoverProfileId(id);
+            navigate('discover-profile');
           }}
         />
       )}

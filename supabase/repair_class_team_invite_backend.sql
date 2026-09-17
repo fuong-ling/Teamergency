@@ -1,0 +1,703 @@
+-- Teamergency: focused repair for My Classes -> Invite.
+-- MANUAL SUPABASE EXECUTION ONLY. Do not run from the application.
+--
+-- This repair is intentionally separate from the larger class-team migration.
+-- It restores the class-team tables and RPCs needed by the Invite flow while
+-- leaving friend connections, Collab membership, and unrelated RPCs alone.
+
+create table if not exists public.class_team_memberships (
+  id uuid primary key default gen_random_uuid(),
+  class_id uuid not null references public.classes(id) on delete cascade,
+  team_request_id uuid not null references public.team_requests(id) on delete cascade,
+  profile_id uuid not null references public.profiles(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (team_request_id, profile_id)
+);
+
+create table if not exists public.class_team_invites (
+  id uuid primary key default gen_random_uuid(),
+  class_id uuid not null references public.classes(id) on delete cascade,
+  team_request_id uuid not null references public.team_requests(id) on delete cascade,
+  inviter_profile_id uuid not null references public.profiles(id) on delete cascade,
+  invitee_profile_id uuid not null references public.profiles(id) on delete cascade,
+  status text not null default 'pending'
+    check (status in ('pending', 'accepted', 'declined', 'cancelled')),
+  created_at timestamptz not null default now(),
+  responded_at timestamptz,
+  check (inviter_profile_id <> invitee_profile_id)
+);
+
+create unique index if not exists class_team_invites_pending_unique_idx
+  on public.class_team_invites(team_request_id, invitee_profile_id)
+  where status = 'pending';
+
+create index if not exists class_team_memberships_class_idx
+  on public.class_team_memberships(class_id);
+create index if not exists class_team_memberships_request_idx
+  on public.class_team_memberships(team_request_id);
+create index if not exists class_team_memberships_profile_idx
+  on public.class_team_memberships(profile_id);
+create index if not exists class_team_invites_invitee_idx
+  on public.class_team_invites(invitee_profile_id, status);
+create index if not exists class_team_invites_request_idx
+  on public.class_team_invites(team_request_id, status);
+
+alter table public.class_team_memberships enable row level security;
+alter table public.class_team_invites enable row level security;
+revoke all on public.class_team_memberships from public, anon, authenticated;
+revoke all on public.class_team_invites from public, anon, authenticated;
+
+create or replace function public.get_class_team_members(
+  p_class_id uuid,
+  p_team_request_id uuid,
+  p_profile_id uuid
+)
+returns table(
+  profile_id uuid,
+  full_name text,
+  university text,
+  school text,
+  major text,
+  skills text[],
+  is_owner boolean,
+  is_demo boolean,
+  connection_id uuid,
+  team_request_id uuid
+)
+language plpgsql
+security definer
+set search_path = public
+as $function$
+declare
+  request_owner uuid;
+begin
+  if not public.owns_profile(p_profile_id) then
+    raise exception 'Profile ownership required.';
+  end if;
+
+  if exists (
+    select 1 from public.profiles p
+    where p.id = p_profile_id and p.role = 'participant'
+  ) then
+    raise exception 'Participants cannot access class teams.';
+  end if;
+
+  select tr.profile_id
+  into request_owner
+  from public.team_requests tr
+  where tr.id = p_team_request_id
+    and tr.class_id = p_class_id;
+
+  if request_owner is null then
+    raise exception 'Class team request was not found.';
+  end if;
+
+  if p_profile_id <> request_owner
+     and not exists (
+       select 1
+       from public.class_team_memberships ctm
+       where ctm.team_request_id = p_team_request_id
+         and ctm.profile_id = p_profile_id
+     ) then
+    raise exception 'Class team membership required.';
+  end if;
+
+  return query
+  with visible_members as (
+    select
+      owner_profile.id as profile_id,
+      owner_profile.full_name,
+      owner_profile.university,
+      owner_profile.school,
+      owner_profile.major,
+      owner_profile.skills,
+      true as is_owner,
+      owner_profile.is_demo,
+      null::uuid as connection_id,
+      p_team_request_id as team_request_id
+    from public.profiles owner_profile
+    where owner_profile.id = request_owner
+
+    union all
+
+    select
+      member_profile.id,
+      member_profile.full_name,
+      member_profile.university,
+      member_profile.school,
+      member_profile.major,
+      member_profile.skills,
+      false,
+      member_profile.is_demo,
+      connection_match.id,
+      p_team_request_id
+    from public.class_team_memberships ctm
+    join public.profiles member_profile on member_profile.id = ctm.profile_id
+    left join lateral (
+      select c.id
+      from public.connections c
+      where c.status = 'accepted'
+        and (
+          (c.sender_profile_id = request_owner and c.receiver_profile_id = member_profile.id)
+          or (c.receiver_profile_id = request_owner and c.sender_profile_id = member_profile.id)
+        )
+      order by c.updated_at desc nulls last, c.created_at desc
+      limit 1
+    ) connection_match on true
+    where ctm.class_id = p_class_id
+      and ctm.team_request_id = p_team_request_id
+  )
+  select
+    visible_members.profile_id,
+    visible_members.full_name,
+    visible_members.university,
+    visible_members.school,
+    visible_members.major,
+    visible_members.skills,
+    visible_members.is_owner,
+    visible_members.is_demo,
+    visible_members.connection_id,
+    visible_members.team_request_id
+  from visible_members
+  order by visible_members.is_owner desc,
+    lower(coalesce(visible_members.full_name, '')),
+    visible_members.profile_id;
+end;
+$function$;
+
+create or replace function public.list_class_team_invite_candidates(
+  p_class_id uuid,
+  p_team_request_id uuid,
+  p_owner_profile_id uuid
+)
+returns table(
+  profile_id uuid,
+  full_name text,
+  university text,
+  school text,
+  major text,
+  invite_status text,
+  membership_status text,
+  eligible boolean
+)
+language plpgsql
+security definer
+set search_path = public
+as $function$
+begin
+  if not public.owns_profile(p_owner_profile_id) then
+    raise exception 'Profile ownership required.';
+  end if;
+
+  if exists (
+    select 1 from public.profiles p
+    where p.id = p_owner_profile_id and p.role = 'participant'
+  ) then
+    raise exception 'Participants cannot manage class teams.';
+  end if;
+
+  if not exists (
+    select 1
+    from public.team_requests tr
+    join public.class_members owner_members
+      on owner_members.class_id = tr.class_id
+     and owner_members.profile_id = tr.profile_id
+    where tr.id = p_team_request_id
+      and tr.class_id = p_class_id
+      and tr.profile_id = p_owner_profile_id
+      and tr.status = 'looking'
+  ) then
+    raise exception 'Only the active class-team owner can invite teammates.';
+  end if;
+
+  return query
+  with request_row as (
+    select
+      tr.id,
+      tr.status,
+      greatest(coalesce(tr.total_team_size, tr.members_needed + 1), 1) as total_team_size
+    from public.team_requests tr
+    where tr.id = p_team_request_id
+      and tr.class_id = p_class_id
+  ),
+  team_size as (
+    select count(*)::integer + 1 as current_size
+    from public.class_team_memberships ctm
+    where ctm.team_request_id = p_team_request_id
+  ),
+  candidates as (
+    select distinct on (friend_profile.id)
+      friend_profile.id,
+      friend_profile.full_name,
+      friend_profile.university,
+      friend_profile.school,
+      friend_profile.major,
+      pending_invite.status as pending_status,
+      member_row.profile_id as active_member_id
+    from public.connections c
+    join public.profiles friend_profile
+      on friend_profile.id = case
+        when c.sender_profile_id = p_owner_profile_id then c.receiver_profile_id
+        else c.sender_profile_id
+      end
+    join public.class_members friend_class_member
+      on friend_class_member.class_id = p_class_id
+     and friend_class_member.profile_id = friend_profile.id
+    left join public.class_team_memberships member_row
+      on member_row.team_request_id = p_team_request_id
+     and member_row.profile_id = friend_profile.id
+    left join lateral (
+      select i.status
+      from public.class_team_invites i
+      where i.team_request_id = p_team_request_id
+        and i.invitee_profile_id = friend_profile.id
+        and i.status = 'pending'
+      order by i.created_at desc
+      limit 1
+    ) pending_invite on true
+    where c.status = 'accepted'
+      and c.sender_profile_id <> c.receiver_profile_id
+      and p_owner_profile_id in (c.sender_profile_id, c.receiver_profile_id)
+      and friend_profile.id <> p_owner_profile_id
+    order by friend_profile.id, c.updated_at desc nulls last, c.created_at desc
+  )
+  select
+    candidates.id,
+    candidates.full_name,
+    candidates.university,
+    candidates.school,
+    candidates.major,
+    candidates.pending_status,
+    case when candidates.active_member_id is null then null else 'active' end,
+    candidates.pending_status is null
+      and candidates.active_member_id is null
+      and request_row.status = 'looking'
+      and team_size.current_size < request_row.total_team_size
+  from candidates
+  cross join request_row
+  cross join team_size
+  order by lower(coalesce(candidates.full_name, '')), candidates.id;
+end;
+$function$;
+
+create or replace function public.invite_class_team_member(
+  p_class_id uuid,
+  p_team_request_id uuid,
+  p_owner_profile_id uuid,
+  p_invitee_profile_id uuid
+)
+returns table(id uuid, status text)
+language plpgsql
+security definer
+set search_path = public
+as $function$
+declare
+  request_size integer;
+  total_size integer;
+  invite_id uuid;
+  invite_status text;
+begin
+  if not public.owns_profile(p_owner_profile_id) then
+    raise exception 'Profile ownership required.';
+  end if;
+
+  if exists (
+    select 1 from public.profiles p
+    where p.id = p_owner_profile_id and p.role = 'participant'
+  ) then
+    raise exception 'Participants cannot manage class teams.';
+  end if;
+
+  select greatest(coalesce(tr.total_team_size, tr.members_needed + 1), 1)
+  into total_size
+  from public.team_requests tr
+  join public.class_members owner_members
+    on owner_members.class_id = tr.class_id
+   and owner_members.profile_id = tr.profile_id
+  where tr.id = p_team_request_id
+    and tr.class_id = p_class_id
+    and tr.profile_id = p_owner_profile_id
+    and tr.status = 'looking';
+
+  if total_size is null then
+    raise exception 'Only the active class-team owner can invite teammates.';
+  end if;
+
+  if not exists (
+    select 1 from public.class_members cm
+    where cm.class_id = p_class_id
+      and cm.profile_id = p_invitee_profile_id
+  ) then
+    raise exception 'Invitee must be enrolled in this class.';
+  end if;
+
+  if not exists (
+    select 1
+    from public.connections c
+    where c.status = 'accepted'
+      and p_owner_profile_id in (c.sender_profile_id, c.receiver_profile_id)
+      and p_invitee_profile_id in (c.sender_profile_id, c.receiver_profile_id)
+  ) then
+    raise exception 'Invitee must be a connected friend.';
+  end if;
+
+  if exists (
+    select 1 from public.class_team_memberships ctm
+    where ctm.team_request_id = p_team_request_id
+      and ctm.profile_id = p_invitee_profile_id
+  ) then
+    raise exception 'Profile is already in this team.';
+  end if;
+
+  if exists (
+    select 1 from public.class_team_invites i
+    where i.team_request_id = p_team_request_id
+      and i.invitee_profile_id = p_invitee_profile_id
+      and i.status = 'pending'
+  ) then
+    raise exception 'Invitation is already pending.';
+  end if;
+
+  select count(*)::integer + 1
+  into request_size
+  from public.class_team_memberships ctm
+  where ctm.team_request_id = p_team_request_id;
+
+  if request_size >= total_size then
+    raise exception 'Team is full.';
+  end if;
+
+  insert into public.class_team_invites (
+    class_id,
+    team_request_id,
+    inviter_profile_id,
+    invitee_profile_id
+  )
+  values (
+    p_class_id,
+    p_team_request_id,
+    p_owner_profile_id,
+    p_invitee_profile_id
+  )
+  returning class_team_invites.id, class_team_invites.status
+  into invite_id, invite_status;
+
+  return query select invite_id, invite_status;
+end;
+$function$;
+
+create or replace function public.list_class_team_invites(
+  p_class_id uuid,
+  p_profile_id uuid
+)
+returns table(
+  id uuid,
+  class_id uuid,
+  team_request_id uuid,
+  owner_name text,
+  team_request_title text,
+  status text
+)
+language plpgsql
+security definer
+set search_path = public
+as $function$
+begin
+  if not public.owns_profile(p_profile_id) then
+    raise exception 'Profile ownership required.';
+  end if;
+
+  if exists (
+    select 1 from public.profiles p
+    where p.id = p_profile_id and p.role = 'participant'
+  ) then
+    raise exception 'Participants cannot access class-team invites.';
+  end if;
+
+  return query
+  select
+    i.id,
+    i.class_id,
+    i.team_request_id,
+    owner_profile.full_name,
+    coalesce(tr.course_name, tr.course, 'Class team request'),
+    i.status
+  from public.class_team_invites i
+  join public.profiles owner_profile on owner_profile.id = i.inviter_profile_id
+  join public.team_requests tr on tr.id = i.team_request_id
+  join public.class_members cm
+    on cm.class_id = i.class_id
+   and cm.profile_id = p_profile_id
+  where i.class_id = p_class_id
+    and i.invitee_profile_id = p_profile_id
+    and i.status = 'pending'
+  order by i.created_at desc;
+end;
+$function$;
+
+create or replace function public.list_class_team_requests_for_class(
+  p_class_id uuid,
+  p_profile_id uuid
+)
+returns setof public.team_requests
+language plpgsql
+security definer
+set search_path = public
+as $function$
+begin
+  if not public.owns_profile(p_profile_id) then
+    raise exception 'Profile ownership required.';
+  end if;
+
+  if exists (
+    select 1 from public.profiles p
+    where p.id = p_profile_id and p.role = 'participant'
+  ) then
+    raise exception 'Participants cannot access class requests.';
+  end if;
+
+  return query
+  select tr.*
+  from public.team_requests tr
+  join public.class_members cm
+    on cm.class_id = tr.class_id
+   and cm.profile_id = p_profile_id
+  where tr.class_id = p_class_id
+    and (
+      tr.profile_id = p_profile_id
+      or exists (
+        select 1
+        from public.class_team_memberships ctm
+        where ctm.team_request_id = tr.id
+          and ctm.profile_id = p_profile_id
+      )
+    )
+  order by tr.created_at desc;
+end;
+$function$;
+
+create or replace function public.respond_class_team_invite(
+  p_invite_id uuid,
+  p_profile_id uuid,
+  p_response text
+)
+returns table(id uuid, status text)
+language plpgsql
+security definer
+set search_path = public
+as $function$
+declare
+  invite_row public.class_team_invites;
+  total_size integer;
+  current_size integer;
+begin
+  if not public.owns_profile(p_profile_id) then
+    raise exception 'Profile ownership required.';
+  end if;
+
+  if p_response not in ('accepted', 'declined') then
+    raise exception 'Invalid invitation response.';
+  end if;
+
+  if exists (
+    select 1 from public.profiles p
+    where p.id = p_profile_id and p.role = 'participant'
+  ) then
+    raise exception 'Participants cannot respond to class-team invites.';
+  end if;
+
+  select i.*
+  into invite_row
+  from public.class_team_invites i
+  where i.id = p_invite_id
+    and i.invitee_profile_id = p_profile_id
+    and i.status = 'pending'
+  for update;
+
+  if invite_row.id is null then
+    raise exception 'Invitation is no longer available.';
+  end if;
+
+  if p_response = 'accepted' then
+    select greatest(coalesce(tr.total_team_size, tr.members_needed + 1), 1)
+    into total_size
+    from public.team_requests tr
+    where tr.id = invite_row.team_request_id
+      and tr.class_id = invite_row.class_id
+      and tr.profile_id = invite_row.inviter_profile_id
+      and tr.status = 'looking';
+
+    select count(*)::integer + 1
+    into current_size
+    from public.class_team_memberships ctm
+    where ctm.team_request_id = invite_row.team_request_id;
+
+    if total_size is null or current_size >= total_size then
+      raise exception 'Team is full or no longer open.';
+    end if;
+
+    if not exists (
+      select 1 from public.class_members cm
+      where cm.class_id = invite_row.class_id
+        and cm.profile_id = p_profile_id
+    ) then
+      raise exception 'You must be enrolled in this class.';
+    end if;
+
+    insert into public.class_team_memberships (class_id, team_request_id, profile_id)
+    values (invite_row.class_id, invite_row.team_request_id, p_profile_id)
+    on conflict (team_request_id, profile_id)
+    do update set updated_at = now();
+  end if;
+
+  update public.class_team_invites i
+  set status = p_response,
+      responded_at = now()
+  where i.id = invite_row.id;
+
+  return query select invite_row.id, p_response;
+end;
+$function$;
+
+-- The previous full migration attempted to replace this function with a
+-- different OUT-parameter row type. PostgreSQL cannot do that with CREATE OR
+-- REPLACE, so the exact identity is dropped before the six-column contract is
+-- recreated. No CASCADE is used.
+drop function if exists public.get_team_request_progress(uuid, uuid);
+
+create function public.get_team_request_progress(
+  request_id uuid,
+  current_profile uuid
+)
+returns table(
+  found_count integer,
+  matched_count integer,
+  existing_members integer,
+  total_team_size integer,
+  remaining_spots integer,
+  teammates jsonb
+)
+language sql
+security definer
+stable
+set search_path = public
+as $function$
+with target as (
+  select
+    tr.*,
+    greatest(
+      1,
+      coalesce(
+        tr.baseline_member_count,
+        coalesce(tr.total_team_size, tr.members_needed + 1, 2)
+          - coalesce(tr.teammates_needed_initial, tr.members_needed, 1),
+        1
+      )
+    )::integer as baseline_members
+  from public.team_requests tr
+  where tr.id = request_id
+),
+accessible as (
+  select target.*
+  from target
+  where public.owns_profile(current_profile)
+    and (
+      target.profile_id = current_profile
+      or (
+        target.class_id is not null
+        and exists (
+          select 1
+          from public.class_team_memberships ctm
+          where ctm.team_request_id = target.id
+            and ctm.profile_id = current_profile
+        )
+      )
+      or (
+        target.class_id is null
+        and exists (
+          select 1
+          from public.team_request_memberships tm
+          where tm.team_request_id = target.id
+            and tm.member_profile_id = current_profile
+        )
+      )
+    )
+),
+member_rows as (
+  select
+    ctm.profile_id as teammate_profile_id,
+    null::uuid as connection_id,
+    ctm.updated_at
+  from accessible target_row
+  join public.class_team_memberships ctm
+    on ctm.team_request_id = target_row.id
+   and target_row.class_id is not null
+
+  union all
+
+  select
+    tm.member_profile_id as teammate_profile_id,
+    tm.joined_via_connection_id as connection_id,
+    tm.updated_at
+  from accessible target_row
+  join public.team_request_memberships tm
+    on tm.team_request_id = target_row.id
+   and target_row.class_id is null
+),
+totals as (
+  select
+    target_row.baseline_members,
+    coalesce(target_row.total_team_size, target_row.members_needed + 1, 2)::integer as total_team_size,
+    count(member_rows.teammate_profile_id)::integer as matched_count
+  from accessible target_row
+  left join member_rows on true
+  group by target_row.baseline_members,
+    target_row.total_team_size,
+    target_row.members_needed
+)
+select
+  least(totals.total_team_size, totals.baseline_members + totals.matched_count)::integer,
+  totals.matched_count,
+  totals.baseline_members,
+  totals.total_team_size,
+  greatest(
+    0,
+    totals.total_team_size
+      - least(totals.total_team_size, totals.baseline_members + totals.matched_count)
+  )::integer,
+  coalesce(
+    (
+      select jsonb_agg(
+        jsonb_build_object(
+          'profile_id', member_rows.teammate_profile_id,
+          'full_name', member_profile.full_name,
+          'major', member_profile.major,
+          'is_demo', member_profile.is_demo,
+          'connection_id', member_rows.connection_id
+        ) order by member_rows.updated_at desc
+      )
+      from member_rows
+      join public.profiles member_profile
+        on member_profile.id = member_rows.teammate_profile_id
+    ),
+    '[]'::jsonb
+  )
+from totals;
+$function$;
+
+revoke all on function public.get_class_team_members(uuid, uuid, uuid) from public, anon;
+revoke all on function public.list_class_team_invite_candidates(uuid, uuid, uuid) from public, anon;
+revoke all on function public.invite_class_team_member(uuid, uuid, uuid, uuid) from public, anon;
+revoke all on function public.list_class_team_invites(uuid, uuid) from public, anon;
+revoke all on function public.list_class_team_requests_for_class(uuid, uuid) from public, anon;
+revoke all on function public.respond_class_team_invite(uuid, uuid, text) from public, anon;
+revoke all on function public.get_team_request_progress(uuid, uuid) from public, anon;
+
+grant execute on function public.get_class_team_members(uuid, uuid, uuid) to authenticated;
+grant execute on function public.list_class_team_invite_candidates(uuid, uuid, uuid) to authenticated;
+grant execute on function public.invite_class_team_member(uuid, uuid, uuid, uuid) to authenticated;
+grant execute on function public.list_class_team_invites(uuid, uuid) to authenticated;
+grant execute on function public.list_class_team_requests_for_class(uuid, uuid) to authenticated;
+grant execute on function public.respond_class_team_invite(uuid, uuid, text) to authenticated;
+grant execute on function public.get_team_request_progress(uuid, uuid) to authenticated;
