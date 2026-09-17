@@ -1,11 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
+  ArrowUp,
   ArrowRight,
   CheckCircle2,
   Clock3,
+  ExternalLink,
+  Facebook,
   FileText,
+  Github,
+  Globe,
   GraduationCap,
+  Instagram,
+  Linkedin,
   MessageCircle,
   Moon,
   Pencil,
@@ -98,7 +105,6 @@ import {
 } from './lib/supabase';
 import { REVIEW_WAIT_DAYS } from './lib/config';
 import {
-  contactTypes,
   getAllCourses,
   getAllSkills,
   getCoursesForSchool,
@@ -302,6 +308,7 @@ const emptyProfile = {
   other_skill: '',
   contact_type: 'email',
   contact_value: '',
+  social_links: {},
   avatar_url: '',
   work_styles: [],
 	  short_bio: '',
@@ -315,6 +322,46 @@ const emptyProfile = {
   subscription_status: 'free',
   consent_public_visibility: false,
 };
+
+const socialLinkFields = [
+  { key: 'linkedin', labelKey: 'profile.socialLinkedIn', Icon: Linkedin },
+  { key: 'facebook', labelKey: 'profile.socialFacebook', Icon: Facebook },
+  { key: 'instagram', labelKey: 'profile.socialInstagram', Icon: Instagram },
+  { key: 'github', labelKey: 'profile.socialGitHub', Icon: Github },
+  { key: 'behance', labelKey: 'profile.socialBehance', Icon: Globe },
+  { key: 'website', labelKey: 'profile.socialWebsite', Icon: Globe },
+];
+
+const getSocialLinksObject = (value = {}) => (
+  value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+);
+
+const normalizeSocialLinks = (links = {}) =>
+  Object.fromEntries(
+    socialLinkFields
+      .map(({ key }) => [key, String(getSocialLinksObject(links)[key] || '').trim()])
+      .filter(([, value]) => value),
+  );
+
+const isValidProfileUrl = (value = '') => {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return true;
+  try {
+    const url = new URL(trimmed);
+    return ['http:', 'https:'].includes(url.protocol);
+  } catch {
+    return false;
+  }
+};
+
+const getSocialLinkErrors = (links = {}, t = translate.bind(null, 'en')) =>
+  socialLinkFields.reduce((errors, { key, labelKey }) => {
+    const value = String(getSocialLinksObject(links)[key] || '').trim();
+    if (value && !isValidProfileUrl(value)) {
+      errors[`social_links.${key}`] = t('validation.url', { field: t(labelKey) });
+    }
+    return errors;
+  }, {});
 
 const createProfileFormState = (initialRole = 'student', initialData = {}) => {
   const role = initialRole === 'lecturer' ? 'lecturer' : 'student';
@@ -345,6 +392,7 @@ const createProfileFormState = (initialRole = 'student', initialData = {}) => {
     work_styles: Array.isArray(initialData.work_styles) ? initialData.work_styles : [],
     contact_type: initialData.contact_type || 'email',
     contact_value: initialData.contact_value || '',
+    social_links: getSocialLinksObject(initialData.social_links),
     lecturer_contact_method: initialData.lecturer_contact_method || 'Email',
     lecturer_contact_detail: initialData.lecturer_contact_detail || initialData.contact_value || '',
     student_id: initialData.student_id || '',
@@ -614,6 +662,62 @@ const contactLabel = (value) => {
   if (value === 'url') return translate(currentUiLanguage(), 'options.contact.url');
   return titleCase(value);
 };
+
+const getVisibleSocialLinks = (links = {}) =>
+  socialLinkFields
+    .map(({ key, labelKey, Icon }) => ({
+      key,
+      labelKey,
+      Icon,
+      url: String(getSocialLinksObject(links)[key] || '').trim(),
+    }))
+    .filter((item) => item.url);
+
+function SocialLinksList({ links = {}, t = translate.bind(null, 'en') }) {
+  const visibleLinks = getVisibleSocialLinks(links);
+  if (!visibleLinks.length) return null;
+
+  return (
+    <div className="social-links-list">
+      {visibleLinks.map(({ key, labelKey, Icon, url }) => (
+        <a
+          className="social-link"
+          href={url}
+          key={key}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <Icon size={15} aria-hidden="true" />
+          <span>{t(labelKey)}</span>
+          <ExternalLink size={13} aria-hidden="true" />
+        </a>
+      ))}
+    </div>
+  );
+}
+
+function SocialLinksFields({ links = {}, errors = {}, onChange, t = translate.bind(null, 'en') }) {
+  return (
+    <fieldset className="wide social-links-fields">
+      <legend>{t('profile.socialLinksOptional')}</legend>
+      <p className="field-helper">{t('profile.socialLinksHelper')}</p>
+      <div className="social-links-grid">
+        {socialLinkFields.map(({ key, labelKey }) => (
+          <label key={key}>
+            <FieldLabel>{t(labelKey)}</FieldLabel>
+            <input
+              type="url"
+              value={String(getSocialLinksObject(links)[key] || '')}
+              onChange={(event) => onChange(key, event.target.value)}
+              placeholder={t('profile.socialUrlPlaceholder')}
+            />
+            <FieldError message={errors[`social_links.${key}`]} />
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
 
 const academicDisplayLabel = (kind, value, fallback = '') => {
   if (!String(value || '').trim()) return fallback;
@@ -1219,7 +1323,7 @@ const getGoogleProfileSeed = (authSession, role = 'student') => {
     full_name: metadata.full_name || metadata.name || '',
     avatar_url: metadata.avatar_url || metadata.picture || '',
     contact_type: 'email',
-    contact_value: email,
+    contact_value: role === 'lecturer' ? email : '',
     lecturer_contact_method: 'Email',
     lecturer_contact_detail: email,
   };
@@ -1247,10 +1351,8 @@ const profileRequiredLabels = {
   school: 'profile.department',
   major: 'profile.major',
   skills: 'profile.skills',
-  contact_value: 'profile.contactInfo',
   short_bio: 'profile.shortBio',
   work_styles: 'profile.workStyle',
-  student_id: 'profile.studentId',
   academic_field: 'profile.subject',
   lecturer_id: 'profile.lecturerId',
   lecturer_contact_detail: 'profile.contactDetail',
@@ -1262,8 +1364,8 @@ const getProfileRequiredFields = (form = {}) => {
     return ['full_name', 'university', 'school', 'academic_field', 'lecturer_id', 'lecturer_contact_detail'];
   }
 
-  const base = ['full_name', 'university', 'major', 'student_id', 'skills', 'contact_value', 'short_bio'];
-  return isOtherUniversityForm(form) ? base : ['full_name', 'university', 'school', 'major', 'student_id', 'skills', 'contact_value', 'short_bio'];
+  const base = ['full_name', 'university', 'major', 'skills', 'short_bio'];
+  return isOtherUniversityForm(form) ? base : ['full_name', 'university', 'school', 'major', 'skills', 'short_bio'];
 };
 
 const isProfileFieldRequired = (form = {}, field) => {
@@ -1291,15 +1393,16 @@ const getProfileFieldErrors = (form, t = translate.bind(null, 'en')) => {
     const value = field === 'skills' ? getProfileSkillsFromForm(form) : form[field];
     return Array.isArray(value) ? value.length > 0 : Boolean(String(value || '').trim());
   };
-  return getProfileRequiredFields({ ...form, role }).reduce((errors, field) => {
+  const errors = getProfileRequiredFields({ ...form, role }).reduce((currentErrors, field) => {
     if (!isFilled(field)) {
       const specificKey = `validation.${field}`;
-      errors[field] = t(specificKey) === specificKey
+      currentErrors[field] = t(specificKey) === specificKey
         ? t('validation.required', { field: t(profileRequiredLabels[field] || field) })
         : t(specificKey);
     }
-    return errors;
+    return currentErrors;
   }, {});
+  return { ...errors, ...getSocialLinkErrors(form.social_links, t) };
 };
 
 const isProfileCompleteForRole = (profile, role) => {
@@ -2192,7 +2295,7 @@ function Home({
           {(email || activeRole) && (
             <p className="note">
               {email
-                ? `${t('profile.googleSignedIn')} · ${email}`
+                ? t('profile.googleSignedIn')
                 : `${t('home.selectedRole')}: ${activeRole === 'lecturer' ? t('profile.lecturer') : t('profile.student')}`}
             </p>
           )}
@@ -3666,6 +3769,17 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
     setFieldErrors((current) => ({ ...current, [field]: '' }));
   };
 
+  const updateSocialLink = (key, value) => {
+    setForm((current) => ({
+      ...current,
+      social_links: {
+        ...getSocialLinksObject(current.social_links),
+        [key]: value,
+      },
+    }));
+    setFieldErrors((current) => ({ ...current, [`social_links.${key}`]: '' }));
+  };
+
   const updateSchool = (value) => {
     const canonicalSchool = normalizeCatalogAcademicValue('school', value);
     setForm((current) => ({
@@ -3775,8 +3889,9 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
         availability: [],
         preferred_active_time: null,
         work_styles: isLecturer ? [] : form.work_styles,
-	        contact_type: isLecturer ? 'email' : form.contact_type,
-	        contact_value: isLecturer ? form.lecturer_contact_detail.trim() : form.contact_value.trim() || null,
+	        contact_type: isLecturer ? 'email' : 'url',
+	        contact_value: isLecturer ? form.lecturer_contact_detail.trim() : null,
+        social_links: normalizeSocialLinks(form.social_links),
         short_bio: isLecturer
           ? form.short_bio.trim() || t('profile.lecturerBioDefault')
           : form.short_bio.trim(),
@@ -3790,7 +3905,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
           : normalizeCatalogAcademicValue('major', getFormMajorValue(form)),
 	        lecturer_contact_method: isLecturer ? form.lecturer_contact_method : null,
 	        lecturer_contact_detail: isLecturer ? form.lecturer_contact_detail.trim() : null,
-	        student_id: isLecturer ? null : form.student_id || null,
+	        student_id: form.student_id || null,
         subscription_status: form.subscription_status || 'free',
 	      };
       let profile;
@@ -3986,16 +4101,6 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
                 )}
                     <FieldError message={fieldErrors.major} />
 	              </label>
-	              <label>
-	                <FieldLabel required={isRequiredField('student_id')}>{t('profile.studentId')}</FieldLabel>
-	                <input
-	                  value={form.student_id}
-	                  onChange={(event) => updateField('student_id', event.target.value)}
-	                  placeholder={t('profile.studentIdPlaceholder')}
-                    required
-	                />
-                    <FieldError message={fieldErrors.student_id} />
-	              </label>
 	              <fieldset className="wide">
                 <legend><FieldLabel required={isRequiredField('skills')}>{t('profile.skills')}</FieldLabel></legend>
 	                <p className="field-helper">{t('profile.skillHelper')}</p>
@@ -4025,37 +4130,23 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
                 </fieldset>
             </>
           )}
-          {!isLecturer && (
-            <label>
-              {t('premium.subscription')}
-              <select value={form.subscription_status} onChange={(event) => updateField('subscription_status', event.target.value)}>
-                <option value="free">{t('premium.free')}</option>
-                <option value="premium">{t('premium.premium')}</option>
-              </select>
-              <span className="field-helper">{t('premium.demoHelper')}</span>
-            </label>
-          )}
 	          {!isLecturer && (
 	            <>
 	              <label>
-	                <FieldLabel>{t('profile.contactMethod')}</FieldLabel>
-	                <select value={form.contact_type} onChange={(event) => updateField('contact_type', event.target.value)}>
-	                  {contactTypes.map((type) => (
-	                    <option value={type} key={type}>{localizedOption(type, 'options.contact', t)}</option>
-	                  ))}
+	                {t('premium.subscription')}
+	                <select value={form.subscription_status} onChange={(event) => updateField('subscription_status', event.target.value)}>
+	                  <option value="free">{t('premium.free')}</option>
+	                  <option value="premium">{t('premium.premium')}</option>
 	                </select>
+	                <span className="field-helper">{t('premium.demoHelper')}</span>
 	              </label>
-	              <label>
-	                <FieldLabel required={isRequiredField('contact_value')}>{t('profile.contactInfo')}</FieldLabel>
-	                <input
-	                  value={form.contact_value}
-	                  onChange={(event) => updateField('contact_value', event.target.value)}
-	                  placeholder={t('profile.contactPlaceholder')}
-	                  required
-	                />
-                    <FieldError message={fieldErrors.contact_value} />
-	              </label>
-	            </>
+                <SocialLinksFields
+                  links={form.social_links}
+                  errors={fieldErrors}
+                  onChange={updateSocialLink}
+                  t={t}
+                />
+              </>
 	          )}
           <label className="wide">
 	            <FieldLabel required={isRequiredField('short_bio')}>{isLecturer ? t('profile.bioNote') : t('profile.shortBio')}</FieldLabel>
@@ -5837,18 +5928,9 @@ function DiscoverProfileDetail({ profileId, currentProfileId, currentProfile, on
           <div><dt>{t('profile.university')}</dt><dd>{savedUniversityDisplay(profile)}</dd></div>
           {hasDisplaySchool(profile.school) && <div><dt>{t('profile.school')}</dt><dd>{schoolLabel(profile.school)}</dd></div>}
           <div><dt>{t('profile.major')}</dt><dd>{majorLabel(profile.major) || t('common.notSpecified')}</dd></div>
-          <div><dt>{t('matches.skillsHave')}</dt><dd>{joinList(profile.skills)}</dd></div>
-          <div>
-            <dt>{t('profile.contact')}</dt>
-            <dd>
-              {profile.contact_value
-                ? `${contactLabel(profile.contact_type)}: ${profile.contact_value}`
-                : state.connection?.status === 'accepted'
-                  ? t('common.notSpecified')
-                  : t('matches.visibleAfterConnecting')}
-            </dd>
-          </div>
+          <div className="skills-have-detail"><dt>{t('matches.skillsHave')}</dt><dd>{joinList(profile.skills)}</dd></div>
         </dl>
+        <SocialLinksList links={profile.social_links} t={t} />
         <ReviewsSection profile={profile} reviews={state.reviews} viewerProfile={currentProfile} t={t} />
         {state.activeRequest && (
           <div className="request-summary-box">
@@ -6446,25 +6528,16 @@ function ProfileDetail({
 	          <h2>{displayName(profile.full_name)} {profile.is_demo && <DemoBadge />} {isPremiumProfile(profile) && <PremiumBadge t={t} />}</h2>
 	          <p>{profile.short_bio || t('matches.noBio')}</p>
 	          <dl>
-	            <div><dt>{t('profile.university')}</dt><dd>{universityLabel(profile.university)}</dd></div>
+            <div><dt>{t('profile.university')}</dt><dd>{universityLabel(profile.university)}</dd></div>
 	            {hasDisplaySchool(profile.school) && <div><dt>{t('profile.school')}</dt><dd>{schoolLabel(profile.school)}</dd></div>}
             <div><dt>{t('profile.major')}</dt><dd>{majorLabel(profile.major) || t('common.notSpecified')}</dd></div>
 	            <div><dt>{t('profile.reviews')}</dt><dd>{reviewSummaryLabel(profile, null, t)}</dd></div>
-            <div>
-	              <dt>{t('profile.contact')}</dt>
-	              <dd>
-	                {profile.contact_value
-	                  ? `${contactLabel(profile.contact_type)}: ${profile.contact_value}`
-	                  : connection?.status === 'accepted'
-	                    ? t('common.notSpecified')
-	                    : t('matches.visibleAfterConnecting')}
-              </dd>
-            </div>
           </dl>
-          <div className="mini-detail">
+          <div className="mini-detail skills-have-detail">
 	            <strong>{t('matches.skillsHave')}</strong>
             <span>{joinList(profile.skills)}</span>
           </div>
+          <SocialLinksList links={profile.social_links} t={t} />
           {state.actionError && <p className="error">{state.actionError}</p>}
           {state.actionSuccess && <p className="success">{state.actionSuccess}</p>}
           {renderConnectionAction()}
@@ -9226,6 +9299,7 @@ function MyProfile({
       avatar_url: profile.avatar_url || '',
       work_styles: profile.work_styles || [],
 	      contact_value: profile.contact_value || '',
+      social_links: getSocialLinksObject(profile.social_links),
 	      short_bio: profile.short_bio || '',
 	      lecturer_title: profile.lecturer_title || '',
 	      lecturer_id: profile.lecturer_id || '',
@@ -9249,6 +9323,17 @@ function MyProfile({
   const updateField = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
     setFieldErrors((current) => ({ ...current, [field]: '' }));
+  };
+
+  const updateSocialLink = (key, value) => {
+    setForm((current) => ({
+      ...current,
+      social_links: {
+        ...getSocialLinksObject(current.social_links),
+        [key]: value,
+      },
+    }));
+    setFieldErrors((current) => ({ ...current, [`social_links.${key}`]: '' }));
   };
 
   const updateSchool = (value) => {
@@ -9378,8 +9463,9 @@ function MyProfile({
         availability: [],
         preferred_active_time: null,
         work_styles: editingAsLecturer ? [] : form.work_styles,
-	        contact_type: editingAsLecturer ? 'email' : form.contact_type,
-	        contact_value: editingAsLecturer ? form.lecturer_contact_detail.trim() : form.contact_value.trim(),
+	        contact_type: editingAsLecturer ? 'email' : 'url',
+	        contact_value: editingAsLecturer ? form.lecturer_contact_detail.trim() : null,
+        social_links: normalizeSocialLinks(form.social_links),
         short_bio: editingAsLecturer
           ? form.short_bio.trim() || t('profile.lecturerBioDefault')
           : form.short_bio.trim(),
@@ -9392,7 +9478,7 @@ function MyProfile({
           : normalizeCatalogAcademicValue('major', getFormMajorValue(form)),
 	        lecturer_contact_method: editingAsLecturer ? form.lecturer_contact_method : null,
 	        lecturer_contact_detail: editingAsLecturer ? form.lecturer_contact_detail.trim() : null,
-	        student_id: editingAsLecturer ? null : form.student_id || null,
+		        student_id: form.student_id || null,
         subscription_status: form.subscription_status || 'free',
 	      });
       void trackProductEvent('profile_updated', {
@@ -9413,18 +9499,16 @@ function MyProfile({
     }
   };
 
-  const profileContact = currentRole === 'student'
-    ? (profile?.contact_value && profile.contact_value !== authEmail
-      ? `${contactLabel(profile.contact_type)}: ${profile.contact_value}`
-      : '')
-    : (profile?.lecturer_contact_detail || profile?.contact_value || '');
+  const profileContact = currentRole === 'lecturer'
+    ? (profile?.lecturer_contact_detail || profile?.contact_value || '')
+    : '';
   const showProfileContact = Boolean(profileContact && profileContact !== authEmail);
 
   return (
     <main className="screen compact my-profile-screen">
       <section className="profile-panel my-profile-panel">
           {signedInWithGoogle && !profile && (
-            <p className="signed-in-line">{t('profile.googleSignedIn')}{authEmail ? ` · ${authEmail}` : ''}</p>
+            <p className="signed-in-line">{t('profile.googleSignedIn')}</p>
           )}
 	        {!profile ? (
 	          <>
@@ -9573,16 +9657,6 @@ function MyProfile({
                         />
                         <FieldError message={fieldErrors.major} />
                       </label>
-                      <label>
-                        <FieldLabel required={isRequiredField('student_id')}>{t('profile.studentId')}</FieldLabel>
-	                        <input
-	                          value={form.student_id}
-	                          onChange={(event) => updateField('student_id', event.target.value)}
-                          placeholder={t('profile.studentIdPlaceholder')}
-                          required
-                        />
-                        <FieldError message={fieldErrors.student_id} />
-	                      </label>
 	                      <fieldset className="wide">
                         <legend><FieldLabel required={isRequiredField('skills')}>{t('profile.skills')}</FieldLabel></legend>
                         <p className="field-helper">{t('profile.skillHelper')}</p>
@@ -9619,27 +9693,13 @@ function MyProfile({
                       </label>
                     </>
                   )}
-	                  {!editingAsLecturer && (
-	                    <>
-                      <label>
-                        <FieldLabel>{t('profile.contactMethod')}</FieldLabel>
-	                        <select value={form.contact_type} onChange={(event) => updateField('contact_type', event.target.value)}>
-                          {contactTypes.map((type) => (
-                            <option value={type} key={type}>{localizedOption(type, 'options.contact', t)}</option>
-	                          ))}
-	                        </select>
-	                      </label>
-                      <label>
-                        <FieldLabel required={isRequiredField('contact_value')}>{t('profile.contactInfo')}</FieldLabel>
-	                        <input
-	                          value={form.contact_value}
-	                          onChange={(event) => updateField('contact_value', event.target.value)}
-                          placeholder={t('profile.contactPlaceholder')}
-                          required
+		                  {!editingAsLecturer && (
+                        <SocialLinksFields
+                          links={form.social_links}
+                          errors={fieldErrors}
+                          onChange={updateSocialLink}
+                          t={t}
                         />
-                        <FieldError message={fieldErrors.contact_value} />
-	                      </label>
-	                    </>
 	                  )}
                   <label>
                     <FieldLabel required={isRequiredField('short_bio')}>{editingAsLecturer ? t('profile.bioNote') : t('profile.shortBio')}</FieldLabel>
@@ -9663,17 +9723,21 @@ function MyProfile({
             ) : (
               <div className="my-profile-composition">
                 <header className="my-profile-profile-header">
-                  <h2>{displayName(profile.full_name)}</h2>
-                  <p className="profile-header-meta">
-                    {currentRole === 'student' ? t('profile.student') : t('profile.lecturer')} · {subscriptionLabel(profile, t)}
-                  </p>
-                  <p className="profile-header-university">{universityLabel(profile.university)}</p>
-                  {signedInWithGoogle && (
-                    <div className="profile-header-account-state">
-                      <p className="profile-google-status">{t('profile.googleSignedIn')}</p>
-                      {authEmail && <p className="profile-google-email">{authEmail}</p>}
-                    </div>
-                  )}
+                  <div className="my-profile-header-content">
+                    <h2>{displayName(profile.full_name)}</h2>
+                    <p className="profile-header-meta">
+                      {currentRole === 'student' ? t('profile.student') : t('profile.lecturer')} · {subscriptionLabel(profile, t)}
+                    </p>
+                    <p className="profile-header-university">{universityLabel(profile.university)}</p>
+                    {signedInWithGoogle && (
+                      <div className="profile-header-account-state">
+                        <p className="profile-google-status">{t('profile.googleSignedIn')}</p>
+                      </div>
+                    )}
+                  </div>
+                  <div className="my-profile-header-actions">
+                    <button className="primary link-button" type="button" onClick={startEdit}>{t('profile.editProfile')}</button>
+                  </div>
                 </header>
 
                 <div className="my-profile-information-rows" aria-label={t('profile.myProfile')}>
@@ -9725,6 +9789,13 @@ function MyProfile({
                     </div>
                   </section>
 
+                  {currentRole === 'student' && getVisibleSocialLinks(profile.social_links).length > 0 && (
+                    <section className="my-profile-section my-profile-social-section">
+                      <h3 className="my-profile-section-title">{t('profile.socialLinks')}</h3>
+                      <SocialLinksList links={profile.social_links} t={t} />
+                    </section>
+                  )}
+
                   {showProfileContact && (
                     <section className="my-profile-section my-profile-contact-section">
                       <h3 className="my-profile-section-title">{t('profile.accountSection')}</h3>
@@ -9755,7 +9826,6 @@ function MyProfile({
                 {message && <p className="success">{message}</p>}
                 {error && <p className="error">{error}</p>}
                 <div className="stacked-actions profile-actions">
-                  <button className="primary link-button" type="button" onClick={startEdit}>{t('profile.editProfile')}</button>
                   {currentRole === 'student' ? (
                     <button className="secondary link-button" onClick={onCreateSearch}>{t('opportunities.new')}</button>
                   ) : (
@@ -9769,6 +9839,68 @@ function MyProfile({
         )}
       </section>
     </main>
+  );
+}
+
+const getFeedbackDestination = () => {
+  const url = String(import.meta.env.VITE_TEAMERGENCY_FEEDBACK_URL || 'https://forms.gle/suHwVjXd76gUj7W66').trim();
+  const email = String(import.meta.env.VITE_TEAMERGENCY_CONTACT_EMAIL || '').trim();
+  if (url) return { href: url, external: true };
+  if (email) return { href: `mailto:${email}`, external: false };
+  return null;
+};
+
+function ContactFeedback({ t = translate.bind(null, 'en') }) {
+  const destination = getFeedbackDestination();
+
+  return (
+    <footer className="contact-feedback" aria-label={t('feedback.title')}>
+      <div>
+        <strong>{t('feedback.title')}</strong>
+        <span>{destination ? t('feedback.helper') : t('feedback.notConfigured')}</span>
+      </div>
+      {destination ? (
+        <a
+          className="secondary link-button contact-feedback-link"
+          href={destination.href}
+          target={destination.external ? '_blank' : undefined}
+          rel={destination.external ? 'noopener noreferrer' : undefined}
+          aria-label={t('feedback.action')}
+        >
+          {t('feedback.action')}
+        </a>
+      ) : null}
+    </footer>
+  );
+}
+
+function BackToTopButton({ t = translate.bind(null, 'en') }) {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => setVisible(window.scrollY > 520);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  const scrollToTop = () => {
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    window.scrollTo({ top: 0, behavior: reducedMotion ? 'auto' : 'smooth' });
+  };
+
+  if (!visible) return null;
+
+  return (
+    <button
+      className="back-to-top"
+      type="button"
+      onClick={scrollToTop}
+      aria-label={t('ui.backToTop')}
+      title={t('ui.backToTop')}
+    >
+      <ArrowUp size={18} />
+    </button>
   );
 }
 
@@ -10629,9 +10761,11 @@ export default function App() {
                 storeLecturerSession(profileLecturerSession);
               }
             }}
-	          t={t}
-	        />
-      )}
+		          t={t}
+		        />
+	      )}
+        {view !== 'home' && <ContactFeedback t={t} />}
+        <BackToTopButton t={t} />
     </div>
   );
 }

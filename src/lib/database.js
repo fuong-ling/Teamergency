@@ -123,6 +123,7 @@ const getProfileExtraPayload = (profileData = {}) => ({
   preferred_active_time: profileData.preferred_active_time || null,
   work_styles: profileData.work_styles || [],
   subscription_status: profileData.subscription_status || 'free',
+  social_links: profileData.social_links || {},
 });
 
 const normalizeProfileSchool = (school) => {
@@ -166,6 +167,7 @@ export const createProfile = async (profileData) => {
       preferred_active_time,
       work_styles,
       subscription_status,
+      social_links,
       ...legacyPayload
     } = payload;
     const fallback = await client
