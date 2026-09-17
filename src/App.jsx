@@ -76,6 +76,7 @@ import {
   getPortfolioReferenceUrl,
   markNotificationsRead,
   markTeamRequestFound,
+  normalizeProfileContact,
   listFriends,
   listProfileReviews,
   openLecturerStudentThread,
@@ -3879,6 +3880,10 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
 
     try {
       const role = isLecturer ? 'lecturer' : 'student';
+      const profileContact = normalizeProfileContact(
+        isLecturer ? 'email' : null,
+        isLecturer ? form.lecturer_contact_detail : null,
+      );
       const profilePayload = {
         full_name: form.full_name.trim(),
         university: normalizeCatalogAcademicValue('university', resolvedUniversity) || 'RMIT University',
@@ -3889,8 +3894,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
         availability: [],
         preferred_active_time: null,
         work_styles: isLecturer ? [] : form.work_styles,
-	        contact_type: isLecturer ? 'email' : 'url',
-	        contact_value: isLecturer ? form.lecturer_contact_detail.trim() : null,
+        ...profileContact,
         social_links: normalizeSocialLinks(form.social_links),
         short_bio: isLecturer
           ? form.short_bio.trim() || t('profile.lecturerBioDefault')
@@ -3929,6 +3933,9 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
       storeProfileId(profile.id);
       onSaved(profile);
     } catch (err) {
+      if (import.meta.env.DEV) {
+        console.error('Profile creation/update failed.', err);
+      }
       setError(getFriendlyError(err, t('profile.saveFail')));
     } finally {
       setSaving(false);
@@ -9453,6 +9460,10 @@ function MyProfile({
     setSaving(true);
 
     try {
+      const profileContact = normalizeProfileContact(
+        editingAsLecturer ? 'email' : null,
+        editingAsLecturer ? form.lecturer_contact_detail : null,
+      );
       const updated = await updateProfile(profile.id, {
         full_name: form.full_name.trim(),
         university: normalizeCatalogAcademicValue('university', resolveProfileUniversity(form)) || 'RMIT University',
@@ -9463,8 +9474,7 @@ function MyProfile({
         availability: [],
         preferred_active_time: null,
         work_styles: editingAsLecturer ? [] : form.work_styles,
-	        contact_type: editingAsLecturer ? 'email' : 'url',
-	        contact_value: editingAsLecturer ? form.lecturer_contact_detail.trim() : null,
+        ...profileContact,
         social_links: normalizeSocialLinks(form.social_links),
         short_bio: editingAsLecturer
           ? form.short_bio.trim() || t('profile.lecturerBioDefault')
@@ -9493,6 +9503,9 @@ function MyProfile({
       setEditing(false);
       setMessage(t('profile.updated'));
     } catch (err) {
+      if (import.meta.env.DEV) {
+        console.error('Profile update failed.', err);
+      }
       setError(getFriendlyError(err, t('profile.updateFail')));
     } finally {
       setSaving(false);

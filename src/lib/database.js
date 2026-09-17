@@ -118,13 +118,75 @@ const isClassProfileRestrictionError = (error) => {
 };
 
 const getProfileExtraPayload = (profileData = {}) => ({
-  avatar_url: profileData.avatar_url || null,
-  availability: profileData.availability || [],
-  preferred_active_time: profileData.preferred_active_time || null,
-  work_styles: profileData.work_styles || [],
-  subscription_status: profileData.subscription_status || 'free',
-  social_links: profileData.social_links || {},
+  // social_links is the only optional profile column introduced by the current
+  // profile privacy migration. Other form values belong to different models or
+  // are demo-only and must not be sent as profiles columns.
+  social_links: profileData.social_links && typeof profileData.social_links === 'object'
+    ? profileData.social_links
+    : {},
 });
+
+const profileRows = (data) => (Array.isArray(data) ? data : data ? [data] : []);
+
+const logProfileSchemaFallback = (stage, error) => {
+  if (import.meta.env.DEV) {
+    console.warn(`Profile operation fell back from ${stage}.`, error);
+  }
+};
+
+const logCreateProfileAttempt = (label, payload, result) => {
+  if (!import.meta.env.DEV) return;
+
+  const error = result?.error;
+  console.groupCollapsed(`[createProfile] attempt: ${label}`);
+  console.log('operation:', 'profiles.insert');
+  console.log('payload keys:', Object.keys(payload));
+  if (error) {
+    console.log('error code:', error.code || '(none)');
+    console.log('error message:', error.message || '(none)');
+    console.log('error details:', error.details || '(none)');
+    console.log('error hint:', error.hint || '(none)');
+  } else {
+    console.log('result:', 'core profile created');
+    console.log('profile id:', result?.data?.id || '(none returned)');
+  }
+  console.groupEnd();
+};
+
+const logCreateProfileLookup = (result, profileId) => {
+  if (!import.meta.env.DEV) return;
+
+  const error = result?.error;
+  console.groupCollapsed('[createProfile] existing profile lookup');
+  console.log('operation:', 'profiles.select by owner_id');
+  if (error) {
+    console.log('error code:', error.code || '(none)');
+    console.log('error message:', error.message || '(none)');
+    console.log('error details:', error.details || '(none)');
+    console.log('error hint:', error.hint || '(none)');
+  } else {
+    console.log('existing profile id:', profileId || '(none)');
+  }
+  console.groupEnd();
+};
+
+const logCreateProfileOptionalAttempt = (payload, result) => {
+  if (!import.meta.env.DEV) return;
+
+  const error = result?.error;
+  console.groupCollapsed('[createProfile] optional social-links persistence');
+  console.log('operation:', 'profiles.update');
+  console.log('payload keys:', Object.keys(payload));
+  if (error) {
+    console.log('error code:', error.code || '(none)');
+    console.log('error message:', error.message || '(none)');
+    console.log('error details:', error.details || '(none)');
+    console.log('error hint:', error.hint || '(none)');
+  } else {
+    console.log('result:', 'optional social links persisted');
+  }
+  console.groupEnd();
+};
 
 const normalizeProfileSchool = (school) => {
   const value = String(school || '').trim().replace(/\s+/g, ' ');
@@ -133,55 +195,135 @@ const normalizeProfileSchool = (school) => {
   return value;
 };
 
+const profileContactTypes = new Set(['email', 'instagram', 'messenger', 'url']);
+
+export const normalizeProfileContact = (contactType, contactValue) => {
+  const value = String(contactValue ?? '').trim();
+  if (!value) {
+    return { contact_type: null, contact_value: null };
+  }
+
+  const type = String(contactType ?? '').trim().toLowerCase();
+  if (!profileContactTypes.has(type)) {
+    throw new Error(`Unsupported profile contact type: ${contactType || '(empty)'}`);
+  }
+
+  return { contact_type: type, contact_value: value };
+};
+
 export const createProfile = async (profileData) => {
   const { client, session } = await getAuthenticatedClient();
   const normalizedSchool = normalizeProfileSchool(profileData.school);
-  const payload = {
-    ...profileData,
-    ...getProfileExtraPayload(profileData),
+  const normalizedContact = normalizeProfileContact(
+    profileData.contact_type,
+    profileData.contact_value,
+  );
+  const role = profileData.role === 'lecturer' ? 'lecturer' : 'student';
+  const corePayload = {
+    full_name: String(profileData.full_name || '').trim(),
     school: normalizedSchool,
-    role: profileData.role === 'lecturer' ? 'lecturer' : 'student',
-    lecturer_title: profileData.role === 'lecturer' ? profileData.lecturer_title || null : null,
+    major: String(profileData.major || '').trim(),
+    skills: Array.isArray(profileData.skills) ? profileData.skills : [],
+    ...normalizedContact,
+    short_bio: profileData.short_bio ? String(profileData.short_bio).trim() : null,
     is_demo: false,
+  };
+  const academicPayload = {
+    university: profileData.university || 'RMIT University',
+    is_available: profileData.is_available ?? true,
+  };
+  const ownershipPayload = {
     owner_id: session.user.id,
     consent_public_visibility: true,
   };
+  const rolePayload = {
+    role,
+    lecturer_title: role === 'lecturer' ? profileData.lecturer_title || null : null,
+  };
 
-  let { data, error } = await client
+  const insertAttempts = [
+    { label: 'full profile insert', payload: { ...corePayload, ...academicPayload, ...ownershipPayload, ...rolePayload } },
+    { label: 'role profile insert', payload: { ...corePayload, ...ownershipPayload, ...rolePayload } },
+    { label: 'academic profile insert', payload: { ...corePayload, ...academicPayload, ...ownershipPayload } },
+    { label: 'owned core profile insert', payload: { ...corePayload, ...ownershipPayload } },
+    { label: 'academic legacy profile insert', payload: { ...corePayload, ...academicPayload } },
+    { label: 'legacy profile insert', payload: corePayload },
+  ];
+
+  const existingProfile = await client
     .from('profiles')
-    .insert(payload)
-    .select()
-    .single();
+    .select('*')
+    .eq('owner_id', session.user.id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
-  if (error && isMissingSchemaFeature(error)) {
-    const {
-      role,
-      lecturer_title,
-      lecturer_id,
-      academic_field,
-      lecturer_contact_method,
-      lecturer_contact_detail,
-      student_id,
-      avatar_url,
-      availability,
-      preferred_active_time,
-      work_styles,
-      subscription_status,
-      social_links,
-      ...legacyPayload
-    } = payload;
-    const fallback = await client
+  logCreateProfileLookup(existingProfile, existingProfile.data?.id);
+
+  if (existingProfile.error && !isMissingSchemaFeature(existingProfile.error)) {
+    throw existingProfile.error;
+  }
+
+  if (existingProfile.data?.id) {
+    return updateProfile(existingProfile.data.id, profileData);
+  }
+
+  let createdProfile = null;
+  let lastSchemaError = null;
+
+  for (const attempt of insertAttempts) {
+    const result = await client
       .from('profiles')
-      .insert(legacyPayload)
+      .insert(attempt.payload)
       .select()
       .single();
 
-    data = fallback.data ? { ...fallback.data, role, lecturer_title } : fallback.data;
-    error = fallback.error;
+    logCreateProfileAttempt(attempt.label, attempt.payload, result);
+
+    if (!result.error) {
+      createdProfile = {
+        ...result.data,
+        university: result.data.university || profileData.university || 'RMIT University',
+        is_available: result.data.is_available ?? profileData.is_available ?? true,
+        role: result.data.role || role,
+        lecturer_title: result.data.lecturer_title || (role === 'lecturer' ? profileData.lecturer_title || null : null),
+      };
+      break;
+    }
+
+    if (!isMissingSchemaFeature(result.error)) {
+      throw result.error;
+    }
+
+    lastSchemaError = result.error;
+    logProfileSchemaFallback(attempt.label, result.error);
   }
 
-  if (error) throw error;
-  return data;
+  if (!createdProfile) {
+    throw lastSchemaError || new Error('Profile was not created.');
+  }
+
+  const socialLinks = getProfileExtraPayload(profileData).social_links;
+  if (Object.keys(socialLinks).length === 0) return createdProfile;
+
+  const { data: socialData, error: socialError } = await client
+    .from('profiles')
+    .update({ social_links: socialLinks })
+    .eq('id', createdProfile.id)
+    .select()
+    .maybeSingle();
+
+  logCreateProfileOptionalAttempt({ social_links: socialLinks }, { data: socialData, error: socialError });
+
+  if (socialError && isMissingSchemaFeature(socialError)) {
+    if (import.meta.env.DEV) {
+      console.warn('Optional profile social links were not persisted because the social_links column is unavailable.', socialError);
+    }
+    return { ...createdProfile, social_links: socialLinks };
+  }
+
+  if (socialError) throw socialError;
+  return socialData || { ...createdProfile, social_links: socialLinks };
 };
 
 export const getProfileById = async (profileId, options = {}) => {
@@ -286,6 +428,10 @@ export const updateProfile = async (profileId, profileData) => {
 
   const role = profileData.role === 'lecturer' ? 'lecturer' : 'student';
   const normalizedSchool = normalizeProfileSchool(profileData.school);
+  const normalizedContact = normalizeProfileContact(
+    profileData.contact_type,
+    profileData.contact_value,
+  );
   let { data, error } = await client.rpc('update_profile_with_role_v2', {
     p_profile_id: profileId,
     p_university: profileData.university || 'RMIT University',
@@ -293,8 +439,8 @@ export const updateProfile = async (profileId, profileData) => {
     p_major: profileData.major,
     p_full_name: profileData.full_name,
     p_skills: profileData.skills,
-    p_contact_type: profileData.contact_type,
-    p_contact_value: profileData.contact_value,
+    p_contact_type: normalizedContact.contact_type,
+    p_contact_value: normalizedContact.contact_value,
     p_short_bio: profileData.short_bio,
     p_is_available: profileData.is_available ?? true,
     p_role: role,
@@ -307,6 +453,7 @@ export const updateProfile = async (profileId, profileData) => {
   });
 
   if (error && isMissingSchemaFeature(error)) {
+    logProfileSchemaFallback('update_profile_with_role_v2', error);
     const roleFallback = await client.rpc('update_profile_with_role', {
       p_profile_id: profileId,
       p_university: profileData.university || 'RMIT University',
@@ -314,8 +461,8 @@ export const updateProfile = async (profileId, profileData) => {
       p_major: profileData.major,
       p_full_name: profileData.full_name,
       p_skills: profileData.skills,
-      p_contact_type: profileData.contact_type,
-      p_contact_value: profileData.contact_value,
+      p_contact_type: normalizedContact.contact_type,
+      p_contact_value: normalizedContact.contact_value,
       p_short_bio: profileData.short_bio,
       p_is_available: profileData.is_available ?? true,
       p_role: role,
@@ -324,6 +471,9 @@ export const updateProfile = async (profileId, profileData) => {
 
     data = roleFallback.data;
     error = roleFallback.error;
+    if (error && isMissingSchemaFeature(error)) {
+      logProfileSchemaFallback('update_profile_with_role', error);
+    }
   }
 
   if (error && isMissingSchemaFeature(error)) {
@@ -334,8 +484,8 @@ export const updateProfile = async (profileId, profileData) => {
       p_major: profileData.major,
       p_full_name: profileData.full_name,
       p_skills: profileData.skills,
-      p_contact_type: profileData.contact_type,
-      p_contact_value: profileData.contact_value,
+      p_contact_type: normalizedContact.contact_type,
+      p_contact_value: normalizedContact.contact_value,
       p_short_bio: profileData.short_bio,
       p_is_available: profileData.is_available ?? true,
     });
@@ -348,6 +498,34 @@ export const updateProfile = async (profileId, profileData) => {
         }))
       : fallback.data;
     error = fallback.error;
+    if (error && isMissingSchemaFeature(error)) {
+      logProfileSchemaFallback('update_profile (university/is_available)', error);
+    }
+  }
+
+  if (error && isMissingSchemaFeature(error)) {
+    const legacyFallback = await client.rpc('update_profile', {
+      p_profile_id: profileId,
+      p_full_name: profileData.full_name,
+      p_school: normalizedSchool,
+      p_major: profileData.major,
+      p_skills: profileData.skills,
+      p_contact_type: normalizedContact.contact_type,
+      p_contact_value: normalizedContact.contact_value,
+      p_short_bio: profileData.short_bio,
+    });
+
+    data = profileRows(legacyFallback.data).map((profile) => ({
+      ...profile,
+      university: profile.university || profileData.university || 'RMIT University',
+      is_available: profile.is_available ?? profileData.is_available ?? true,
+      role,
+      lecturer_title: role === 'lecturer' ? profileData.lecturer_title || null : null,
+    }));
+    error = legacyFallback.error;
+    if (error && isMissingSchemaFeature(error)) {
+      logProfileSchemaFallback('legacy update_profile', error);
+    }
   }
 
   if (error) throw error;
@@ -364,7 +542,13 @@ export const updateProfile = async (profileId, profileData) => {
     .select()
     .maybeSingle();
 
-  if (extraError && !isMissingSchemaFeature(extraError)) throw extraError;
+  if (extraError && isMissingSchemaFeature(extraError)) {
+    if (import.meta.env.DEV) {
+      console.warn('Optional profile fields were not persisted because the corresponding production columns are unavailable.', extraError);
+    }
+  } else if (extraError) {
+    throw extraError;
+  }
 
   return extraData || { ...updatedProfile, ...extraPayload };
 };
