@@ -8277,8 +8277,9 @@ option {
 }
 
 .app.landing-mode .landing-role-card {
-  min-height: 136px;
-  padding: 26px;
+  min-height: 156px;
+  padding: 30px;
+  gap: 19px;
   border-radius: var(--app-radius-surface);
   background: color-mix(in srgb, var(--app-surface) 76%, transparent) !important;
   box-shadow: var(--landing-shadow) !important;
@@ -8446,7 +8447,9 @@ option {
 }
 
 .app.landing-mode .landing-role-grid {
-  width: min(720px, 100%);
+  width: min(1080px, 100%);
+  gap: 19px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .app.landing-mode .landing-auth-card {
@@ -8483,8 +8486,18 @@ option {
     max-width: 34rem;
   }
 
+  .app.landing-mode .landing-role-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .app.landing-mode .landing-feature-row {
     width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .app.landing-mode .landing-role-grid {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -8572,6 +8585,11 @@ option {
   box-shadow: 0 8px 24px color-mix(in srgb, var(--app-text) 7%, transparent) !important;
 }
 
+.app.landing-mode {
+  --landing-participant-accent: color-mix(in srgb, var(--app-blue) 50%, var(--app-red) 50%);
+  --landing-participant-soft: color-mix(in srgb, var(--app-blue-soft) 50%, var(--app-red-soft) 50%);
+}
+
 .app.landing-mode .landing-role-card:hover {
   transform: none;
   border-color: color-mix(in srgb, var(--app-border-strong) 70%, var(--app-blue) 30%) !important;
@@ -8590,6 +8608,17 @@ option {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--app-red) 14%, transparent) !important;
 }
 
+.app.landing-mode .landing-role-card.participant-role:hover {
+  border-color: color-mix(in srgb, var(--landing-participant-accent) 72%, var(--app-border) 28%) !important;
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--app-text) 9%, transparent) !important;
+}
+
+.app.landing-mode .landing-role-card.participant-role.selected {
+  border-color: color-mix(in srgb, var(--landing-participant-accent) 72%, var(--app-border) 28%) !important;
+  background: color-mix(in srgb, var(--landing-participant-soft) 72%, var(--app-surface) 28%) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--landing-participant-accent) 16%, transparent) !important;
+}
+
 .app.landing-mode .student-role .landing-role-icon {
   color: var(--app-blue);
   background: color-mix(in srgb, var(--app-blue-soft) 78%, transparent);
@@ -8598,6 +8627,17 @@ option {
 .app.landing-mode .lecturer-role .landing-role-icon {
   color: var(--app-red);
   background: color-mix(in srgb, var(--app-red-soft) 78%, transparent);
+}
+
+.app.landing-mode .participant-role .landing-role-icon {
+  color: var(--landing-participant-accent);
+  background: color-mix(in srgb, var(--landing-participant-soft) 78%, transparent);
+}
+
+.app.landing-mode .participant-role em {
+  border-color: color-mix(in srgb, var(--landing-participant-accent) 38%, transparent);
+  color: var(--landing-participant-accent) !important;
+  background: var(--landing-participant-soft) !important;
 }
 
 .app.landing-mode .landing-google-button:not(:disabled) {
