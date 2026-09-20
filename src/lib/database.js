@@ -267,8 +267,9 @@ export const createProfile = async (profileData) => {
     short_bio: profileData.short_bio ? String(profileData.short_bio).trim() : null,
     is_demo: false,
   };
+  if (role === 'participant') corePayload.university = null;
   const academicPayload = {
-    university: profileData.university || 'RMIT University',
+    university: role === 'participant' ? null : profileData.university || 'RMIT University',
     is_available: profileData.is_available ?? true,
   };
   const ownershipPayload = {
@@ -322,7 +323,9 @@ export const createProfile = async (profileData) => {
     if (!result.error) {
       createdProfile = {
         ...result.data,
-        university: result.data.university || profileData.university || 'RMIT University',
+        university: role === 'participant'
+          ? null
+          : result.data.university || profileData.university || 'RMIT University',
         is_available: result.data.is_available ?? profileData.is_available ?? true,
         role: result.data.role || role,
         lecturer_title: result.data.lecturer_title || (role === 'lecturer' ? profileData.lecturer_title || null : null),
@@ -470,6 +473,9 @@ export const updateProfile = async (profileId, profileData) => {
     : profileData.role === 'participant'
       ? 'participant'
       : 'student';
+  const normalizedUniversity = role === 'participant'
+    ? null
+    : profileData.university || 'RMIT University';
   const normalizedSchool = normalizeProfileSchool(profileData.school);
   const normalizedContact = normalizeProfileContact(
     profileData.contact_type,
@@ -477,7 +483,7 @@ export const updateProfile = async (profileId, profileData) => {
   );
   let { data, error } = await client.rpc('update_profile_with_role_v2', {
     p_profile_id: profileId,
-    p_university: profileData.university || 'RMIT University',
+    p_university: normalizedUniversity,
     p_school: normalizedSchool,
     p_major: profileData.major,
     p_full_name: profileData.full_name,
@@ -499,7 +505,7 @@ export const updateProfile = async (profileId, profileData) => {
     logProfileSchemaFallback('update_profile_with_role_v2', error);
     const roleFallback = await client.rpc('update_profile_with_role', {
       p_profile_id: profileId,
-      p_university: profileData.university || 'RMIT University',
+      p_university: normalizedUniversity,
       p_school: normalizedSchool,
       p_major: profileData.major,
       p_full_name: profileData.full_name,
@@ -522,7 +528,7 @@ export const updateProfile = async (profileId, profileData) => {
   if (error && isMissingSchemaFeature(error)) {
     const fallback = await client.rpc('update_profile', {
       p_profile_id: profileId,
-      p_university: profileData.university || 'RMIT University',
+      p_university: normalizedUniversity,
       p_school: normalizedSchool,
       p_major: profileData.major,
       p_full_name: profileData.full_name,
@@ -549,6 +555,7 @@ export const updateProfile = async (profileId, profileData) => {
   if (error && isMissingSchemaFeature(error)) {
     const legacyFallback = await client.rpc('update_profile', {
       p_profile_id: profileId,
+      p_university: normalizedUniversity,
       p_full_name: profileData.full_name,
       p_school: normalizedSchool,
       p_major: profileData.major,
@@ -556,11 +563,14 @@ export const updateProfile = async (profileId, profileData) => {
       p_contact_type: normalizedContact.contact_type,
       p_contact_value: normalizedContact.contact_value,
       p_short_bio: profileData.short_bio,
+      p_is_available: profileData.is_available ?? true,
     });
 
     data = profileRows(legacyFallback.data).map((profile) => ({
       ...profile,
-      university: profile.university || profileData.university || 'RMIT University',
+      university: role === 'participant'
+        ? null
+        : profile.university || profileData.university || 'RMIT University',
       is_available: profile.is_available ?? profileData.is_available ?? true,
       role,
       lecturer_title: role === 'lecturer' ? profileData.lecturer_title || null : null,

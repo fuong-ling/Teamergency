@@ -379,7 +379,9 @@ const createProfileFormState = (initialRole = 'student', initialData = {}) => {
     : initialRole === 'participant'
       ? 'participant'
       : 'student';
-  const initialUniversity = initialData.university || emptyProfile.university;
+  const initialUniversity = role === 'participant'
+    ? ''
+    : initialData.university || emptyProfile.university;
   const initialSchool = normalizeCatalogAcademicValue('school', initialData.school || '');
   const initialMajor = normalizeCatalogAcademicValue('major', initialData.major || '');
   const initialSubject = normalizeCatalogAcademicValue('subject', initialData.academic_field || '');
@@ -390,15 +392,19 @@ const createProfileFormState = (initialRole = 'student', initialData = {}) => {
     ...initialData,
     role,
     university: initialUniversity,
-    university_choice: universityChoice,
-    custom_university: universityChoice === OTHER_UNIVERSITY_VALUE
+    university_choice: role === 'participant' ? '' : universityChoice,
+    custom_university: role !== 'participant' && universityChoice === OTHER_UNIVERSITY_VALUE
       ? initialData.university || ''
       : '',
-    school: knownSchool || !initialSchool ? initialSchool : OTHER_OPTION_VALUE,
+    school: role === 'participant'
+      ? ''
+      : knownSchool || !initialSchool ? initialSchool : OTHER_OPTION_VALUE,
     custom_school: knownSchool ? '' : initialSchool,
-    major: role === 'lecturer' ? 'Lecturer' : initialMajor,
+    major: role === 'lecturer' ? 'Lecturer' : role === 'participant' ? '' : initialMajor,
     custom_major: '',
-    academic_field: role === 'lecturer' ? initialSubject : initialData.academic_field || '',
+    academic_field: role === 'lecturer'
+      ? initialSubject
+      : role === 'participant' ? '' : initialData.academic_field || '',
     custom_subject: initialSubject && !opportunityFields.includes(initialSubject)
       ? initialData.academic_field
       : '',
@@ -754,11 +760,13 @@ const formatSchoolMajorLine = (school, major, separator = ' | ') =>
   ].filter(Boolean).join(separator);
 
 const formatProfileAcademicLine = (profile = {}, separator = ' | ') =>
-  [
-    universityLabel(profile.university),
-    hasDisplaySchool(profile.school) ? schoolLabel(profile.school) : '',
-    majorLabel(profile.major),
-  ].filter(Boolean).join(separator);
+  (getProfileRole(profile) === 'participant'
+    ? ''
+    : [
+        universityLabel(profile.university),
+        hasDisplaySchool(profile.school) ? schoolLabel(profile.school) : '',
+        majorLabel(profile.major),
+      ].filter(Boolean).join(separator));
 
 const universityLabel = (value) =>
   academicDisplayLabel('university', value || 'RMIT University', 'RMIT University');
@@ -4261,9 +4269,11 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
       );
       const profilePayload = {
         full_name: form.full_name.trim(),
-        university: normalizeCatalogAcademicValue('university', resolvedUniversity) || 'RMIT University',
-        school: normalizeCatalogAcademicValue('school', getFormSchoolValue(form)),
-        major: isLecturer ? 'Lecturer' : normalizeCatalogAcademicValue('major', getFormMajorValue(form)) || null,
+        university: isParticipant ? null : normalizeCatalogAcademicValue('university', resolvedUniversity) || 'RMIT University',
+        school: isParticipant ? null : normalizeCatalogAcademicValue('school', getFormSchoolValue(form)),
+        major: isLecturer
+          ? 'Lecturer'
+          : isParticipant ? null : normalizeCatalogAcademicValue('major', getFormMajorValue(form)) || null,
         skills: isLecturer ? ['Teaching'] : skills,
         avatar_url: form.avatar_url || null,
         availability: [],
@@ -4281,7 +4291,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
 	        lecturer_id: isLecturer ? form.lecturer_id.trim() : null,
         academic_field: isLecturer
           ? normalizeCatalogAcademicValue('subject', getFormSubjectValue(form))
-          : normalizeCatalogAcademicValue('major', getFormMajorValue(form)),
+          : isParticipant ? null : normalizeCatalogAcademicValue('major', getFormMajorValue(form)),
 	        lecturer_contact_method: isLecturer ? form.lecturer_contact_method : null,
 	        lecturer_contact_detail: isLecturer ? form.lecturer_contact_detail.trim() : null,
 	        student_id: form.student_id || null,
@@ -4337,7 +4347,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
             <input value={form.full_name} onChange={(event) => updateField('full_name', event.target.value)} required />
             <FieldError message={fieldErrors.full_name} />
           </label>
-          <label>
+          {!isParticipant && <label>
 	            <FieldLabel required={isRequiredField('university')}>{t('profile.university')}</FieldLabel>
             <SearchableCombobox
               value={form.university_choice}
@@ -4355,8 +4365,8 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
               t={t}
             />
             <FieldError message={fieldErrors.university} />
-          </label>
-          {usesOtherUniversity && (
+          </label>}
+          {!isParticipant && usesOtherUniversity && (
             <label>
               <FieldLabel required={isRequiredField('custom_university')}>{t('profile.universityName')}</FieldLabel>
               <input
@@ -4368,7 +4378,7 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
               <FieldError message={fieldErrors.university} />
             </label>
           )}
-          {(isLecturer || !usesOtherUniversity) && (
+          {!isParticipant && (isLecturer || !usesOtherUniversity) && (
           <label>
 	            <FieldLabel required={isRequiredField('school')}>{isLecturer ? t('profile.department') : t('profile.school')}</FieldLabel>
             <SearchableCombobox
@@ -4460,29 +4470,31 @@ function ProfileForm({ initialRole = 'student', initialData = {}, onSaved, acade
 	            </>
 	          ) : (
 	            <>
-	              <label>
-	                <FieldLabel required={isRequiredField('major')}>{t('profile.major')}</FieldLabel>
-                <SearchableCombobox
-                  value={form.major}
-                  options={profileMajorComboOptions}
-                  onSelect={updateMajor}
-                  onCustom={updateCustomMajor}
-                  placeholder={t('profile.searchMajor')}
-                  otherLabel={t('profile.other')}
-                  addLabel={t('profile.addValue')}
-                  noResultsLabel={t('profile.noResults')}
-                  t={t}
-                />
-                {form.major === OTHER_OPTION_VALUE && (
-                  <input
-                    value={form.custom_major}
-                    onChange={(event) => updateCustomMajor(event.target.value)}
-                    placeholder={t('profile.enterMajor')}
-                    required
-                  />
-                )}
+	              {!isParticipant && (
+                  <label>
+                    <FieldLabel required={isRequiredField('major')}>{t('profile.major')}</FieldLabel>
+                    <SearchableCombobox
+                      value={form.major}
+                      options={profileMajorComboOptions}
+                      onSelect={updateMajor}
+                      onCustom={updateCustomMajor}
+                      placeholder={t('profile.searchMajor')}
+                      otherLabel={t('profile.other')}
+                      addLabel={t('profile.addValue')}
+                      noResultsLabel={t('profile.noResults')}
+                      t={t}
+                    />
+                    {form.major === OTHER_OPTION_VALUE && (
+                      <input
+                        value={form.custom_major}
+                        onChange={(event) => updateCustomMajor(event.target.value)}
+                        placeholder={t('profile.enterMajor')}
+                        required
+                      />
+                    )}
                     <FieldError message={fieldErrors.major} />
-	              </label>
+                  </label>
+                )}
 	              <fieldset className="wide">
                 <legend><FieldLabel required={isRequiredField('skills')}>{t('profile.skills')}</FieldLabel></legend>
 	                <p className="field-helper">{t('profile.skillHelper')}</p>
@@ -6602,6 +6614,7 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
                 : '';
             const connection = state.sentByProfile[profile.id] ?? state.connectionsByProfile[profile.id];
             const connectionState = getConnectionState(connection, currentProfileId);
+            const isParticipantProfile = getProfileRole(profile) === 'participant';
 
             return (
               <article
@@ -6611,9 +6624,9 @@ function DiscoverPage({ currentProfileId, onOpenProfile, t = translate.bind(null
               >
                 <div className="avatar">{displayInitial(profile.full_name)}</div>
                 <h3>{displayName(profile.full_name)} {profile.is_demo && <DemoBadge />} {isPremiumProfile(profile) && <PremiumBadge t={t} />}</h3>
-                <p>{savedUniversityDisplay(profile)}</p>
-                {hasDisplaySchool(profile.school) && <p>{schoolLabel(profile.school)}</p>}
-                <p>{majorLabel(profile.major) || t('common.notSpecified')}</p>
+                {!isParticipantProfile && <p>{savedUniversityDisplay(profile)}</p>}
+                {!isParticipantProfile && hasDisplaySchool(profile.school) && <p>{schoolLabel(profile.school)}</p>}
+                {!isParticipantProfile && <p>{majorLabel(profile.major) || t('common.notSpecified')}</p>}
 	                <p className="note">{reviewSummaryLabel(profile, null, t)}</p>
                 {requestsByProfile[profile.id]?.[0] && (
                   <p>{getCourseDisplay(requestsByProfile[profile.id][0])}</p>
@@ -6766,6 +6779,7 @@ function DiscoverProfileDetail({ profileId, currentProfileId, currentProfile, on
   }
 
   const profile = state.profile;
+  const isParticipantProfile = getProfileRole(profile) === 'participant';
   const activeRequestMetrics = state.activeRequest ? getRequestStatusMetrics(state.activeRequest) : null;
   const isOwnProfile = profile.id === currentProfileId;
   const connectionState = getConnectionState(state.connection, currentProfileId);
@@ -6887,9 +6901,9 @@ function DiscoverProfileDetail({ profileId, currentProfileId, currentProfile, on
         <h2>{displayName(profile.full_name)} {profile.is_demo && <DemoBadge />} {isPremiumProfile(profile) && <PremiumBadge t={t} />}</h2>
         <p>{profile.short_bio || t('matches.noBio')}</p>
           <dl>
-          <div><dt>{t('profile.university')}</dt><dd>{savedUniversityDisplay(profile)}</dd></div>
-          {hasDisplaySchool(profile.school) && <div><dt>{t('profile.school')}</dt><dd>{schoolLabel(profile.school)}</dd></div>}
-          <div><dt>{t('profile.major')}</dt><dd>{majorLabel(profile.major) || t('common.notSpecified')}</dd></div>
+          {!isParticipantProfile && <div><dt>{t('profile.university')}</dt><dd>{savedUniversityDisplay(profile)}</dd></div>}
+          {!isParticipantProfile && hasDisplaySchool(profile.school) && <div><dt>{t('profile.school')}</dt><dd>{schoolLabel(profile.school)}</dd></div>}
+          {!isParticipantProfile && <div><dt>{t('profile.major')}</dt><dd>{majorLabel(profile.major) || t('common.notSpecified')}</dd></div>}
           <div className="skills-have-detail"><dt>{t('matches.skillsHave')}</dt><dd>{joinList(profile.skills)}</dd></div>
         </dl>
         <SocialLinksList links={profile.social_links} t={t} />
@@ -7297,6 +7311,7 @@ function ProfileDetail({
 
   const request = state.request;
   const profile = request.profile;
+  const isParticipantProfile = getProfileRole(profile) === 'participant';
   const requestMetrics = getRequestStatusMetrics(request);
   const isOwnProfile = currentProfileId === profile.id;
   const canSendConnection = currentProfileId && !isOwnProfile;
@@ -7496,9 +7511,9 @@ function ProfileDetail({
 	          <h2>{displayName(profile.full_name)} {profile.is_demo && <DemoBadge />} {isPremiumProfile(profile) && <PremiumBadge t={t} />}</h2>
 	          <p>{profile.short_bio || t('matches.noBio')}</p>
 	          <dl>
-            <div><dt>{t('profile.university')}</dt><dd>{universityLabel(profile.university)}</dd></div>
-	            {hasDisplaySchool(profile.school) && <div><dt>{t('profile.school')}</dt><dd>{schoolLabel(profile.school)}</dd></div>}
-            <div><dt>{t('profile.major')}</dt><dd>{majorLabel(profile.major) || t('common.notSpecified')}</dd></div>
+            {!isParticipantProfile && <div><dt>{t('profile.university')}</dt><dd>{universityLabel(profile.university)}</dd></div>}
+            {!isParticipantProfile && hasDisplaySchool(profile.school) && <div><dt>{t('profile.school')}</dt><dd>{schoolLabel(profile.school)}</dd></div>}
+            {!isParticipantProfile && <div><dt>{t('profile.major')}</dt><dd>{majorLabel(profile.major) || t('common.notSpecified')}</dd></div>}
 	            <div><dt>{t('profile.reviews')}</dt><dd>{reviewSummaryLabel(profile, null, t)}</dd></div>
           </dl>
           <div className="mini-detail skills-have-detail">
@@ -7616,11 +7631,13 @@ function RequestDetailPage({
   t = translate.bind(null, 'en'),
 }) {
   const creator = creatorProfile || (isOwner ? profile : null) || {};
-  const creatorAcademic = [
-    creator.university && universityLabel(creator.university),
-    creator.school && schoolLabel(creator.school),
-    creator.major && majorLabel(creator.major),
-  ].filter(Boolean).join(' · ');
+  const creatorAcademic = getProfileRole(creator) === 'participant'
+    ? ''
+    : [
+        creator.university && universityLabel(creator.university),
+        creator.school && schoolLabel(creator.school),
+        creator.major && majorLabel(creator.major),
+      ].filter(Boolean).join(' · ');
   const memberRows = members.length > 0
     ? members
     : [
@@ -8557,8 +8574,8 @@ function CurrentRequest({
               <article className={isPremiumProfile(candidate) ? 'discover-card premium-card' : 'discover-card'} key={candidate.id}>
                 <div className="avatar">{displayInitial(candidate.full_name)}</div>
                 <h3>{displayName(candidate.full_name)} {candidate.is_demo && <DemoBadge />} {isPremiumProfile(candidate) && <PremiumBadge t={t} />}</h3>
-                <p>{universityLabel(candidate.university)}</p>
-                <p>{formatSchoolMajorLine(candidate.school, candidate.major)}</p>
+                {getProfileRole(candidate) !== 'participant' && <p>{universityLabel(candidate.university)}</p>}
+                {getProfileRole(candidate) !== 'participant' && <p>{formatSchoolMajorLine(candidate.school, candidate.major)}</p>}
                 <p className="note">{reviewSummaryLabel(candidate, null, t)}</p>
                 <div className="score inline-score">
                   <Sparkles size={16} />
@@ -10166,6 +10183,7 @@ function MyProfile({
   const [fieldErrors, setFieldErrors] = useState({});
   const currentRole = activeRole === 'lecturer' || activeRole === 'participant' ? activeRole : 'student';
   const editingAsLecturer = form.role === 'lecturer';
+  const editingAsParticipant = form.role === 'participant';
   const authEmail = getAuthSessionEmail(authSession);
   const signedInWithGoogle = hasGoogleAuthSession(authSession);
   const resolvedUniversity = resolveProfileUniversity(form);
@@ -10247,7 +10265,9 @@ function MyProfile({
   }, [lecturerSession?.university, lecturerSession?.lecturerId]);
 
   const startEdit = () => {
-    const profileUniversity = normalizeCatalogAcademicValue('university', profile.university || 'RMIT University');
+    const profileUniversity = currentRole === 'participant'
+      ? ''
+      : normalizeCatalogAcademicValue('university', profile.university || 'RMIT University');
     const profileSchool = normalizeCatalogAcademicValue('school', profile.school || '');
     const profileMajor = normalizeCatalogAcademicValue('major', profile.major || '');
     const profileSubject = normalizeCatalogAcademicValue('subject', profile.academic_field || '');
@@ -10258,15 +10278,15 @@ function MyProfile({
       role: roleForEdit,
       full_name: profile.full_name || '',
       university: profileUniversity,
-      university_choice: getUniversityChoice(profileUniversity),
-      custom_university: getUniversityChoice(profileUniversity) === OTHER_UNIVERSITY_VALUE
+      university_choice: roleForEdit === 'participant' ? '' : getUniversityChoice(profileUniversity),
+      custom_university: roleForEdit !== 'participant' && getUniversityChoice(profileUniversity) === OTHER_UNIVERSITY_VALUE
         ? profile.university || ''
         : '',
-      school,
+      school: roleForEdit === 'participant' ? '' : school,
       custom_school: knownSchool ? '' : profileSchool,
       major: roleForEdit === 'lecturer'
         ? 'Lecturer'
-        : profileMajor || '',
+        : roleForEdit === 'participant' ? '' : profileMajor || '',
       custom_major: '',
       skills: profile.skills || [],
       other_skill: '',
@@ -10434,9 +10454,11 @@ function MyProfile({
       );
       const updated = await updateProfile(profile.id, {
         full_name: form.full_name.trim(),
-        university: normalizeCatalogAcademicValue('university', resolveProfileUniversity(form)) || 'RMIT University',
-        school: normalizeCatalogAcademicValue('school', getFormSchoolValue(form)),
-        major: editingAsLecturer ? 'Lecturer' : normalizeCatalogAcademicValue('major', getFormMajorValue(form)),
+        university: editingAsParticipant ? null : normalizeCatalogAcademicValue('university', resolveProfileUniversity(form)) || 'RMIT University',
+        school: editingAsParticipant ? null : normalizeCatalogAcademicValue('school', getFormSchoolValue(form)),
+        major: editingAsLecturer
+          ? 'Lecturer'
+          : editingAsParticipant ? null : normalizeCatalogAcademicValue('major', getFormMajorValue(form)),
         skills: editingAsLecturer ? ['Teaching'] : skills,
         avatar_url: form.avatar_url || null,
         availability: [],
@@ -10453,7 +10475,7 @@ function MyProfile({
 	        lecturer_id: editingAsLecturer ? form.lecturer_id.trim() : null,
         academic_field: editingAsLecturer
           ? normalizeCatalogAcademicValue('subject', getFormSubjectValue(form))
-          : normalizeCatalogAcademicValue('major', getFormMajorValue(form)),
+          : editingAsParticipant ? null : normalizeCatalogAcademicValue('major', getFormMajorValue(form)),
 	        lecturer_contact_method: editingAsLecturer ? form.lecturer_contact_method : null,
 	        lecturer_contact_detail: editingAsLecturer ? form.lecturer_contact_detail.trim() : null,
 		        student_id: form.student_id || null,
@@ -10510,7 +10532,7 @@ function MyProfile({
                     <input value={form.full_name} onChange={(event) => updateField('full_name', event.target.value)} required />
                     <FieldError message={fieldErrors.full_name} />
                   </label>
-                  <label>
+                  {!editingAsParticipant && <label>
                     <FieldLabel required={isRequiredField('university')}>{t('profile.university')}</FieldLabel>
                     <SearchableCombobox
                       value={form.university_choice}
@@ -10532,8 +10554,8 @@ function MyProfile({
                       t={t}
                     />
                     <FieldError message={fieldErrors.university} />
-                  </label>
-                  {(editingAsLecturer || !usesOtherUniversity) && (
+                  </label>}
+                  {!editingAsParticipant && (editingAsLecturer || !usesOtherUniversity) && (
                   <label>
                     <FieldLabel required={isRequiredField('school')}>{editingAsLecturer ? t('profile.department') : t('profile.school')}</FieldLabel>
                     <SearchableCombobox
@@ -10619,25 +10641,27 @@ function MyProfile({
 	                    </>
 	                  ) : (
 	                    <>
-                      <label>
-                        <FieldLabel required={isRequiredField('major')}>{t('profile.major')}</FieldLabel>
-                        <SearchableCombobox
-                          value={form.major}
-                          customValue={form.custom_major}
-                          options={profileMajorComboOptions}
-                          onSelect={updateMajor}
-                          onCustom={updateCustomMajor}
-                          onQueryChange={(nextValue) => {
-                            if (form.major === OTHER_OPTION_VALUE) updateCustomMajor(nextValue);
-                          }}
-                          placeholder={t('profile.searchMajor')}
-                          otherLabel={t('profile.other')}
-                          addLabel={t('profile.addValue')}
-                          noResultsLabel={t('profile.noResults')}
-                          t={t}
-                        />
-                        <FieldError message={fieldErrors.major} />
-                      </label>
+                      {!editingAsParticipant && (
+                        <label>
+                          <FieldLabel required={isRequiredField('major')}>{t('profile.major')}</FieldLabel>
+                          <SearchableCombobox
+                            value={form.major}
+                            customValue={form.custom_major}
+                            options={profileMajorComboOptions}
+                            onSelect={updateMajor}
+                            onCustom={updateCustomMajor}
+                            onQueryChange={(nextValue) => {
+                              if (form.major === OTHER_OPTION_VALUE) updateCustomMajor(nextValue);
+                            }}
+                            placeholder={t('profile.searchMajor')}
+                            otherLabel={t('profile.other')}
+                            addLabel={t('profile.addValue')}
+                            noResultsLabel={t('profile.noResults')}
+                            t={t}
+                          />
+                          <FieldError message={fieldErrors.major} />
+                        </label>
+                      )}
 	                      <fieldset className="wide">
                         <legend><FieldLabel required={isRequiredField('skills')}>{t('profile.skills')}</FieldLabel></legend>
                         <p className="field-helper">{t('profile.skillHelper')}</p>
@@ -10710,7 +10734,7 @@ function MyProfile({
                     <p className="profile-header-meta">
                       {currentRole === 'student' ? t('profile.student') : currentRole === 'participant' ? t('profile.participant') : t('profile.lecturer')} · {subscriptionLabel(profile, t)}
                     </p>
-                    <p className="profile-header-university">{universityLabel(profile.university)}</p>
+                    {currentRole !== 'participant' && <p className="profile-header-university">{universityLabel(profile.university)}</p>}
                     {signedInWithGoogle && <p className="profile-google-status">✓ {t('profile.googleSignedIn')}</p>}
                   </div>
 
@@ -10723,10 +10747,12 @@ function MyProfile({
                       <dt>{t('profile.mode')}</dt>
                       <dd>{currentRole === 'student' ? t('profile.student') : currentRole === 'participant' ? t('profile.participant') : t('profile.lecturer')}</dd>
                     </div>
-                    <div>
-                      <dt>{t('profile.university')}</dt>
-                      <dd>{universityLabel(profile.university)}</dd>
-                    </div>
+                    {currentRole !== 'participant' && (
+                      <div>
+                        <dt>{t('profile.university')}</dt>
+                        <dd>{universityLabel(profile.university)}</dd>
+                      </div>
+                    )}
                     <div>
                       <dt>{t('premium.subscription')}</dt>
                       <dd>{subscriptionLabel(profile, t)}</dd>
@@ -10735,31 +10761,33 @@ function MyProfile({
                 </aside>
 
                 <div className="my-profile-details">
-                  <section className="my-profile-section my-profile-academic-section">
-                    <h3 className="my-profile-section-title">{t('profile.academicSection')}</h3>
-                    <div className="my-profile-academic-grid">
-                      {hasDisplaySchool(profile.school) && (
+                  {currentRole !== 'participant' && (
+                    <section className="my-profile-section my-profile-academic-section">
+                      <h3 className="my-profile-section-title">{t('profile.academicSection')}</h3>
+                      <div className="my-profile-academic-grid">
+                        {hasDisplaySchool(profile.school) && (
+                          <div className="my-profile-field">
+                            <p className="profile-field-label">{currentRole === 'lecturer' ? t('profile.department') : t('profile.school')}</p>
+                            <p className="profile-field-value">{schoolLabel(profile.school)}</p>
+                          </div>
+                        )}
                         <div className="my-profile-field">
-                          <p className="profile-field-label">{currentRole === 'lecturer' ? t('profile.department') : t('profile.school')}</p>
-                          <p className="profile-field-value">{schoolLabel(profile.school)}</p>
+                          <p className="profile-field-label">{currentRole === 'lecturer' ? t('profile.subject') : t('profile.major')}</p>
+                          <p className="profile-field-value">
+                            {currentRole === 'lecturer'
+                              ? (subjectLabel(profile.academic_field) || t('common.notSpecified'))
+                              : (majorLabel(profile.major) || t('common.notSpecified'))}
+                          </p>
                         </div>
-                      )}
-                      <div className="my-profile-field">
-                        <p className="profile-field-label">{currentRole === 'lecturer' ? t('profile.subject') : t('profile.major')}</p>
-                        <p className="profile-field-value">
-                          {currentRole === 'lecturer'
-                            ? (subjectLabel(profile.academic_field) || t('common.notSpecified'))
-                            : (majorLabel(profile.major) || t('common.notSpecified'))}
-                        </p>
+                        {currentRole === 'lecturer' && (
+                          <div className="my-profile-field">
+                            <p className="profile-field-label">{t('profile.lecturerId')}</p>
+                            <p className="profile-field-value">{profile.lecturer_id || lecturerSession?.lecturerId || t('common.notSpecified')}</p>
+                          </div>
+                        )}
                       </div>
-                      {currentRole === 'lecturer' && (
-                        <div className="my-profile-field">
-                          <p className="profile-field-label">{t('profile.lecturerId')}</p>
-                          <p className="profile-field-value">{profile.lecturer_id || lecturerSession?.lecturerId || t('common.notSpecified')}</p>
-                        </div>
-                      )}
-                    </div>
-                  </section>
+                    </section>
+                  )}
 
                   <section className="my-profile-section my-profile-about-section">
                     <h3 className="my-profile-section-title">{t('profile.aboutSection')}</h3>
