@@ -1863,6 +1863,12 @@ const ConnectionStateBadge = ({ state, t = translate.bind(null, 'en') }) => {
   return <span className={`status-badge ${state}`}>{state === 'accepted' ? '✓ ' : ''}{label}</span>;
 };
 
+const TeamActionStatus = ({ children }) => (
+  <button className="secondary team-action-status" type="button" disabled>
+    {children}
+  </button>
+);
+
 const ConnectionRelationshipBadge = ({ connection, t = translate.bind(null, 'en') }) => {
   if (connection?.status !== 'accepted') return null;
   const relationship = localizedConnectionRelationshipLabel(connection, t);
@@ -3618,14 +3624,17 @@ function ClassDetailPage({
                         <strong>{displayName(candidate.full_name)}</strong>
                         <span>{[candidate.university, majorLabel(candidate.major)].filter(Boolean).join(' · ')}</span>
                       </div>
-                      <button
-                        className="secondary"
-                        type="button"
-                        disabled={isPending || isMember || isFull}
-                        onClick={() => sendClassTeamInvite(candidate)}
-                      >
-                        {isMember ? t('class.alreadyInTeam') : isPending ? t('class.invited') : isFull ? t('class.teamFull') : t('class.invite')}
-                      </button>
+                      {isMember ? (
+                        <TeamActionStatus>{t('class.alreadyInTeam')}</TeamActionStatus>
+                      ) : isPending ? (
+                        <TeamActionStatus>{t('class.invited')}</TeamActionStatus>
+                      ) : isFull ? (
+                        <TeamActionStatus>{t('class.teamFull')}</TeamActionStatus>
+                      ) : (
+                        <button className="secondary" type="button" onClick={() => sendClassTeamInvite(candidate)}>
+                          {t('class.invite')}
+                        </button>
+                      )}
                     </article>
                   );
                 })}
@@ -5159,8 +5168,13 @@ function MatchCard({
   onView,
   onConnect,
   onInvite,
+  onUnsendConnection,
+  onUninvite,
+  onUnmatch,
   connecting,
   inviting,
+  teamActioning,
+  isClassTeamRequest = false,
   actionLabel,
   alreadyInProject = false,
   classTeamInviteState = null,
@@ -5173,6 +5187,20 @@ function MatchCard({
       ? `${t('matches.lookingFor')} ${liveMetrics.remaining} ${liveMetrics.remaining === 1 ? t('matches.spot') : t('matches.spots')}`
       : t('matches.teamNotSpecified'));
   const canConnect = connectionState === 'none' && !connecting && !alreadyInProject;
+  const connectionAction = connectionState === 'sent_pending' && isClassTeamRequest
+    ? 'unsend'
+    : connectionState === 'none'
+      ? 'connect'
+      : null;
+  const teamAction = connectionState !== 'accepted'
+    ? null
+    : classTeamInviteState?.status === 'active'
+      ? 'unmatch'
+      : classTeamInviteState?.status === 'pending'
+        ? 'uninvite'
+        : classTeamInviteState?.status === 'eligible'
+          ? 'invite'
+          : classTeamInviteState?.status || (alreadyInProject ? 'already' : null);
 
   return (
     <article className={isPremiumProfile(request.profile) || isRequestPinned(request) ? 'match-card premium-card' : 'match-card'}>
@@ -5229,25 +5257,50 @@ function MatchCard({
         <button className="secondary" onClick={() => onView(request.id, request.matchScore)}>
           {t('common.viewProfile')}
         </button>
-        {alreadyInProject ? (
-          <span>
+        {connectionAction === 'unsend' ? (
+          <button
+            className="secondary"
+            type="button"
+            onClick={() => onUnsendConnection?.(request)}
+            disabled={teamActioning}
+          >
+            {t('connections.unsend')}
+          </button>
+        ) : teamAction === 'unmatch' ? (
+          <button
+            className="secondary team-action-unmatch"
+            type="button"
+            onClick={() => onUnmatch?.(request)}
+            disabled={teamActioning}
+          >
+            {t('class.unmatch')}
+          </button>
+        ) : teamAction === 'already' ? (
+          <TeamActionStatus>
             {classTeamInviteState ? t('class.alreadyInTeam') : t('matches.alreadyInProject')}
-          </span>
-        ) : classTeamInviteState?.status === 'pending' ? (
-          <span>{t('class.invited')}</span>
-        ) : classTeamInviteState?.status === 'full' ? (
-          <span>{t('class.teamFull')}</span>
-        ) : classTeamInviteState?.status === 'not_in_class' ? (
-          <span>{t('class.notInClass')}</span>
-        ) : classTeamInviteState?.status === 'different_session' ? (
-          <span>{t('class.differentSession')}</span>
-        ) : classTeamInviteState?.status === 'eligible' && connectionState === 'accepted' ? (
+          </TeamActionStatus>
+        ) : teamAction === 'uninvite' ? (
+          <button
+            className="secondary"
+            type="button"
+            onClick={() => onUninvite?.(request)}
+            disabled={teamActioning}
+          >
+            {t('class.unsendInvite')}
+          </button>
+        ) : teamAction === 'full' ? (
+          <TeamActionStatus>{t('class.teamFull')}</TeamActionStatus>
+        ) : teamAction === 'not_in_class' ? (
+          <TeamActionStatus>{t('class.notInClass')}</TeamActionStatus>
+        ) : teamAction === 'different_session' ? (
+          <TeamActionStatus>{t('class.differentSession')}</TeamActionStatus>
+        ) : teamAction === 'invite' ? (
           <button className="primary" type="button" onClick={() => onInvite?.(request)} disabled={inviting}>
             {inviting ? t('class.inviting') : t('class.invite')}
           </button>
-        ) : connectionState === 'sent_pending' ? (
-          <span>{t('matches.invited')}</span>
-        ) : canConnect ? (
+        ) : connectionState === 'sent_pending' && !isClassTeamRequest ? (
+          <TeamActionStatus>{t('matches.invited')}</TeamActionStatus>
+        ) : connectionAction === 'connect' && canConnect ? (
           <button className="primary" type="button" onClick={() => onConnect(request)} disabled={connecting}>
             {connecting ? t('matches.sending') : actionLabel || t('matches.connect')}
           </button>
@@ -5702,9 +5755,9 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onOpenProfil
             {t('common.viewProfile')}
           </button>
           {alreadyInProject ? (
-            <button className="secondary" type="button" disabled>{t('matches.alreadyInProject')}</button>
+            <TeamActionStatus>{t('matches.alreadyInProject')}</TeamActionStatus>
           ) : invited ? (
-            <button className="secondary" type="button" disabled>{t('matches.invited')}</button>
+            <TeamActionStatus>{t('matches.invited')}</TeamActionStatus>
           ) : canInvite ? (
             <button
               className="primary"
@@ -5871,6 +5924,76 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onOpenProfil
         ...current,
         sendingProfileId: '',
         connectError: getFriendlyError(err, t('class.inviteFail')),
+      }));
+    }
+  };
+
+  const unsendClassConnection = async (request) => {
+    if (!currentProfileId || !request?.profile_id) return;
+
+    const connection = state.connectionsByProfile[request.profile_id];
+    if (!connection?.id || connection.sender_profile_id !== currentProfileId) return;
+
+    setState((current) => ({
+      ...current,
+      connectError: '',
+      sendingProfileId: request.profile_id,
+    }));
+
+    try {
+      await cancelConnectionRequest(connection.id, currentProfileId);
+      setState((current) => ({
+        ...current,
+        sendingProfileId: '',
+        connectionsByProfile: {
+          ...current.connectionsByProfile,
+          [request.profile_id]: null,
+        },
+      }));
+    } catch (err) {
+      setState((current) => ({
+        ...current,
+        sendingProfileId: '',
+        connectError: getFriendlyError(err, t('connections.cancelFail')),
+      }));
+    }
+  };
+
+  const handleClassTeamAction = async (request, action) => {
+    if (!currentProfileId || !currentRequest?.class_id || !request?.profile_id) return;
+
+    const profileKey = normalizeFilterValue(request.profile_id);
+    setState((current) => ({
+      ...current,
+      connectError: '',
+      sendingProfileId: request.profile_id,
+    }));
+
+    try {
+      // The existing owner-authorized RPC cancels a pending invite for this
+      // exact team/invitee, or removes the active membership for Unmatch.
+      await removeClassTeamMember({
+        classId: currentRequest.class_id,
+        teamRequestId: currentRequest.id,
+        ownerProfileId: currentProfileId,
+        memberProfileId: request.profile_id,
+      });
+      setState((current) => ({
+        ...current,
+        sendingProfileId: '',
+        classTeamMemberIds: action === 'unmatch'
+          ? current.classTeamMemberIds.filter((id) => id !== profileKey)
+          : current.classTeamMemberIds,
+        classTeamInviteStateByProfile: {
+          ...current.classTeamInviteStateByProfile,
+          [profileKey]: { status: 'eligible' },
+        },
+      }));
+    } catch (err) {
+      setState((current) => ({
+        ...current,
+        sendingProfileId: '',
+        connectError: getFriendlyError(err, t('class.teamActionUnavailable')),
       }));
     }
   };
@@ -6044,8 +6167,13 @@ function MatchResults({ requestId, currentProfileId, onViewProfile, onOpenProfil
               onView={viewMatchProfile}
               onConnect={sendMatchConnect}
               onInvite={sendClassTeamInvite}
+              onUnsendConnection={(request) => unsendClassConnection(request)}
+              onUninvite={(request) => handleClassTeamAction(request, 'uninvite')}
+              onUnmatch={(request) => handleClassTeamAction(request, 'unmatch')}
               connecting={state.sendingProfileId === request.profile_id}
               inviting={state.sendingProfileId === request.profile_id && isClassRequest}
+              teamActioning={state.sendingProfileId === request.profile_id && isClassRequest}
+              isClassTeamRequest={isClassRequest}
               actionLabel={!isClassRequest ? t('matches.invite') : undefined}
               classTeamInviteState={getClassTeamInviteState(request)}
               alreadyInProject={isClassRequest
@@ -6860,12 +6988,16 @@ function DiscoverProfileDetail({ profileId, currentProfileId, currentProfile, on
   );
 }
 
-function ReviewsSection({ reviews = [], profile, title = '', viewerProfile = null, showSummary = true, t = translate.bind(null, 'en') }) {
+function ReviewsSection({ reviews = [], profile, title = '', viewerProfile = null, showSummary = true, bare = false, t = translate.bind(null, 'en') }) {
   const canReadFullReviews = profile?.id === viewerProfile?.id || isPremiumProfile(viewerProfile);
 
-  return (
-    <section className="request-summary-box">
-      <p className="eyebrow">{title || t('profile.reviews')}</p>
+  const content = (
+    <>
+      {bare ? (
+        <h3 className="my-profile-section-title">{title || t('profile.reviews')}</h3>
+      ) : (
+        <p className="eyebrow">{title || t('profile.reviews')}</p>
+      )}
       {showSummary && <h3>{reviewSummaryLabel(profile, reviews, t)}</h3>}
       {reviews.length === 0 ? (
         <p className="note">{t('profile.noReviews')}</p>
@@ -6885,8 +7017,10 @@ function ReviewsSection({ reviews = [], profile, title = '', viewerProfile = nul
           ))}
         </div>
       )}
-    </section>
+    </>
   );
+
+  return bare ? content : <section className="request-summary-box">{content}</section>;
 }
 
 function TeammateFeedbackPanel({ connection, currentProfileId, reviewedProfileId, teamRequestId, t = translate.bind(null, 'en') }) {
@@ -10351,7 +10485,7 @@ function MyProfile({
 
   return (
     <main className="screen compact my-profile-screen">
-      <section className="profile-panel my-profile-panel">
+      <section className={`profile-panel my-profile-panel${editing ? ' is-editing' : ''}`}>
           {signedInWithGoogle && !profile && (
             <p className="signed-in-line">{t('profile.googleSignedIn')}</p>
           )}
@@ -10567,46 +10701,53 @@ function MyProfile({
               </form>
             ) : (
               <div className="my-profile-composition">
-                <header className="my-profile-profile-header">
-                  <div className="my-profile-header-content">
+                <aside className="my-profile-summary" aria-label={t('profile.myProfile')}>
+                  <div className="my-profile-summary-identity">
+                    <div className="my-profile-initial" aria-hidden="true">{displayInitial(profile.full_name)}</div>
                     <h2>{displayName(profile.full_name)}</h2>
                     <p className="profile-header-meta">
                       {currentRole === 'student' ? t('profile.student') : currentRole === 'participant' ? t('profile.participant') : t('profile.lecturer')} · {subscriptionLabel(profile, t)}
                     </p>
                     <p className="profile-header-university">{universityLabel(profile.university)}</p>
-                    {signedInWithGoogle && (
-                      <div className="profile-header-account-state">
-                        <p className="profile-google-status">{t('profile.googleSignedIn')}</p>
-                      </div>
-                    )}
+                    {signedInWithGoogle && <p className="profile-google-status">✓ {t('profile.googleSignedIn')}</p>}
                   </div>
-                  <div className="my-profile-header-actions">
-                    <button className="primary link-button" type="button" onClick={startEdit}>{t('profile.editProfile')}</button>
-                  </div>
-                </header>
 
-                <div className="my-profile-information-rows" aria-label={t('profile.myProfile')}>
+                  <button className="primary link-button my-profile-edit-button" type="button" onClick={startEdit}>
+                    {t('profile.editProfile')}
+                  </button>
+
+                  <dl className="my-profile-summary-meta">
+                    <div>
+                      <dt>{t('profile.mode')}</dt>
+                      <dd>{currentRole === 'student' ? t('profile.student') : currentRole === 'participant' ? t('profile.participant') : t('profile.lecturer')}</dd>
+                    </div>
+                    <div>
+                      <dt>{t('profile.university')}</dt>
+                      <dd>{universityLabel(profile.university)}</dd>
+                    </div>
+                    <div>
+                      <dt>{t('premium.subscription')}</dt>
+                      <dd>{subscriptionLabel(profile, t)}</dd>
+                    </div>
+                  </dl>
+                </aside>
+
+                <div className="my-profile-details">
                   <section className="my-profile-section my-profile-academic-section">
                     <h3 className="my-profile-section-title">{t('profile.academicSection')}</h3>
-                    <div className="my-profile-field-list">
-                      {currentRole === 'student' && hasDisplaySchool(profile.school) && (
+                    <div className="my-profile-academic-grid">
+                      {hasDisplaySchool(profile.school) && (
                         <div className="my-profile-field">
-                          <p className="profile-field-label">{t('profile.school')}</p>
-                          <p className="profile-field-value">{schoolLabel(profile.school)}</p>
-                        </div>
-                      )}
-                      {currentRole === 'lecturer' && hasDisplaySchool(profile.school) && (
-                        <div className="my-profile-field">
-                          <p className="profile-field-label">{t('profile.department')}</p>
+                          <p className="profile-field-label">{currentRole === 'lecturer' ? t('profile.department') : t('profile.school')}</p>
                           <p className="profile-field-value">{schoolLabel(profile.school)}</p>
                         </div>
                       )}
                       <div className="my-profile-field">
-                        <p className="profile-field-label">{currentRole === 'student' ? t('profile.major') : t('profile.subject')}</p>
+                        <p className="profile-field-label">{currentRole === 'lecturer' ? t('profile.subject') : t('profile.major')}</p>
                         <p className="profile-field-value">
-                          {currentRole === 'student'
-                            ? (majorLabel(profile.major) || t('common.notSpecified'))
-                            : (subjectLabel(profile.academic_field) || t('common.notSpecified'))}
+                          {currentRole === 'lecturer'
+                            ? (subjectLabel(profile.academic_field) || t('common.notSpecified'))
+                            : (majorLabel(profile.major) || t('common.notSpecified'))}
                         </p>
                       </div>
                       {currentRole === 'lecturer' && (
@@ -10620,21 +10761,20 @@ function MyProfile({
 
                   <section className="my-profile-section my-profile-about-section">
                     <h3 className="my-profile-section-title">{t('profile.aboutSection')}</h3>
-                    <div className="my-profile-field-list">
-                      <div className="my-profile-field my-profile-field--wide">
-                        <p className="profile-field-label">{currentRole === 'student' ? t('profile.bio') : t('profile.bioNote')}</p>
-                        <p className="profile-field-value profile-bio-copy">{profile.short_bio || t('common.notSpecified')}</p>
-                      </div>
-                      {currentRole === 'student' && (
-                        <div className="my-profile-field my-profile-field--wide">
-                          <p className="profile-field-label">{t('profile.skills')}</p>
-                          <PillList items={profile.skills} />
-                        </div>
-                      )}
+                    <div className="my-profile-field">
+                      <p className="profile-field-label">{currentRole === 'lecturer' ? t('profile.bioNote') : t('profile.bio')}</p>
+                      <p className="profile-field-value profile-bio-copy">{profile.short_bio || t('common.notSpecified')}</p>
                     </div>
                   </section>
 
-                  {currentRole === 'student' && getVisibleSocialLinks(profile.social_links).length > 0 && (
+                  {currentRole !== 'lecturer' && (
+                    <section className="my-profile-section my-profile-skills-section">
+                      <h3 className="my-profile-section-title">{t('profile.skills')}</h3>
+                      <PillList items={profile.skills} />
+                    </section>
+                  )}
+
+                  {currentRole !== 'lecturer' && getVisibleSocialLinks(profile.social_links).length > 0 && (
                     <section className="my-profile-section my-profile-social-section">
                       <h3 className="my-profile-section-title">{t('profile.socialLinks')}</h3>
                       <SocialLinksList links={profile.social_links} t={t} />
@@ -10644,39 +10784,44 @@ function MyProfile({
                   {showProfileContact && (
                     <section className="my-profile-section my-profile-contact-section">
                       <h3 className="my-profile-section-title">{t('profile.accountSection')}</h3>
-                      <div className="my-profile-field-list">
-                        <div className="my-profile-field">
-                          <p className="profile-field-label">{t('profile.contact')}</p>
-                          <p className="profile-field-value">{profileContact}</p>
-                        </div>
+                      <div className="my-profile-field">
+                        <p className="profile-field-label">{t('profile.contact')}</p>
+                        <p className="profile-field-value">{profileContact}</p>
                       </div>
                     </section>
                   )}
-                </div>
 
-                {!reviewsState.loading && !reviewsState.error && (
-                  <section className="my-profile-review-section">
-                    <ReviewsSection
-                      profile={profile}
-                      reviews={reviewsState.reviews}
-                      title={t('profile.reviews')}
-                      viewerProfile={profile}
-                      showSummary={false}
-                      t={t}
-                    />
+                  <section className="my-profile-section my-profile-review-section">
+                    {!reviewsState.loading && !reviewsState.error && (
+                      <ReviewsSection
+                        profile={profile}
+                        reviews={reviewsState.reviews}
+                        title={t('profile.reviews')}
+                        viewerProfile={profile}
+                        showSummary={false}
+                        bare
+                        t={t}
+                      />
+                    )}
+                    {reviewsState.loading && <><h3 className="my-profile-section-title">{t('profile.reviews')}</h3><p className="loading">{t('profile.loadingReviews')}</p></>}
+                    {reviewsState.error && <><h3 className="my-profile-section-title">{t('profile.reviews')}</h3><p className="error">{reviewsState.error}</p></>}
                   </section>
-                )}
-                {reviewsState.loading && <p className="loading">{t('profile.loadingReviews')}</p>}
-                {reviewsState.error && <p className="error">{reviewsState.error}</p>}
-                {message && <p className="success">{message}</p>}
-                {error && <p className="error">{error}</p>}
-                <div className="stacked-actions profile-actions">
-                  {currentRole !== 'lecturer' ? (
-                    <button className="secondary link-button" onClick={onCreateSearch}>{t('opportunities.new')}</button>
-                  ) : (
-                    <button className="primary link-button" type="button" onClick={onOpenLecturer}>{t('profile.openLecturer')}</button>
+
+                  {(message || error) && (
+                    <div className="my-profile-feedback">
+                      {message && <p className="success">{message}</p>}
+                      {error && <p className="error">{error}</p>}
+                    </div>
                   )}
-                  <button className="secondary link-button quiet-action" type="button" onClick={onLogout}>{t('profile.logout')}</button>
+
+                  <div className="my-profile-account-actions">
+                    {currentRole !== 'lecturer' ? (
+                      <button className="secondary link-button" onClick={onCreateSearch}>{t('opportunities.new')}</button>
+                    ) : (
+                      <button className="primary link-button" type="button" onClick={onOpenLecturer}>{t('profile.openLecturer')}</button>
+                    )}
+                    <button className="secondary link-button quiet-action" type="button" onClick={onLogout}>{t('profile.logout')}</button>
+                  </div>
                 </div>
               </div>
             )}
