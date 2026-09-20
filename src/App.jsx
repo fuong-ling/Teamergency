@@ -191,7 +191,7 @@ const writeSessionJson = (key, value) => {
   }
 };
 
-const hiddenLegacyDemoClassCodes = ['676767', '88889999'];
+const hiddenLegacyDemoClassCodes = ['88889999'];
 
 const dedupeConnectionProfiles = (rows = []) => {
   const seen = new Set();
@@ -2411,11 +2411,13 @@ function JoinClassPage({ profile, profileId, initialCode = '', onCreateProfile, 
 	      setPreview(foundClass);
 	    } catch (err) {
 	      console.error('Class preview failed', err);
-	      if (isProfileOwnershipError(err)) {
-	        setError(t('join.profileOwnership'));
-	      } else {
-	        setError(t('join.invalidCode'));
-	      }
+      if (isProfileOwnershipError(err)) {
+        setError(t('join.profileOwnership'));
+      } else if (err?.code === 'CLASS_CODE_AMBIGUOUS') {
+        setError(err.message);
+      } else {
+        setError(t('join.invalidCode'));
+      }
 	    } finally {
 	      setLoading(false);
 	    }

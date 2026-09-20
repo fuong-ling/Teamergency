@@ -892,12 +892,34 @@ export const confirmClassTeamProposals = async ({ lecturerProfileId, classId, pr
 
 export const getClassByJoinCode = async (joinCode) => {
   const { client } = await getAuthenticatedClient();
-  const { data, error } = await client.rpc('get_class_by_join_code', {
-    class_code: joinCode,
-  });
+  const normalizedCode = String(joinCode || '').trim();
+  if (!normalizedCode) return null;
 
-  if (error) throw error;
-  return data?.[0] || null;
+  const codeFields = ['lecturer_access_code', 'join_code', 'demo_class_code'];
+  const results = await Promise.all(
+    codeFields.map((field) => client
+      .from('classes')
+      .select('*')
+      .eq('status', 'active')
+      .eq(field, normalizedCode)),
+  );
+
+  const failedResult = results.find(({ error }) => error);
+  if (failedResult?.error) throw failedResult.error;
+
+  const matches = [...new Map(
+    results
+      .flatMap(({ data }) => data || [])
+      .map((classItem) => [classItem.id, classItem]),
+  ).values()];
+
+  if (matches.length > 1) {
+    const error = new Error('Multiple active classes match this code.');
+    error.code = 'CLASS_CODE_AMBIGUOUS';
+    throw error;
+  }
+
+  return matches[0] || null;
 };
 
 export const joinClassByCode = async ({ profileId, joinCode, networkStatus }) => {
